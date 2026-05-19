@@ -21,7 +21,7 @@ const SPEECH_MODEL =
 const SPEECH_VOICE = process.env.OPENAI_SPEECH_VOICE || "cedar";
 const SUMMARY_CACHE_MS = 60_000;
 const SUMMARY_LINES_DEFAULT = 20;
-const SESSION_BRIEFING_LINES = 100;
+const WINDOW_BRIEFING_LINES = 100;
 const BRACKETED_PASTE_START = "\x1b[200~";
 const BRACKETED_PASTE_END = "\x1b[201~";
 
@@ -429,29 +429,45 @@ async function summarizeWindows(sessionId, lineCount, { force = false } = {}) {
   return result;
 }
 
-async function summarizeSessionForSpeech(sessionId, lineCount) {
-  requireId(sessionId, "session");
-  const lines = Math.min(parseLines(lineCount || SESSION_BRIEFING_LINES), 100);
-  const windows = await listWindows(sessionId);
-  const samples = await Promise.all(
-    windows.map(async (win) => {
-      const panes = await listPanes(win.id);
-      const pane = panes.find((item) => item.active) || panes[0];
-      const text = pane ? await capturePane(pane.id, "tail", lines) : "";
-      return {
-        windowIndex: win.index,
-        windowName: win.name,
-        command: pane?.command || win.activeCommand || "",
-        cwd: pane?.cwd || "",
-        output: textExcerpt(text.trimEnd(), 3000),
-      };
-    }),
-  );
+async function getWindowInfo(windowId) {
+  requireId(windowId, "window");
+  const stdout = await runTmux([
+    "display-message",
+    "-p",
+    "-t",
+    windowId,
+    "#{session_name}\t#{window_index}\t#{window_name}",
+  ]);
+  const [sessionName = "", windowIndex = "", windowName = ""] =
+    stdout.trimEnd().split("\t");
+  return {
+    sessionName,
+    windowIndex: Number(windowIndex),
+    windowName,
+  };
+}
+
+async function summarizeWindowForSpeech(windowId, lineCount) {
+  requireId(windowId, "window");
+  const lines = Math.min(parseLines(lineCount || WINDOW_BRIEFING_LINES), 100);
+  const [windowInfo, panes] = await Promise.all([
+    getWindowInfo(windowId),
+    listPanes(windowId),
+  ]);
+  const pane = panes.find((item) => item.active) || panes[0];
+  const text = pane ? await capturePane(pane.id, "tail", lines) : "";
+  const sample = {
+    ...windowInfo,
+    paneIndex: pane?.index ?? null,
+    command: pane?.command || "",
+    cwd: pane?.cwd || "",
+    output: textExcerpt(text.trimEnd(), 6000),
+  };
 
   const summary = await createTextModelResponse({
     instructions:
-      "Summarize this tmux session for someone listening on a phone. Use exactly one concise sentence, no Markdown, at most 200 words. Mention the most important active work, errors, blocked state, or idle prompts. Do not invent details. Use concise English unless the terminal output is primarily Chinese.",
-    input: JSON.stringify({ lines, windows: samples }),
+      "Summarize this current tmux window for someone listening on a phone. Use exactly one concise sentence, no Markdown, at most 200 words. Mention the most important active work, errors, blocked state, or idle prompt visible in this window. Do not mention other sessions or windows. Do not invent details. Use concise English unless the terminal output is primarily Chinese.",
+    input: JSON.stringify({ lines, window: sample }),
     maxOutputTokens: 260,
   });
 
@@ -694,11 +710,11 @@ async function handleApi(req, res, url) {
     return;
   }
 
-  if (req.method === "POST" && url.pathname === "/api/session-audio-summary") {
+  if (req.method === "POST" && url.pathname === "/api/window-audio-summary") {
     const body = await readJsonBody(req);
-    const sessionId = requireId(body.sessionId, "session");
-    const lines = body.lines || SESSION_BRIEFING_LINES;
-    const summary = await summarizeSessionForSpeech(sessionId, lines);
+    const windowId = requireId(body.windowId, "window");
+    const lines = body.lines || WINDOW_BRIEFING_LINES;
+    const summary = await summarizeWindowForSpeech(windowId, lines);
     const audioBase64 = await createSpeechAudio(summary);
     sendJson(res, 200, {
       summary,

@@ -95,7 +95,7 @@ const els = {
   closeActionSheet: document.querySelector("#closeActionSheet"),
   actionBackdrop: document.querySelector("#actionBackdrop"),
   actionSheet: document.querySelector("#actionSheet"),
-  speakSession: document.querySelector("#speakSession"),
+  speakWindow: document.querySelector("#speakWindow"),
 };
 
 async function api(path, options = {}) {
@@ -469,10 +469,10 @@ function audioBytesFromBase64(base64) {
   return bytes;
 }
 
-function setSpeakSessionBusy(busy) {
+function setSpeakWindowBusy(busy) {
   state.audio.busy = busy;
-  els.speakSession.disabled = busy;
-  els.speakSession.textContent = busy ? "Reading..." : "Read Summary";
+  els.speakWindow.disabled = busy;
+  els.speakWindow.textContent = busy ? "Reading..." : "Read Window";
 }
 
 async function playAudioBase64(base64, mimeType) {
@@ -511,28 +511,28 @@ async function playAudioBase64(base64, mimeType) {
   await audio.play();
 }
 
-async function speakSessionSummary() {
-  if (!state.sessionId) {
-    addChat("system", "Select a session first.", "system");
+async function speakWindowSummary() {
+  if (!state.windowId) {
+    addChat("system", "Select a window first.", "system");
     return;
   }
 
   closeActionSheet();
-  setSpeakSessionBusy(true);
+  setSpeakWindowBusy(true);
   const audioReady = ensureAudioContext().catch(() => null);
-  addChat("system", "Summarizing current session for audio.", "audio");
+  addChat("system", "Summarizing current window for audio.", "audio");
 
   try {
-    const data = await api("/api/session-audio-summary", {
+    const data = await api("/api/window-audio-summary", {
       method: "POST",
-      body: JSON.stringify({ sessionId: state.sessionId, lines: 100 }),
+      body: JSON.stringify({ windowId: state.windowId, lines: 100 }),
     });
     await audioReady;
     addChat("system", data.summary, "AI voice summary");
     await playAudioBase64(data.audioBase64, data.mimeType);
     setStatus(`voice: ${data.speechModel}`);
   } finally {
-    setSpeakSessionBusy(false);
+    setSpeakWindowBusy(false);
   }
 }
 
@@ -893,9 +893,9 @@ els.voiceButton.addEventListener("click", toggleVoiceRecording);
 els.openActionSheet.addEventListener("click", openActionSheet);
 els.closeActionSheet.addEventListener("click", closeActionSheet);
 els.actionBackdrop.addEventListener("click", closeActionSheet);
-els.speakSession.addEventListener("click", async () => {
+els.speakWindow.addEventListener("click", async () => {
   try {
-    await speakSessionSummary();
+    await speakWindowSummary();
   } catch (error) {
     addChat("system", error.message, "audio error");
   }
