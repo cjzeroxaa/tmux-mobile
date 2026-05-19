@@ -20,6 +20,11 @@ const state = {
     stream: null,
     status: "idle",
   },
+  audio: {
+    context: null,
+    source: null,
+    busy: false,
+  },
 };
 
 function readUrlTarget() {
@@ -90,6 +95,7 @@ const els = {
   closeActionSheet: document.querySelector("#closeActionSheet"),
   actionBackdrop: document.querySelector("#actionBackdrop"),
   actionSheet: document.querySelector("#actionSheet"),
+  speakSession: document.querySelector("#speakSession"),
 };
 
 async function api(path, options = {}) {
@@ -439,6 +445,94 @@ async function toggleVoiceRecording() {
       "Tap again to stop, transcribe, and send Enter",
     );
     addChat("system", error.message, "voice error");
+  }
+}
+
+async function ensureAudioContext() {
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextCtor) return null;
+  if (!state.audio.context) {
+    state.audio.context = new AudioContextCtor();
+  }
+  if (state.audio.context.state === "suspended") {
+    await state.audio.context.resume();
+  }
+  return state.audio.context;
+}
+
+function audioBytesFromBase64(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function setSpeakSessionBusy(busy) {
+  state.audio.busy = busy;
+  els.speakSession.disabled = busy;
+  els.speakSession.textContent = busy ? "Reading..." : "Read Summary";
+}
+
+async function playAudioBase64(base64, mimeType) {
+  const bytes = audioBytesFromBase64(base64);
+  const context = await ensureAudioContext();
+  if (context) {
+    if (state.audio.source) {
+      try {
+        state.audio.source.stop();
+      } catch {
+        // The previous source may already have ended.
+      }
+    }
+    const buffer = await context.decodeAudioData(
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    );
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(context.destination);
+    source.addEventListener("ended", () => {
+      if (state.audio.source === source) {
+        state.audio.source = null;
+      }
+    });
+    state.audio.source = source;
+    source.start();
+    return;
+  }
+
+  const blob = new Blob([bytes], { type: mimeType || "audio/mpeg" });
+  const audioUrl = URL.createObjectURL(blob);
+  const audio = new Audio(audioUrl);
+  audio.addEventListener("ended", () => URL.revokeObjectURL(audioUrl), {
+    once: true,
+  });
+  await audio.play();
+}
+
+async function speakSessionSummary() {
+  if (!state.sessionId) {
+    addChat("system", "Select a session first.", "system");
+    return;
+  }
+
+  closeActionSheet();
+  setSpeakSessionBusy(true);
+  const audioReady = ensureAudioContext().catch(() => null);
+  addChat("system", "Summarizing current session for audio.", "audio");
+
+  try {
+    const data = await api("/api/session-audio-summary", {
+      method: "POST",
+      body: JSON.stringify({ sessionId: state.sessionId, lines: 100 }),
+    });
+    await audioReady;
+    addChat("system", data.summary, "AI voice summary");
+    await playAudioBase64(data.audioBase64, data.mimeType);
+    setStatus(`voice: ${data.speechModel}`);
+  } finally {
+    setSpeakSessionBusy(false);
   }
 }
 
@@ -799,6 +893,13 @@ els.voiceButton.addEventListener("click", toggleVoiceRecording);
 els.openActionSheet.addEventListener("click", openActionSheet);
 els.closeActionSheet.addEventListener("click", closeActionSheet);
 els.actionBackdrop.addEventListener("click", closeActionSheet);
+els.speakSession.addEventListener("click", async () => {
+  try {
+    await speakSessionSummary();
+  } catch (error) {
+    addChat("system", error.message, "audio error");
+  }
+});
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && state.targetPickerOpen) {

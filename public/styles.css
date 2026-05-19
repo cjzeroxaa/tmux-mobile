@@ -500,6 +500,17 @@ select {
   color: #0b5c4e;
 }
 
+.action-button.audio {
+  border-color: rgba(40, 82, 143, 0.26);
+  background: #eef3fa;
+  color: #23466e;
+}
+
+.action-button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
 textarea {
   width: 100%;
   min-height: 72px;

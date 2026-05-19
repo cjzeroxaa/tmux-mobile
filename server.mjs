@@ -16,8 +16,12 @@ const MAX_CAPTURE_LINES = 5000;
 const TRANSCRIBE_MODEL =
   process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
 const SUMMARY_MODEL = process.env.OPENAI_SUMMARY_MODEL || "gpt-5.4-mini";
+const SPEECH_MODEL =
+  process.env.OPENAI_SPEECH_MODEL || "gpt-4o-mini-tts-2025-12-15";
+const SPEECH_VOICE = process.env.OPENAI_SPEECH_VOICE || "cedar";
 const SUMMARY_CACHE_MS = 60_000;
 const SUMMARY_LINES_DEFAULT = 20;
+const SESSION_BRIEFING_LINES = 100;
 const BRACKETED_PASTE_START = "\x1b[200~";
 const BRACKETED_PASTE_END = "\x1b[201~";
 
@@ -110,6 +114,16 @@ function parseLines(value) {
 function textExcerpt(text, max = 5000) {
   if (text.length <= max) return text;
   return `${text.slice(0, max)}\n\n[truncated ${text.length - max} chars]`;
+}
+
+function oneLine(text) {
+  return String(text || "").replace(/\s+/g, " ").trim();
+}
+
+function limitWords(text, maxWords) {
+  const words = oneLine(text).split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return words.join(" ");
+  return `${words.slice(0, maxWords).join(" ")}.`;
 }
 
 function summarizeOutput(text) {
@@ -309,6 +323,44 @@ async function createJsonModelResponse({ instructions, input, schema, maxOutputT
   return JSON.parse(outputText);
 }
 
+async function createTextModelResponse({ instructions, input, maxOutputTokens }) {
+  if (!process.env.OPENAI_API_KEY) {
+    const error = new Error("OPENAI_API_KEY is not set");
+    error.status = 500;
+    throw error;
+  }
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: SUMMARY_MODEL,
+      instructions,
+      input,
+      max_output_tokens: maxOutputTokens,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    const error = new Error(textExcerpt(text || response.statusText, 1200));
+    error.status = 502;
+    throw error;
+  }
+
+  const data = await response.json();
+  const outputText = responseOutputText(data);
+  if (!outputText) {
+    const error = new Error("Model returned no summary text");
+    error.status = 502;
+    throw error;
+  }
+  return outputText;
+}
+
 async function summarizeWindows(sessionId, lineCount, { force = false } = {}) {
   requireId(sessionId, "session");
   const lines = Math.min(parseLines(lineCount || SUMMARY_LINES_DEFAULT), 50);
@@ -375,6 +427,73 @@ async function summarizeWindows(sessionId, lineCount, { force = false } = {}) {
   const result = { model: SUMMARY_MODEL, lines, summaries };
   summaryCache.set(cacheKey, { createdAt: Date.now(), value: result });
   return result;
+}
+
+async function summarizeSessionForSpeech(sessionId, lineCount) {
+  requireId(sessionId, "session");
+  const lines = Math.min(parseLines(lineCount || SESSION_BRIEFING_LINES), 100);
+  const windows = await listWindows(sessionId);
+  const samples = await Promise.all(
+    windows.map(async (win) => {
+      const panes = await listPanes(win.id);
+      const pane = panes.find((item) => item.active) || panes[0];
+      const text = pane ? await capturePane(pane.id, "tail", lines) : "";
+      return {
+        windowIndex: win.index,
+        windowName: win.name,
+        command: pane?.command || win.activeCommand || "",
+        cwd: pane?.cwd || "",
+        output: textExcerpt(text.trimEnd(), 3000),
+      };
+    }),
+  );
+
+  const summary = await createTextModelResponse({
+    instructions:
+      "Summarize this tmux session for someone listening on a phone. Use exactly one concise sentence, no Markdown, at most 200 words. Mention the most important active work, errors, blocked state, or idle prompts. Do not invent details. Use concise English unless the terminal output is primarily Chinese.",
+    input: JSON.stringify({ lines, windows: samples }),
+    maxOutputTokens: 260,
+  });
+
+  return limitWords(summary, 200);
+}
+
+async function createSpeechAudio(text) {
+  if (!process.env.OPENAI_API_KEY) {
+    const error = new Error("OPENAI_API_KEY is not set");
+    error.status = 500;
+    throw error;
+  }
+
+  const body = {
+    model: SPEECH_MODEL,
+    voice: SPEECH_VOICE,
+    input: text,
+    response_format: "mp3",
+  };
+
+  if (SPEECH_MODEL.startsWith("gpt-4o")) {
+    body.instructions =
+      "Voice Affect: Clear and composed. Tone: concise and useful. Pacing: steady. Delivery: read as an AI-generated status briefing.";
+  }
+
+  const response = await fetch("https://api.openai.com/v1/audio/speech", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    const error = new Error(textExcerpt(errorText || response.statusText, 1200));
+    error.status = 502;
+    throw error;
+  }
+
+  return Buffer.from(await response.arrayBuffer()).toString("base64");
 }
 
 async function readJsonBody(req) {
@@ -572,6 +691,24 @@ async function handleApi(req, res, url) {
     }
 
     sendJson(res, 200, { text, model: TRANSCRIBE_MODEL });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/session-audio-summary") {
+    const body = await readJsonBody(req);
+    const sessionId = requireId(body.sessionId, "session");
+    const lines = body.lines || SESSION_BRIEFING_LINES;
+    const summary = await summarizeSessionForSpeech(sessionId, lines);
+    const audioBase64 = await createSpeechAudio(summary);
+    sendJson(res, 200, {
+      summary,
+      audioBase64,
+      mimeType: "audio/mpeg",
+      lines: Math.min(parseLines(lines), 100),
+      summaryModel: SUMMARY_MODEL,
+      speechModel: SPEECH_MODEL,
+      voice: SPEECH_VOICE,
+    });
     return;
   }
 

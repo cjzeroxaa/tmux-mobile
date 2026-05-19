@@ -21,6 +21,7 @@ Open http://127.0.0.1:3737.
 - Stores chat history per pane in browser local storage.
 - On phone-width screens, switches to an attached-pane layout with a top target picker and bottom composer.
 - On phone-width screens, the composer becomes a voice button: tap to record, tap again to transcribe, then send the text with Enter.
+- The mobile Actions sheet can read a one-sentence AI-generated audio summary of the current session.
 - Encodes the selected session/window in the URL as `?session=<name>&window=<index>`.
 - Auto refresh is enabled by default for the selected pane view.
 
@@ -46,5 +47,12 @@ OPENAI_SUMMARY_MODEL=gpt-5.4-mini npm start
 ```
 
 Summaries are requested only from the target picker: opening the picker, selecting a session inside it, or tapping its Refresh button. The server caches summaries for 60 seconds unless Refresh forces a new one.
+
+Session audio summaries use the summary model above, then the OpenAI speech API. Defaults:
+
+```bash
+OPENAI_SPEECH_MODEL=gpt-4o-mini-tts-2025-12-15
+OPENAI_SPEECH_VOICE=cedar
+```
 
 The server binds to `127.0.0.1` by default because it can control local shells.
