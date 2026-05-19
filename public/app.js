@@ -483,6 +483,12 @@ function excerptForChat(text) {
   return `${trimmed.slice(-4500)}\n\n[showing last 4500 chars]`;
 }
 
+function scrollSnapshotToBottom() {
+  requestAnimationFrame(() => {
+    els.snapshot.scrollTop = els.snapshot.scrollHeight;
+  });
+}
+
 function resetWindowSummaryState() {
   state.windowSummaries = {};
   state.summariesLoading = false;
@@ -655,11 +661,13 @@ async function refreshSnapshot(addToChat = false) {
     });
     const data = await api(`/api/capture?${params}`);
     els.snapshot.textContent = data.text || "[no visible output]";
+    scrollSnapshotToBottom();
     if (addToChat) {
       addChat("pane", excerptForChat(data.text), "tmux output");
     }
   } catch (error) {
     els.snapshot.textContent = error.message;
+    scrollSnapshotToBottom();
     addChat("system", error.message, "error");
   }
 }
