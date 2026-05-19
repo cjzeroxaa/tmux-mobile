@@ -483,6 +483,20 @@ function excerptForChat(text) {
   return `${trimmed.slice(-4500)}\n\n[showing last 4500 chars]`;
 }
 
+function resetWindowSummaryState() {
+  state.windowSummaries = {};
+  state.summariesLoading = false;
+}
+
+function pruneWindowSummaries() {
+  const windowIds = new Set(state.windows.map((win) => win.id));
+  state.windowSummaries = Object.fromEntries(
+    Object.entries(state.windowSummaries).filter(([windowId]) =>
+      windowIds.has(windowId),
+    ),
+  );
+}
+
 async function refreshTree({
   urlTarget = state.pendingUrlTarget || readUrlTarget(),
   forceUrlTarget = false,
@@ -491,12 +505,16 @@ async function refreshTree({
   try {
     const sessions = await api("/api/sessions");
     state.sessions = sessions;
+    const previousSessionId = state.sessionId;
     const currentSessionExists = state.sessions.some((item) => item.id === state.sessionId);
     if (forceUrlTarget || !currentSessionExists) {
       const targetSession = urlTarget.session
         ? state.sessions.find((item) => item.name === urlTarget.session)
         : null;
       state.sessionId = targetSession?.id || state.sessions[0]?.id || "";
+    }
+    if (state.sessionId !== previousSessionId) {
+      resetWindowSummaryState();
     }
     renderSessions();
     await loadWindows({ urlTarget, forceUrlTarget });
@@ -514,6 +532,7 @@ async function selectSession(sessionId) {
   state.sessionId = sessionId;
   state.windowId = "";
   state.paneId = "";
+  resetWindowSummaryState();
   renderSessions();
   await loadWindows();
   updateTargetUrl();
@@ -524,10 +543,9 @@ async function selectSession(sessionId) {
 
 async function loadWindows({ urlTarget = readUrlTarget(), forceUrlTarget = false } = {}) {
   state.windows = [];
-  state.windowSummaries = {};
-  state.summariesLoading = false;
   state.panes = [];
   if (!state.sessionId) {
+    resetWindowSummaryState();
     renderWindows();
     renderPanes();
     renderTargetLabels();
@@ -535,6 +553,7 @@ async function loadWindows({ urlTarget = readUrlTarget(), forceUrlTarget = false
   }
 
   state.windows = await api(`/api/windows?sessionId=${encodeURIComponent(state.sessionId)}`);
+  pruneWindowSummaries();
   const currentWindowExists = state.windows.some((item) => item.id === state.windowId);
   if (forceUrlTarget || !currentWindowExists) {
     const targetWindow =
