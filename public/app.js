@@ -457,7 +457,7 @@ function audioBytesFromBase64(base64) {
 function setSpeakWindowBusy(busy) {
   state.audio.busy = busy;
   els.speakWindow.disabled = busy;
-  els.speakWindow.textContent = busy ? "..." : "▶";
+  els.speakWindow.textContent = busy ? "..." : "Read";
 }
 
 async function playAudioBase64(base64, mimeType) {
@@ -535,7 +535,7 @@ function renderChat() {
     const row = document.createElement("div");
     row.className = `message ${message.role}`;
     row.innerHTML = `
-      <div class="message-meta">${escapeHtml(message.label || message.role)} · ${escapeHtml(message.time || "")}</div>
+      <div class="message-meta">${escapeHtml(message.label || message.role)} - ${escapeHtml(message.time || "")}</div>
       <pre>${escapeHtml(message.text)}</pre>
     `;
     els.chat.append(row);
@@ -783,7 +783,7 @@ async function refreshInspect() {
       </div>
       <div class="inspect-row">
         <div class="inspect-label">Pane</div>
-        <div class="inspect-value">${escapeHtml(data.paneId)} · pid ${escapeHtml(data.pid)}</div>
+        <div class="inspect-value">${escapeHtml(data.paneId)} - pid ${escapeHtml(data.pid)}</div>
       </div>
     `;
   } catch (error) {
