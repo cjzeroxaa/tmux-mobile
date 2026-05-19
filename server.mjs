@@ -15,6 +15,11 @@ const MAX_TEXT_BYTES = 8192;
 const MAX_CAPTURE_LINES = 5000;
 const TRANSCRIBE_MODEL =
   process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
+const SUMMARY_MODEL = process.env.OPENAI_SUMMARY_MODEL || "gpt-5.4-mini";
+const SUMMARY_CACHE_MS = 60_000;
+const SUMMARY_LINES_DEFAULT = 20;
+
+const summaryCache = new Map();
 
 const formats = {
   sessions:
@@ -117,6 +122,51 @@ function summarizeOutput(text) {
   };
 }
 
+async function listWindows(sessionId) {
+  requireId(sessionId, "session");
+  const stdout = await runTmux([
+    "list-windows",
+    "-t",
+    sessionId,
+    "-F",
+    formats.windows,
+  ]);
+  return rows(stdout).map(
+    ([id, index, name, active, panes, flags, activeCommand]) => ({
+      id,
+      index: Number(index),
+      name,
+      active: active === "1",
+      panes: Number(panes || 0),
+      flags,
+      activeCommand,
+    }),
+  );
+}
+
+async function listPanes(windowId) {
+  requireId(windowId, "window");
+  const stdout = await runTmux([
+    "list-panes",
+    "-t",
+    windowId,
+    "-F",
+    formats.panes,
+  ]);
+  return rows(stdout).map(
+    ([id, index, active, command, cwd, width, height, title]) => ({
+      id,
+      index: Number(index),
+      active: active === "1",
+      command,
+      cwd,
+      width: Number(width || 0),
+      height: Number(height || 0),
+      title,
+    }),
+  );
+}
+
 async function capturePane(paneId, mode, lineCount) {
   requireId(paneId, "pane");
   const args = ["capture-pane", "-p", "-t", paneId];
@@ -132,6 +182,135 @@ async function capturePane(paneId, mode, lineCount) {
   return runTmux(args, {
     maxBuffer: mode === "full" ? 16 * 1024 * 1024 : 8 * 1024 * 1024,
   });
+}
+
+function responseOutputText(data) {
+  if (typeof data.output_text === "string") return data.output_text.trim();
+
+  const chunks = [];
+  for (const item of data.output || []) {
+    for (const content of item.content || []) {
+      if (content.type === "output_text" && content.text) {
+        chunks.push(content.text);
+      }
+    }
+  }
+  return chunks.join("\n").trim();
+}
+
+async function createJsonModelResponse({ instructions, input, schema, maxOutputTokens }) {
+  if (!process.env.OPENAI_API_KEY) {
+    const error = new Error("OPENAI_API_KEY is not set");
+    error.status = 500;
+    throw error;
+  }
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: SUMMARY_MODEL,
+      instructions,
+      input,
+      max_output_tokens: maxOutputTokens,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "tmux_window_summaries",
+          strict: true,
+          schema,
+        },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    const error = new Error(textExcerpt(text || response.statusText, 1200));
+    error.status = 502;
+    throw error;
+  }
+
+  const data = await response.json();
+  const outputText = responseOutputText(data);
+  if (!outputText) {
+    const error = new Error("Model returned no summary text");
+    error.status = 502;
+    throw error;
+  }
+
+  return JSON.parse(outputText);
+}
+
+async function summarizeWindows(sessionId, lineCount, { force = false } = {}) {
+  requireId(sessionId, "session");
+  const lines = Math.min(parseLines(lineCount || SUMMARY_LINES_DEFAULT), 50);
+  const cacheKey = `${sessionId}:${lines}`;
+  const cached = summaryCache.get(cacheKey);
+  if (!force && cached && Date.now() - cached.createdAt < SUMMARY_CACHE_MS) {
+    return cached.value;
+  }
+
+  const windows = await listWindows(sessionId);
+  const samples = await Promise.all(
+    windows.map(async (win) => {
+      const panes = await listPanes(win.id);
+      const pane = panes.find((item) => item.active) || panes[0];
+      const text = pane ? await capturePane(pane.id, "tail", lines) : "";
+      return {
+        windowId: win.id,
+        windowIndex: win.index,
+        windowName: win.name,
+        command: pane?.command || win.activeCommand || "",
+        cwd: pane?.cwd || "",
+        output: textExcerpt(text.trimEnd(), 2200),
+      };
+    }),
+  );
+
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      summaries: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            windowId: { type: "string" },
+            summary: { type: "string" },
+          },
+          required: ["windowId", "summary"],
+        },
+      },
+    },
+    required: ["summaries"],
+  };
+
+  const value = await createJsonModelResponse({
+    instructions:
+      "You summarize tmux window state for a mobile dashboard. For each window, write one short present-tense sentence under 90 characters. Mention errors, running tests, idle prompts, build progress, or obvious current task. Do not invent details. If output is empty or only a prompt, say it is idle.",
+    input: JSON.stringify({ lines, windows: samples }),
+    schema,
+    maxOutputTokens: Math.max(300, windows.length * 45),
+  });
+
+  const validWindowIds = new Set(windows.map((win) => win.id));
+  const summaries = (value.summaries || [])
+    .filter((item) => validWindowIds.has(item.windowId))
+    .map((item) => ({
+      windowId: item.windowId,
+      summary: String(item.summary || "").replace(/\s+/g, " ").trim().slice(0, 140),
+    }))
+    .filter((item) => item.summary);
+
+  const result = { model: SUMMARY_MODEL, lines, summaries };
+  summaryCache.set(cacheKey, { createdAt: Date.now(), value: result });
+  return result;
 }
 
 async function readJsonBody(req) {
@@ -243,56 +422,21 @@ async function handleApi(req, res, url) {
 
   if (req.method === "GET" && url.pathname === "/api/windows") {
     const sessionId = requireId(url.searchParams.get("sessionId"), "session");
-    const stdout = await runTmux([
-      "list-windows",
-      "-t",
-      sessionId,
-      "-F",
-      formats.windows,
-    ]);
-    sendJson(
-      res,
-      200,
-      rows(stdout).map(
-        ([id, index, name, active, panes, flags, activeCommand]) => ({
-          id,
-          index: Number(index),
-          name,
-          active: active === "1",
-          panes: Number(panes || 0),
-          flags,
-          activeCommand,
-        }),
-      ),
-    );
+    sendJson(res, 200, await listWindows(sessionId));
     return;
   }
 
   if (req.method === "GET" && url.pathname === "/api/panes") {
     const windowId = requireId(url.searchParams.get("windowId"), "window");
-    const stdout = await runTmux([
-      "list-panes",
-      "-t",
-      windowId,
-      "-F",
-      formats.panes,
-    ]);
-    sendJson(
-      res,
-      200,
-      rows(stdout).map(
-        ([id, index, active, command, cwd, width, height, title]) => ({
-          id,
-          index: Number(index),
-          active: active === "1",
-          command,
-          cwd,
-          width: Number(width || 0),
-          height: Number(height || 0),
-          title,
-        }),
-      ),
-    );
+    sendJson(res, 200, await listPanes(windowId));
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/window-summaries") {
+    const sessionId = requireId(url.searchParams.get("sessionId"), "session");
+    const lines = url.searchParams.get("lines") || SUMMARY_LINES_DEFAULT;
+    const force = url.searchParams.get("refresh") === "1";
+    sendJson(res, 200, await summarizeWindows(sessionId, lines, { force }));
     return;
   }
 

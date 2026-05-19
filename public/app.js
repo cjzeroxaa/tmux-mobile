@@ -1,6 +1,8 @@
 const state = {
   sessions: [],
   windows: [],
+  windowSummaries: {},
+  summariesLoading: false,
   panes: [],
   sessionId: "",
   windowId: "",
@@ -139,7 +141,16 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function itemButton({ active, title, meta, badge, badgeGreen, onClick, className }) {
+function itemButton({
+  active,
+  title,
+  meta,
+  badge,
+  badgeGreen,
+  onClick,
+  className,
+  metaClassName = "",
+}) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = `${className || "item"}${active ? " active" : ""}`;
@@ -148,7 +159,7 @@ function itemButton({ active, title, meta, badge, badgeGreen, onClick, className
       <span>${escapeHtml(title)}</span>
       ${badge ? `<span class="badge ${badgeGreen ? "green" : ""}">${escapeHtml(badge)}</span>` : ""}
     </div>
-    ${meta ? `<div class="item-meta">${escapeHtml(meta)}</div>` : ""}
+    ${meta ? `<div class="item-meta ${escapeHtml(metaClassName)}">${escapeHtml(meta)}</div>` : ""}
   `;
   button.addEventListener("click", onClick);
   return button;
@@ -187,13 +198,15 @@ function renderWindows() {
   }
 
   for (const win of state.windows) {
+    const summary = state.windowSummaries[win.id];
     const config = {
       active: win.id === state.windowId,
       title: `${win.index}: ${win.name}`,
-      meta: win.activeCommand || win.id,
+      meta: summary || (state.summariesLoading ? "Summarizing..." : win.activeCommand || win.id),
       badge: win.active ? "active" : `${win.panes} pane`,
       badgeGreen: win.active,
       onClick: () => selectWindow(win.id),
+      metaClassName: summary ? "summary" : "",
     };
     els.windows.append(itemButton(config));
     els.mobileWindows.append(itemButton(config));
@@ -241,6 +254,7 @@ function openTargetPicker() {
   state.targetPickerOpen = true;
   els.targetSheet.hidden = false;
   document.body.classList.add("sheet-open");
+  loadWindowSummaries({ force: false });
 }
 
 function closeTargetPicker() {
@@ -458,10 +472,15 @@ async function selectSession(sessionId) {
   state.paneId = "";
   renderSessions();
   await loadWindows();
+  if (state.targetPickerOpen) {
+    await loadWindowSummaries({ force: true });
+  }
 }
 
 async function loadWindows() {
   state.windows = [];
+  state.windowSummaries = {};
+  state.summariesLoading = false;
   state.panes = [];
   if (!state.sessionId) {
     renderWindows();
@@ -476,6 +495,39 @@ async function loadWindows() {
   }
   renderWindows();
   await loadPanes();
+}
+
+async function loadWindowSummaries({ force = false } = {}) {
+  if (!state.sessionId || state.windows.length === 0) return;
+  const sessionId = state.sessionId;
+  state.summariesLoading = true;
+  renderWindows();
+
+  try {
+    const params = new URLSearchParams({
+      sessionId,
+      lines: "20",
+    });
+    if (force) {
+      params.set("refresh", "1");
+    }
+    const data = await api(`/api/window-summaries?${params}`);
+    if (state.sessionId !== sessionId) return;
+
+    state.windowSummaries = Object.fromEntries(
+      (data.summaries || []).map((item) => [item.windowId, item.summary]),
+    );
+    setStatus(`summaries: ${data.model}`);
+  } catch (error) {
+    if (state.sessionId === sessionId) {
+      setStatus(`summary: ${error.message}`, false);
+    }
+  } finally {
+    if (state.sessionId === sessionId) {
+      state.summariesLoading = false;
+      renderWindows();
+    }
+  }
 }
 
 async function selectWindow(windowId) {
@@ -636,7 +688,10 @@ function setAutoRefresh(enabled) {
 }
 
 els.refreshTree.addEventListener("click", refreshTree);
-els.mobileRefreshTree.addEventListener("click", refreshTree);
+els.mobileRefreshTree.addEventListener("click", async () => {
+  await refreshTree();
+  await loadWindowSummaries({ force: true });
+});
 els.mobileRefresh.addEventListener("click", () => {
   refreshTree();
   refreshSnapshot();

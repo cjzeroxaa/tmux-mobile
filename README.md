@@ -15,6 +15,7 @@ Open http://127.0.0.1:3737.
 
 - Lists tmux sessions, windows, and panes.
 - Captures the selected pane as visible screen, tail, or full scrollback.
+- Summarizes each window's active pane from its last 20 lines when the target picker is opened or refreshed, using `gpt-5.4-mini` by default.
 - Sends literal text to the selected pane, optionally followed by Enter.
 - Sends a small set of whitelisted keys such as Enter, Ctrl-C, and Ctrl-D.
 - Stores chat history per pane in browser local storage.
@@ -35,5 +36,13 @@ The default transcription model is `gpt-4o-mini-transcribe`. Override it with:
 ```bash
 OPENAI_TRANSCRIBE_MODEL=gpt-4o-transcribe npm start
 ```
+
+Window summaries use `gpt-5.4-mini` by default. Override them with:
+
+```bash
+OPENAI_SUMMARY_MODEL=gpt-5.4-mini npm start
+```
+
+Summaries are requested only from the target picker: opening the picker, selecting a session inside it, or tapping its Refresh button. The server caches summaries for 60 seconds unless Refresh forces a new one.
 
 The server binds to `127.0.0.1` by default because it can control local shells.
