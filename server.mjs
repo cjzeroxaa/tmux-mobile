@@ -18,6 +18,8 @@ const TRANSCRIBE_MODEL =
 const SUMMARY_MODEL = process.env.OPENAI_SUMMARY_MODEL || "gpt-5.4-mini";
 const SUMMARY_CACHE_MS = 60_000;
 const SUMMARY_LINES_DEFAULT = 20;
+const BRACKETED_PASTE_START = "\x1b[200~";
+const BRACKETED_PASTE_END = "\x1b[201~";
 
 const summaryCache = new Map();
 
@@ -46,10 +48,10 @@ const allowedKeys = new Set([
   "Right",
 ]);
 
-function runTmux(args, options = {}) {
+function runFile(file, args, options = {}) {
   return new Promise((resolve, reject) => {
     execFile(
-      "tmux",
+      file,
       args,
       {
         maxBuffer: options.maxBuffer ?? 8 * 1024 * 1024,
@@ -58,7 +60,7 @@ function runTmux(args, options = {}) {
       (error, stdout, stderr) => {
         if (error) {
           const message = (stderr || error.message || "").trim();
-          const tmuxError = new Error(message || "tmux command failed");
+          const tmuxError = new Error(message || `${file} command failed`);
           tmuxError.code = error.code;
           tmuxError.stderr = stderr;
           reject(tmuxError);
@@ -68,6 +70,10 @@ function runTmux(args, options = {}) {
       },
     );
   });
+}
+
+function runTmux(args, options = {}) {
+  return runFile("tmux", args, options);
 }
 
 function isNoServerError(error) {
@@ -120,6 +126,64 @@ function summarizeOutput(text) {
     recent: nonEmpty.slice(-8),
     errors: errorLines,
   };
+}
+
+async function currentPaneProcess(paneId) {
+  requireId(paneId, "pane");
+  const stdout = await runTmux([
+    "display-message",
+    "-p",
+    "-t",
+    paneId,
+    "#{pane_current_command}\t#{pane_pid}",
+  ]);
+  const [command = "", pid = ""] = stdout.trim().split("\t");
+  return { command, pid: Number(pid) };
+}
+
+async function processArgs(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return "";
+  return (await runFile("ps", ["-p", String(pid), "-o", "args="])).trim();
+}
+
+async function childProcessNames(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return "";
+  return await runFile("pgrep", ["-P", String(pid), "-l"]).catch(() => "");
+}
+
+function isCodexNodeArgs(args) {
+  return (
+    /(?:^|\s)node\s+(?:\S*\/)?codex(?:\s|$)/.test(args) ||
+    /@openai\/codex|\/codex\.js(?:\s|$)/.test(args)
+  );
+}
+
+async function isCodexPane(paneId) {
+  const { command, pid } = await currentPaneProcess(paneId);
+  if (command === "codex") return true;
+  if (command !== "node") return false;
+
+  const args = await processArgs(pid).catch(() => "");
+  if (isCodexNodeArgs(args)) return true;
+
+  const children = await childProcessNames(pid);
+  return /^\d+\s+codex$/m.test(children);
+}
+
+function bracketedPastePayload(text) {
+  return `${BRACKETED_PASTE_START}${text
+    .replace(/\r\n?/g, "\n")
+    .replace(/\x1b\[(?:200|201)~/g, "")}${BRACKETED_PASTE_END}`;
+}
+
+async function sendTextToPane(paneId, text) {
+  if (await isCodexPane(paneId).catch(() => false)) {
+    await runTmux(["send-keys", "-t", paneId, "-l", bracketedPastePayload(text)]);
+    return { mode: "bracketed-paste" };
+  }
+
+  await runTmux(["send-keys", "-t", paneId, "-l", text]);
+  return { mode: "literal" };
 }
 
 async function listWindows(sessionId) {
@@ -484,13 +548,12 @@ async function handleApi(req, res, url) {
       return;
     }
 
-    if (text.length > 0) {
-      await runTmux(["send-keys", "-t", paneId, "-l", text]);
-    }
+    const sendResult =
+      text.length > 0 ? await sendTextToPane(paneId, text) : { mode: "none" };
     if (sendEnter) {
       await runTmux(["send-keys", "-t", paneId, "Enter"]);
     }
-    sendJson(res, 200, { ok: true });
+    sendJson(res, 200, { ok: true, sendMode: sendResult.mode });
     return;
   }
 
