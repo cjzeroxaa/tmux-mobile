@@ -13,6 +13,7 @@ const state = {
   chat: [],
   targetPickerOpen: false,
   actionSheetOpen: false,
+  pendingUrlTarget: readUrlTarget(),
   voice: {
     chunks: [],
     mediaRecorder: null,
@@ -20,6 +21,37 @@ const state = {
     status: "idle",
   },
 };
+
+function readUrlTarget() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    session: params.get("session") || "",
+    windowIndex: params.get("window") || "",
+  };
+}
+
+function hasUrlTarget(target = readUrlTarget()) {
+  return Boolean(target.session || target.windowIndex);
+}
+
+function targetMatchesSession(target) {
+  const session = selectedSession();
+  return !target.session || session?.name === target.session;
+}
+
+function updateTargetUrl({ replace = false } = {}) {
+  const session = selectedSession();
+  const win = selectedWindow();
+  if (!session || !win) return;
+
+  const url = new URL(window.location.href);
+  url.searchParams.set("session", session.name);
+  url.searchParams.set("window", String(win.index));
+
+  if (url.toString() === window.location.href) return;
+  const method = replace ? "replaceState" : "pushState";
+  window.history[method]({}, "", url);
+}
 
 const els = {
   connectionStatus: document.querySelector("#connectionStatus"),
@@ -451,15 +483,27 @@ function excerptForChat(text) {
   return `${trimmed.slice(-4500)}\n\n[showing last 4500 chars]`;
 }
 
-async function refreshTree() {
+async function refreshTree({
+  urlTarget = state.pendingUrlTarget || readUrlTarget(),
+  forceUrlTarget = false,
+  syncUrl = false,
+} = {}) {
   try {
     const sessions = await api("/api/sessions");
     state.sessions = sessions;
-    if (!state.sessions.some((item) => item.id === state.sessionId)) {
-      state.sessionId = state.sessions[0]?.id || "";
+    const currentSessionExists = state.sessions.some((item) => item.id === state.sessionId);
+    if (forceUrlTarget || !currentSessionExists) {
+      const targetSession = urlTarget.session
+        ? state.sessions.find((item) => item.name === urlTarget.session)
+        : null;
+      state.sessionId = targetSession?.id || state.sessions[0]?.id || "";
     }
     renderSessions();
-    await loadWindows();
+    await loadWindows({ urlTarget, forceUrlTarget });
+    if (syncUrl) {
+      updateTargetUrl({ replace: true });
+    }
+    state.pendingUrlTarget = null;
     setStatus("localhost");
   } catch (error) {
     setStatus(error.message, false);
@@ -472,12 +516,13 @@ async function selectSession(sessionId) {
   state.paneId = "";
   renderSessions();
   await loadWindows();
+  updateTargetUrl();
   if (state.targetPickerOpen) {
     await loadWindowSummaries({ force: true });
   }
 }
 
-async function loadWindows() {
+async function loadWindows({ urlTarget = readUrlTarget(), forceUrlTarget = false } = {}) {
   state.windows = [];
   state.windowSummaries = {};
   state.summariesLoading = false;
@@ -490,8 +535,17 @@ async function loadWindows() {
   }
 
   state.windows = await api(`/api/windows?sessionId=${encodeURIComponent(state.sessionId)}`);
-  if (!state.windows.some((item) => item.id === state.windowId)) {
-    state.windowId = state.windows.find((item) => item.active)?.id || state.windows[0]?.id || "";
+  const currentWindowExists = state.windows.some((item) => item.id === state.windowId);
+  if (forceUrlTarget || !currentWindowExists) {
+    const targetWindow =
+      targetMatchesSession(urlTarget) && urlTarget.windowIndex
+        ? state.windows.find((item) => String(item.index) === urlTarget.windowIndex)
+        : null;
+    state.windowId =
+      targetWindow?.id ||
+      state.windows.find((item) => item.active)?.id ||
+      state.windows[0]?.id ||
+      "";
   }
   renderWindows();
   await loadPanes();
@@ -535,6 +589,7 @@ async function selectWindow(windowId) {
   state.paneId = "";
   renderWindows();
   await loadPanes();
+  updateTargetUrl();
 }
 
 async function loadPanes() {
@@ -772,4 +827,18 @@ els.messageInput.addEventListener("keydown", (event) => {
   }
 });
 
-refreshTree();
+window.addEventListener("popstate", () => {
+  refreshTree({
+    urlTarget: readUrlTarget(),
+    forceUrlTarget: true,
+  });
+});
+
+refreshTree({
+  urlTarget: state.pendingUrlTarget,
+  forceUrlTarget: hasUrlTarget(state.pendingUrlTarget),
+  syncUrl: true,
+}).then(() => {
+  els.autoRefresh.checked = true;
+  setAutoRefresh(true);
+});

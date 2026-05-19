@@ -21,6 +21,8 @@ Open http://127.0.0.1:3737.
 - Stores chat history per pane in browser local storage.
 - On phone-width screens, switches to an attached-pane layout with a top target picker and bottom composer.
 - On phone-width screens, the composer becomes a voice button: tap to record, tap again to transcribe, then send the text with Enter.
+- Encodes the selected session/window in the URL as `?session=<name>&window=<index>`.
+- Auto refresh is enabled by default for the selected pane view.
 
 ## Voice transcription
 
