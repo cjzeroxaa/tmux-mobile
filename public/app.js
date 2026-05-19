@@ -12,7 +12,6 @@ const state = {
   autoRefreshTimer: null,
   chat: [],
   targetPickerOpen: false,
-  actionSheetOpen: false,
   pendingUrlTarget: readUrlTarget(),
   voice: {
     chunks: [],
@@ -91,10 +90,6 @@ const els = {
   closeTargetPicker: document.querySelector("#closeTargetPicker"),
   targetBackdrop: document.querySelector("#targetBackdrop"),
   targetSheet: document.querySelector("#targetSheet"),
-  openActionSheet: document.querySelector("#openActionSheet"),
-  closeActionSheet: document.querySelector("#closeActionSheet"),
-  actionBackdrop: document.querySelector("#actionBackdrop"),
-  actionSheet: document.querySelector("#actionSheet"),
   speakWindow: document.querySelector("#speakWindow"),
 };
 
@@ -301,16 +296,6 @@ function closeTargetPicker() {
   document.body.classList.remove("sheet-open");
 }
 
-function openActionSheet() {
-  state.actionSheetOpen = true;
-  els.actionSheet.hidden = false;
-}
-
-function closeActionSheet() {
-  state.actionSheetOpen = false;
-  els.actionSheet.hidden = true;
-}
-
 function setVoiceStatus(status, title, subtitle) {
   state.voice.status = status;
   els.voiceTitle.textContent = title;
@@ -472,7 +457,7 @@ function audioBytesFromBase64(base64) {
 function setSpeakWindowBusy(busy) {
   state.audio.busy = busy;
   els.speakWindow.disabled = busy;
-  els.speakWindow.textContent = busy ? "Reading..." : "Read Window";
+  els.speakWindow.textContent = busy ? "..." : "▶";
 }
 
 async function playAudioBase64(base64, mimeType) {
@@ -517,7 +502,6 @@ async function speakWindowSummary() {
     return;
   }
 
-  closeActionSheet();
   setSpeakWindowBusy(true);
   const audioReady = ensureAudioContext().catch(() => null);
   addChat("system", "Summarizing current window for audio.", "audio");
@@ -837,7 +821,6 @@ async function sendKey(key) {
 }
 
 async function runActionCommand(command) {
-  closeActionSheet();
   await sendMessage(command, true);
 }
 
@@ -890,9 +873,6 @@ els.openTargetPicker.addEventListener("click", openTargetPicker);
 els.closeTargetPicker.addEventListener("click", closeTargetPicker);
 els.targetBackdrop.addEventListener("click", closeTargetPicker);
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
-els.openActionSheet.addEventListener("click", openActionSheet);
-els.closeActionSheet.addEventListener("click", closeActionSheet);
-els.actionBackdrop.addEventListener("click", closeActionSheet);
 els.speakWindow.addEventListener("click", async () => {
   try {
     await speakWindowSummary();
@@ -904,8 +884,6 @@ els.speakWindow.addEventListener("click", async () => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && state.targetPickerOpen) {
     closeTargetPicker();
-  } else if (event.key === "Escape" && state.actionSheetOpen) {
-    closeActionSheet();
   }
 });
 
@@ -916,9 +894,6 @@ for (const button of document.querySelectorAll("[data-mode]")) {
 for (const button of document.querySelectorAll("[data-key]")) {
   button.addEventListener("click", async () => {
     try {
-      if (button.closest("#actionSheet")) {
-        closeActionSheet();
-      }
       await sendKey(button.dataset.key);
     } catch (error) {
       addChat("system", error.message, "error");
