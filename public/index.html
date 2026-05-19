@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tmux Chat</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="rail">
+        <div class="brand">
+          <span class="brand-mark">tx</span>
+          <div>
+            <h1>tmux Chat</h1>
+            <p id="connectionStatus">localhost</p>
+          </div>
+        </div>
+
+        <div class="rail-header">
+          <h2>Sessions</h2>
+          <button id="refreshTree" class="icon-button" title="Refresh sessions">R</button>
+        </div>
+        <div id="sessions" class="list"></div>
+
+        <div class="rail-header">
+          <h2>Windows</h2>
+        </div>
+        <div id="windows" class="list"></div>
+      </aside>
+
+      <section class="pane-column">
+        <div class="section-header">
+          <h2>Panes</h2>
+          <span id="targetLabel" class="muted">No pane</span>
+        </div>
+        <div id="panes" class="pane-list"></div>
+
+        <div class="section-header">
+          <h2>Inspect</h2>
+          <button id="summarize" class="small-button">Refresh</button>
+        </div>
+        <div id="inspect" class="inspect"></div>
+      </section>
+
+      <main class="workspace">
+        <div class="mobile-topbar">
+          <button id="openTargetPicker" class="target-pill" type="button">
+            <span>Attached pane</span>
+            <strong id="mobileTargetLabel">No pane selected</strong>
+          </button>
+          <button id="mobileRefresh" class="icon-button" title="Refresh">R</button>
+        </div>
+
+        <section class="snapshot-panel">
+          <div class="toolbar">
+            <div class="segmented" role="tablist" aria-label="Capture mode">
+              <button data-mode="screen">Screen</button>
+              <button data-mode="tail" class="active">Tail</button>
+              <button data-mode="full">Full</button>
+            </div>
+            <label class="line-picker">
+              <span>Lines</span>
+              <select id="lineCount">
+                <option value="50">50</option>
+                <option value="120" selected>120</option>
+                <option value="250">250</option>
+                <option value="500">500</option>
+                <option value="1000">1000</option>
+              </select>
+            </label>
+            <button id="refreshSnapshot" class="small-button">Refresh</button>
+            <label class="toggle">
+              <input id="autoRefresh" type="checkbox" />
+              <span>Auto</span>
+            </label>
+          </div>
+          <pre id="snapshot" class="snapshot">Select a pane.</pre>
+        </section>
+
+        <section class="chat-panel">
+          <div class="chat-header">
+            <div>
+              <h2>Chat</h2>
+              <p id="chatTarget" class="muted">No pane selected</p>
+            </div>
+            <button id="clearChat" class="small-button">Clear</button>
+          </div>
+
+          <div id="chat" class="chat"></div>
+
+          <form id="composer" class="composer text-composer">
+            <textarea
+              id="messageInput"
+              rows="3"
+              spellcheck="false"
+              placeholder="Send text to the selected pane"
+            ></textarea>
+            <div class="composer-actions">
+              <label class="toggle">
+                <input id="sendEnter" type="checkbox" checked />
+                <span>Enter</span>
+              </label>
+              <button type="button" data-key="Enter" class="small-button">Enter</button>
+              <button type="button" data-key="Escape" class="small-button">Esc</button>
+              <button type="button" data-key="C-c" class="small-button danger">Ctrl-C</button>
+              <button type="button" data-key="C-d" class="small-button">Ctrl-D</button>
+              <button type="submit" class="primary-button">Send</button>
+            </div>
+          </form>
+
+          <div id="voiceComposer" class="voice-composer">
+            <div class="voice-actions">
+              <button id="voiceButton" class="voice-button" type="button">
+                <span id="voiceTitle">Start Recording</span>
+                <small id="voiceSubtitle">Tap again to stop, transcribe, and send Enter</small>
+              </button>
+              <button type="button" data-key="Escape" class="voice-key-button">Esc</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="targetSheet" class="target-sheet" hidden>
+      <button id="targetBackdrop" class="target-backdrop" type="button" aria-label="Close target picker"></button>
+      <section class="target-panel" role="dialog" aria-modal="true" aria-labelledby="targetSheetTitle">
+        <div class="target-panel-header">
+          <div>
+            <h2 id="targetSheetTitle">Switch Target</h2>
+            <p class="muted">Select a tmux session, window, and pane.</p>
+          </div>
+          <button id="closeTargetPicker" class="icon-button" type="button" title="Close">X</button>
+        </div>
+
+        <div class="target-panel-actions">
+          <button id="mobileRefreshTree" class="small-button" type="button">Refresh</button>
+          <span id="mobileConnectionStatus" class="muted">localhost</span>
+        </div>
+
+        <div class="mobile-target-groups">
+          <section class="target-group">
+            <h3>Sessions</h3>
+            <div id="mobileSessions" class="list mobile-list"></div>
+          </section>
+
+          <section class="target-group">
+            <h3>Windows</h3>
+            <div id="mobileWindows" class="list mobile-list"></div>
+          </section>
+
+          <section class="target-group">
+            <h3>Panes</h3>
+            <div id="mobilePanes" class="pane-list mobile-list"></div>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
