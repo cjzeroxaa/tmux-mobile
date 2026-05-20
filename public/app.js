@@ -58,34 +58,21 @@ function updateTargetUrl({ replace = false } = {}) {
 }
 
 const els = {
-  connectionStatus: document.querySelector("#connectionStatus"),
   mobileConnectionStatus: document.querySelector("#mobileConnectionStatus"),
-  sessions: document.querySelector("#sessions"),
-  mobileSessions: document.querySelector("#mobileSessions"),
-  windows: document.querySelector("#windows"),
+  mobileSessionSelect: document.querySelector("#mobileSessionSelect"),
   mobileWindows: document.querySelector("#mobileWindows"),
-  panes: document.querySelector("#panes"),
   mobilePanes: document.querySelector("#mobilePanes"),
-  targetLabel: document.querySelector("#targetLabel"),
   mobileTargetLabel: document.querySelector("#mobileTargetLabel"),
-  chatTarget: document.querySelector("#chatTarget"),
-  inspect: document.querySelector("#inspect"),
   snapshot: document.querySelector("#snapshot"),
   chat: document.querySelector("#chat"),
-  refreshTree: document.querySelector("#refreshTree"),
   mobileRefreshTree: document.querySelector("#mobileRefreshTree"),
   mobileRefresh: document.querySelector("#mobileRefresh"),
-  summarize: document.querySelector("#summarize"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
   lineCount: document.querySelector("#lineCount"),
   autoRefresh: document.querySelector("#autoRefresh"),
-  composer: document.querySelector("#composer"),
-  messageInput: document.querySelector("#messageInput"),
-  sendEnter: document.querySelector("#sendEnter"),
   voiceButton: document.querySelector("#voiceButton"),
   voiceTitle: document.querySelector("#voiceTitle"),
   voiceSubtitle: document.querySelector("#voiceSubtitle"),
-  clearChat: document.querySelector("#clearChat"),
   openTargetPicker: document.querySelector("#openTargetPicker"),
   closeTargetPicker: document.querySelector("#closeTargetPicker"),
   targetBackdrop: document.querySelector("#targetBackdrop"),
@@ -155,9 +142,7 @@ function nowLabel() {
 }
 
 function setStatus(text, ok = true) {
-  els.connectionStatus.textContent = text;
   els.mobileConnectionStatus.textContent = text;
-  els.connectionStatus.style.color = ok ? "" : "#a73535";
   els.mobileConnectionStatus.style.color = ok ? "" : "#a73535";
 }
 
@@ -199,33 +184,27 @@ function itemButton({
 }
 
 function renderSessions() {
-  els.sessions.innerHTML = "";
-  els.mobileSessions.innerHTML = "";
+  els.mobileSessionSelect.innerHTML = "";
   if (state.sessions.length === 0) {
-    empty(els.sessions, "No tmux sessions");
-    empty(els.mobileSessions, "No tmux sessions");
+    els.mobileSessionSelect.disabled = true;
+    els.mobileSessionSelect.append(new Option("No tmux sessions", ""));
+    empty(els.mobileWindows, "No windows");
+    empty(els.mobilePanes, "No panes");
     return;
   }
 
   for (const session of state.sessions) {
-    const config = {
-      active: session.id === state.sessionId,
-      title: session.name,
-      meta: session.created || session.id,
-      badge: `${session.windows} win`,
-      badgeGreen: session.attached,
-      onClick: () => selectSession(session.id),
-    };
-    els.sessions.append(itemButton(config));
-    els.mobileSessions.append(itemButton(config));
+    const label = `${session.name} (${session.windows} win${session.windows === 1 ? "" : "s"})`;
+    const option = new Option(label, session.id);
+    option.selected = session.id === state.sessionId;
+    els.mobileSessionSelect.append(option);
   }
+  els.mobileSessionSelect.disabled = false;
 }
 
 function renderWindows() {
-  els.windows.innerHTML = "";
   els.mobileWindows.innerHTML = "";
   if (state.windows.length === 0) {
-    empty(els.windows, "No windows");
     empty(els.mobileWindows, "No windows");
     return;
   }
@@ -241,16 +220,13 @@ function renderWindows() {
       onClick: () => selectWindow(win.id),
       metaClassName: summary ? "summary" : "",
     };
-    els.windows.append(itemButton(config));
     els.mobileWindows.append(itemButton(config));
   }
 }
 
 function renderPanes() {
-  els.panes.innerHTML = "";
   els.mobilePanes.innerHTML = "";
   if (state.panes.length === 0) {
-    empty(els.panes, "No panes");
     empty(els.mobilePanes, "No panes");
     return;
   }
@@ -265,7 +241,6 @@ function renderPanes() {
       className: "pane-item",
       onClick: () => selectPane(pane.id),
     };
-    els.panes.append(itemButton(config));
     els.mobilePanes.append(itemButton(config));
   }
 }
@@ -278,9 +253,7 @@ function renderTargetLabels() {
     session && win && pane
       ? `${session.name} / ${win.index}:${win.name} / pane ${pane.index}`
       : "No pane selected";
-  els.targetLabel.textContent = label;
   els.mobileTargetLabel.textContent = label;
-  els.chatTarget.textContent = label;
 }
 
 function openTargetPicker() {
@@ -711,7 +684,7 @@ async function loadPanes() {
   loadChat();
   renderTargetLabels();
   renderChat();
-  await Promise.all([refreshSnapshot(), refreshInspect()]);
+  await refreshSnapshot();
 }
 
 async function selectPane(paneId) {
@@ -720,10 +693,8 @@ async function selectPane(paneId) {
   loadChat();
   renderTargetLabels();
   renderChat();
-  await Promise.all([refreshSnapshot(), refreshInspect()]);
-  if (window.matchMedia("(max-width: 720px)").matches) {
-    closeTargetPicker();
-  }
+  await refreshSnapshot();
+  closeTargetPicker();
 }
 
 async function refreshSnapshot(addToChat = false) {
@@ -750,47 +721,6 @@ async function refreshSnapshot(addToChat = false) {
   }
 }
 
-async function refreshInspect() {
-  if (!state.paneId) {
-    empty(els.inspect, "Select a pane");
-    return;
-  }
-  try {
-    const params = new URLSearchParams({
-      paneId: state.paneId,
-      lines: String(state.lines),
-    });
-    const data = await api(`/api/inspect?${params}`);
-    const errors = data.summary.errors.length
-      ? data.summary.errors.map((line) => `<div>${escapeHtml(line)}</div>`).join("")
-      : "None";
-    els.inspect.innerHTML = `
-      <div class="inspect-row">
-        <div class="inspect-label">Command</div>
-        <div class="inspect-value">${escapeHtml(data.command || "unknown")}</div>
-      </div>
-      <div class="inspect-row">
-        <div class="inspect-label">Directory</div>
-        <div class="inspect-value">${escapeHtml(data.cwd || "")}</div>
-      </div>
-      <div class="inspect-row">
-        <div class="inspect-label">Last line</div>
-        <div class="inspect-value">${escapeHtml(data.summary.lastLine || "")}</div>
-      </div>
-      <div class="inspect-row">
-        <div class="inspect-label">Recent errors</div>
-        <div class="inspect-value">${errors}</div>
-      </div>
-      <div class="inspect-row">
-        <div class="inspect-label">Pane</div>
-        <div class="inspect-value">${escapeHtml(data.paneId)} - pid ${escapeHtml(data.pid)}</div>
-      </div>
-    `;
-  } catch (error) {
-    els.inspect.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
-  }
-}
-
 async function sendMessage(text, enter) {
   if (!state.paneId) {
     addChat("system", "Select a pane first.", "system");
@@ -803,7 +733,6 @@ async function sendMessage(text, enter) {
     body: JSON.stringify({ paneId: state.paneId, text, enter }),
   });
   window.setTimeout(() => refreshSnapshot(true), 350);
-  window.setTimeout(refreshInspect, 500);
 }
 
 async function sendKey(key) {
@@ -817,7 +746,6 @@ async function sendKey(key) {
     body: JSON.stringify({ paneId: state.paneId, key }),
   });
   window.setTimeout(() => refreshSnapshot(true), 350);
-  window.setTimeout(refreshInspect, 500);
 }
 
 async function runActionCommand(command) {
@@ -841,33 +769,26 @@ function setAutoRefresh(enabled) {
     state.autoRefreshTimer = window.setInterval(() => {
       refreshTree();
       refreshSnapshot();
-      refreshInspect();
     }, 3000);
   }
 }
 
-els.refreshTree.addEventListener("click", refreshTree);
 els.mobileRefreshTree.addEventListener("click", async () => {
   await refreshTree();
   await loadWindowSummaries({ force: true });
 });
-els.mobileRefresh.addEventListener("click", () => {
-  refreshTree();
-  refreshSnapshot();
-  refreshInspect();
+els.mobileRefresh.addEventListener("click", async () => {
+  await refreshTree();
+  await refreshSnapshot();
 });
-els.summarize.addEventListener("click", refreshInspect);
 els.refreshSnapshot.addEventListener("click", () => refreshSnapshot());
 els.lineCount.addEventListener("change", () => {
   state.lines = Number(els.lineCount.value);
   refreshSnapshot();
-  refreshInspect();
 });
 els.autoRefresh.addEventListener("change", () => setAutoRefresh(els.autoRefresh.checked));
-els.clearChat.addEventListener("click", () => {
-  state.chat = [];
-  saveChat();
-  renderChat();
+els.mobileSessionSelect.addEventListener("change", () => {
+  selectSession(els.mobileSessionSelect.value);
 });
 els.openTargetPicker.addEventListener("click", openTargetPicker);
 els.closeTargetPicker.addEventListener("click", closeTargetPicker);
@@ -910,25 +831,6 @@ for (const button of document.querySelectorAll("[data-command]")) {
     }
   });
 }
-
-els.composer.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const text = els.messageInput.value;
-  if (!text && !els.sendEnter.checked) return;
-  els.messageInput.value = "";
-  try {
-    await sendMessage(text, els.sendEnter.checked);
-  } catch (error) {
-    addChat("system", error.message, "error");
-  }
-});
-
-els.messageInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-    event.preventDefault();
-    els.composer.requestSubmit();
-  }
-});
 
 window.addEventListener("popstate", () => {
   refreshTree({

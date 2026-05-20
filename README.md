@@ -1,6 +1,6 @@
 # tmux Chat Web
 
-A local browser UI for selecting tmux sessions, windows, and panes, then reading snapshots or sending text without a terminal emulator.
+A mobile browser UI for selecting tmux sessions, windows, and panes, then reading snapshots or sending voice commands without a terminal emulator.
 
 ## Run
 
@@ -13,15 +13,12 @@ Open http://127.0.0.1:3737.
 
 ## Scope
 
-- Lists tmux sessions, windows, and panes.
+- Uses a mobile-only attached-pane layout.
+- Selects one tmux session from a dropdown, then lists that session's windows and panes.
 - Captures the selected pane as visible screen, tail, or full scrollback.
 - Summarizes each window's active pane from its last 20 lines when the target picker is opened or refreshed, using `gpt-5.4-mini` by default.
-- Sends literal text to the selected pane, optionally followed by Enter.
-- Sends a small set of whitelisted keys such as Enter, Ctrl-C, and Ctrl-D.
-- Stores chat history per pane in browser local storage.
-- On phone-width screens, switches to an attached-pane layout with a top target picker and bottom composer.
-- On phone-width screens, the composer becomes a voice button: tap to record, tap again to transcribe, then send the text with Enter.
-- On phone-width screens, six compact quick-action buttons sit under the voice button for Esc, Ctrl-C, Claude, Codex, AGR, and reading the current window.
+- Sends voice transcription directly to the selected pane with Enter.
+- Sends compact actions for Esc, Ctrl-C, Claude, Codex, AGR, and reading the current window.
 - Encodes the selected session/window in the URL as `?session=<name>&window=<index>`.
 - Auto refresh is enabled by default for the selected pane view.
 
