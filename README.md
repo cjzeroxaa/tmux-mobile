@@ -49,6 +49,12 @@ The default transcription model is `gpt-4o-mini-transcribe`. Override it with:
 OPENAI_TRANSCRIBE_MODEL=gpt-4o-transcribe npm start
 ```
 
+Text is pasted into tmux first, then Enter is sent after a short delay so terminal UIs have time to accept the paste. The default delay is 180 ms. Override it with:
+
+```bash
+TMUX_ENTER_AFTER_TEXT_DELAY_MS=250 npm start
+```
+
 Window summaries use `gpt-5.4-mini` by default. Override them with:
 
 ```bash
