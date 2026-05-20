@@ -43,6 +43,14 @@ export OPENAI_API_KEY=...
 npm start
 ```
 
+You can also put the key in a local `.env` file:
+
+```bash
+OPENAI_API_KEY=...
+```
+
+The `.env` file is ignored by git and is loaded automatically on server startup.
+
 The default transcription model is `gpt-4o-mini-transcribe`. Override it with:
 
 ```bash
