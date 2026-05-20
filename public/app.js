@@ -1,3 +1,7 @@
+const SNAPSHOT_BOTTOM_SLOP_PX = 8;
+const MAX_WAVEFORM_SAMPLES = 40;
+const WAVEFORM_SAMPLE_INTERVAL_MS = 200;
+
 const state = {
   sessions: [],
   windows: [],
@@ -13,17 +17,28 @@ const state = {
   chat: [],
   targetPickerOpen: false,
   snapshotFullscreen: false,
+  snapshotPinnedToBottom: true,
   pendingUrlTarget: readUrlTarget(),
   voice: {
+    analyser: null,
+    audioContext: null,
     chunks: [],
+    cancelRequested: false,
     mediaRecorder: null,
+    sampleTimer: null,
     stream: null,
     status: "idle",
+    waveform: [],
   },
   audio: {
+    abortController: null,
+    audioElement: null,
     context: null,
+    dataChannel: null,
+    peerConnection: null,
     source: null,
     busy: false,
+    stopRequested: false,
   },
 };
 
@@ -61,6 +76,9 @@ function updateTargetUrl({ replace = false } = {}) {
 const els = {
   mobileConnectionStatus: document.querySelector("#mobileConnectionStatus"),
   mobileSessionSelect: document.querySelector("#mobileSessionSelect"),
+  sessionNameInput: document.querySelector("#sessionNameInput"),
+  createSession: document.querySelector("#createSession"),
+  renameSession: document.querySelector("#renameSession"),
   mobileWindows: document.querySelector("#mobileWindows"),
   mobilePanes: document.querySelector("#mobilePanes"),
   mobileTargetLabel: document.querySelector("#mobileTargetLabel"),
@@ -77,6 +95,10 @@ const els = {
   voiceButton: document.querySelector("#voiceButton"),
   voiceTitle: document.querySelector("#voiceTitle"),
   voiceSubtitle: document.querySelector("#voiceSubtitle"),
+  voiceRecordingActions: document.querySelector("#voiceRecordingActions"),
+  voiceWaveform: document.querySelector("#voiceWaveform"),
+  submitVoice: document.querySelector("#submitVoice"),
+  cancelVoice: document.querySelector("#cancelVoice"),
   openTargetPicker: document.querySelector("#openTargetPicker"),
   closeTargetPicker: document.querySelector("#closeTargetPicker"),
   targetBackdrop: document.querySelector("#targetBackdrop"),
@@ -102,6 +124,14 @@ async function api(path, options = {}) {
     throw new Error(json.error || `HTTP ${response.status}`);
   }
   return json;
+}
+
+function logClientEvent(event, details = {}) {
+  fetch("/api/client-log", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ event, details }),
+  }).catch(() => {});
 }
 
 function selectedSession() {
@@ -189,9 +219,17 @@ function itemButton({
 
 function renderSessions() {
   els.mobileSessionSelect.innerHTML = "";
+  const session = selectedSession();
+  if (!els.sessionNameInput.matches(":focus")) {
+    els.sessionNameInput.value = session?.name || "";
+  }
+  els.createSession.disabled = false;
+  els.renameSession.disabled = !state.sessionId;
+
   if (state.sessions.length === 0) {
     els.mobileSessionSelect.disabled = true;
     els.mobileSessionSelect.append(new Option("No tmux sessions", ""));
+    els.renameSession.disabled = true;
     empty(els.mobileWindows, "No windows");
     empty(els.mobilePanes, "No panes");
     return;
@@ -280,12 +318,16 @@ function setVoiceStatus(status, title, subtitle) {
   state.voice.status = status;
   els.voiceTitle.textContent = title;
   els.voiceSubtitle.textContent = subtitle;
+  els.voiceRecordingActions.hidden = status !== "recording";
+  els.voiceButton.hidden = status === "recording";
+  els.submitVoice.disabled = status !== "recording";
+  els.cancelVoice.disabled = status !== "recording";
   els.voiceButton.classList.toggle("recording", status === "recording");
   els.voiceButton.classList.toggle(
     "busy",
     status === "transcribing" || status === "sending",
   );
-  els.voiceButton.disabled = status === "transcribing" || status === "sending";
+  els.voiceButton.disabled = status !== "idle";
 }
 
 function chooseAudioMimeType() {
@@ -297,6 +339,86 @@ function chooseAudioMimeType() {
   ];
   if (!window.MediaRecorder?.isTypeSupported) return "";
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function renderVoiceWaveform() {
+  if (els.voiceWaveform.children.length !== MAX_WAVEFORM_SAMPLES) {
+    els.voiceWaveform.replaceChildren(
+      ...Array.from({ length: MAX_WAVEFORM_SAMPLES }, () =>
+        document.createElement("span"),
+      ),
+    );
+  }
+
+  const padded = [
+    ...Array(Math.max(0, MAX_WAVEFORM_SAMPLES - state.voice.waveform.length)).fill(0),
+    ...state.voice.waveform.slice(-MAX_WAVEFORM_SAMPLES),
+  ];
+
+  [...els.voiceWaveform.children].forEach((bar, index) => {
+    const level = padded[index] || 0;
+    const pct = level > 0.02 ? 0.15 + level * 0.85 : 0.08;
+    bar.style.height = `${Math.max(3, Math.round(pct * 28))}px`;
+  });
+}
+
+function sampleVoiceAmplitude() {
+  const analyser = state.voice.analyser;
+  if (!analyser) return;
+
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteTimeDomainData(data);
+
+  let sum = 0;
+  for (let index = 0; index < data.length; index += 1) {
+    const value = (data[index] - 128) / 128;
+    sum += value * value;
+  }
+
+  const rms = Math.sqrt(sum / data.length);
+  const amplitude = Math.min(1, rms * 3);
+  state.voice.waveform = [...state.voice.waveform, amplitude].slice(
+    -MAX_WAVEFORM_SAMPLES,
+  );
+  renderVoiceWaveform();
+}
+
+function stopVoiceAnalysis({ clearWaveform = true } = {}) {
+  if (state.voice.sampleTimer) {
+    window.clearInterval(state.voice.sampleTimer);
+    state.voice.sampleTimer = null;
+  }
+
+  if (state.voice.audioContext) {
+    state.voice.audioContext.close().catch(() => {});
+    state.voice.audioContext = null;
+  }
+
+  state.voice.analyser = null;
+  if (clearWaveform) {
+    state.voice.waveform = [];
+    renderVoiceWaveform();
+  }
+}
+
+function startVoiceAnalysis(stream) {
+  stopVoiceAnalysis({ clearWaveform: true });
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextCtor) return;
+
+  const audioContext = new AudioContextCtor();
+  const source = audioContext.createMediaStreamSource(stream);
+  const analyser = audioContext.createAnalyser();
+  analyser.fftSize = 256;
+  source.connect(analyser);
+
+  state.voice.audioContext = audioContext;
+  state.voice.analyser = analyser;
+  state.voice.sampleTimer = window.setInterval(
+    sampleVoiceAmplitude,
+    WAVEFORM_SAMPLE_INTERVAL_MS,
+  );
+  sampleVoiceAmplitude();
 }
 
 function stopVoiceStream() {
@@ -333,10 +455,12 @@ async function startVoiceRecording() {
       noiseSuppression: true,
     },
   });
+  startVoiceAnalysis(stream);
   const mimeType = chooseAudioMimeType();
   const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
 
   state.voice.chunks = [];
+  state.voice.cancelRequested = false;
   state.voice.stream = stream;
   state.voice.mediaRecorder = recorder;
 
@@ -346,32 +470,64 @@ async function startVoiceRecording() {
     }
   });
   recorder.addEventListener("stop", () => {
+    if (state.voice.cancelRequested) {
+      discardVoiceRecording();
+      return;
+    }
+
     finishVoiceRecording().catch((error) => {
       addChat("system", error.message, "voice error");
+      stopVoiceAnalysis({ clearWaveform: true });
+      state.voice.cancelRequested = false;
+      state.voice.mediaRecorder = null;
+      state.voice.chunks = [];
       setVoiceStatus(
         "idle",
         "Start Recording",
-        "Tap again to stop, transcribe, and send Enter",
+        "Tap to record a voice command",
       );
     });
   });
 
-  recorder.start();
-  setVoiceStatus("recording", "Recording", "Tap to stop and send");
+  recorder.start(1000);
+  setVoiceStatus("recording", "Recording", "Submit to send or cancel");
 }
 
-function stopVoiceRecording() {
+function submitVoiceRecording() {
   const recorder = state.voice.mediaRecorder;
   if (!recorder || recorder.state !== "recording") return;
+  state.voice.cancelRequested = false;
+  stopVoiceAnalysis({ clearWaveform: false });
   setVoiceStatus("transcribing", "Transcribing", "Converting speech to text");
   recorder.stop();
 }
 
+function discardVoiceRecording() {
+  stopVoiceAnalysis({ clearWaveform: true });
+  stopVoiceStream();
+  state.voice.chunks = [];
+  state.voice.cancelRequested = false;
+  state.voice.mediaRecorder = null;
+  setVoiceStatus("idle", "Start Recording", "Tap to record a voice command");
+}
+
+function cancelVoiceRecording() {
+  const recorder = state.voice.mediaRecorder;
+  state.voice.cancelRequested = true;
+  if (recorder && recorder.state === "recording") {
+    recorder.stop();
+    return;
+  }
+  discardVoiceRecording();
+}
+
 async function finishVoiceRecording() {
   const mimeType = state.voice.mediaRecorder?.mimeType || "audio/webm";
+  stopVoiceAnalysis({ clearWaveform: false });
   stopVoiceStream();
   const blob = new Blob(state.voice.chunks, { type: mimeType });
   state.voice.chunks = [];
+  state.voice.cancelRequested = false;
   state.voice.mediaRecorder = null;
 
   if (blob.size === 0) {
@@ -389,25 +545,24 @@ async function finishVoiceRecording() {
   setVoiceStatus(
     "idle",
     "Start Recording",
-    "Tap again to stop, transcribe, and send Enter",
+    "Tap to record a voice command",
   );
+  stopVoiceAnalysis({ clearWaveform: true });
 }
 
 async function toggleVoiceRecording() {
   try {
-    if (state.voice.status === "recording") {
-      stopVoiceRecording();
-      return;
-    }
     if (state.voice.status !== "idle") return;
     await startVoiceRecording();
   } catch (error) {
+    stopVoiceAnalysis({ clearWaveform: true });
     stopVoiceStream();
+    state.voice.cancelRequested = false;
     state.voice.mediaRecorder = null;
     setVoiceStatus(
       "idle",
       "Start Recording",
-      "Tap again to stop, transcribe, and send Enter",
+      "Tap to record a voice command",
     );
     addChat("system", error.message, "voice error");
   }
@@ -436,44 +591,391 @@ function audioBytesFromBase64(base64) {
 
 function setSpeakWindowBusy(busy) {
   state.audio.busy = busy;
-  els.speakWindow.disabled = busy;
-  els.speakWindow.textContent = busy ? "..." : "Read";
+  els.speakWindow.disabled = false;
+  els.speakWindow.textContent = busy
+    ? state.audio.stopRequested
+      ? "..."
+      : "Stop"
+    : "Read";
+  els.speakWindow.title = busy ? "Stop reading" : "Read current window";
+  els.speakWindow.setAttribute(
+    "aria-label",
+    busy ? "Stop reading current window" : "Read current window",
+  );
+  els.speakWindow.classList.toggle("reading", busy);
+  els.speakWindow.classList.toggle("stopping", busy && state.audio.stopRequested);
+}
+
+function closeRealtimeAudio() {
+  if (state.audio.abortController) {
+    state.audio.abortController.abort();
+    state.audio.abortController = null;
+  }
+  if (state.audio.source) {
+    try {
+      state.audio.source.stop();
+    } catch {
+      // The previous source may already have ended.
+    }
+    state.audio.source = null;
+  }
+  if (state.audio.dataChannel) {
+    try {
+      state.audio.dataChannel.close();
+    } catch {
+      // Ignore cleanup errors from closed data channels.
+    }
+    state.audio.dataChannel = null;
+  }
+  if (state.audio.peerConnection) {
+    state.audio.peerConnection.close();
+    state.audio.peerConnection = null;
+  }
+  if (state.audio.audioElement) {
+    state.audio.audioElement.pause();
+    state.audio.audioElement.srcObject = null;
+    state.audio.audioElement.remove();
+    state.audio.audioElement = null;
+  }
+}
+
+function stopWindowSummary() {
+  if (!state.audio.busy) return;
+  state.audio.stopRequested = true;
+  logClientEvent("realtime_read_stop_requested");
+  setStatus("realtime: stopping");
+  setSpeakWindowBusy(true);
+  closeRealtimeAudio();
+}
+
+function waitForDataChannelOpen(channel, timeoutMs = 10000) {
+  if (channel.readyState === "open") return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Realtime data channel timed out"));
+    }, timeoutMs);
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      channel.removeEventListener("open", handleOpen);
+      channel.removeEventListener("close", handleClose);
+      channel.removeEventListener("error", handleError);
+    };
+    const handleOpen = () => {
+      cleanup();
+      resolve();
+    };
+    const handleClose = () => {
+      cleanup();
+      reject(new Error("Realtime data channel closed before opening"));
+    };
+    const handleError = () => {
+      cleanup();
+      reject(new Error("Realtime data channel failed"));
+    };
+    channel.addEventListener("open", handleOpen);
+    channel.addEventListener("close", handleClose);
+    channel.addEventListener("error", handleError);
+  });
+}
+
+function waitForIceGatheringComplete(peerConnection, timeoutMs = 1500) {
+  if (peerConnection.iceGatheringState === "complete") {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      resolve();
+    }, timeoutMs);
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      peerConnection.removeEventListener("icegatheringstatechange", handleChange);
+    };
+    const handleChange = () => {
+      if (peerConnection.iceGatheringState !== "complete") return;
+      cleanup();
+      resolve();
+    };
+    peerConnection.addEventListener("icegatheringstatechange", handleChange);
+  });
+}
+
+function sendRealtimeEvent(channel, event) {
+  if (channel.readyState !== "open") {
+    throw new Error("Realtime data channel is not open");
+  }
+  channel.send(JSON.stringify(event));
+}
+
+function realtimeResponseEvent(data, inputText, chunkIndex, chunkCount) {
+  return {
+    type: "response.create",
+    response: {
+      conversation: "none",
+      output_modalities: ["audio"],
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: inputText,
+            },
+          ],
+        },
+      ],
+      audio: {
+        output: {
+          voice: data.voice,
+        },
+      },
+      max_output_tokens: data.maxOutputTokens || "inf",
+      metadata: {
+        source: "tmux-mobile-read",
+        chunk: String(chunkIndex + 1),
+        chunks: String(chunkCount),
+      },
+    },
+  };
+}
+
+function waitForRealtimeResponse(channel, timeoutMs = 90000) {
+  return new Promise((resolve, reject) => {
+    let transcript = "";
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Realtime response timed out"));
+    }, timeoutMs);
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      channel.removeEventListener("message", handleMessage);
+      channel.removeEventListener("close", handleClose);
+      channel.removeEventListener("error", handleError);
+    };
+    const fail = (error) => {
+      cleanup();
+      reject(error);
+    };
+    const handleClose = () => {
+      fail(new Error("Realtime data channel closed"));
+    };
+    const handleError = () => {
+      fail(new Error("Realtime data channel failed"));
+    };
+    const handleMessage = (message) => {
+      let event;
+      try {
+        event = JSON.parse(message.data);
+      } catch {
+        return;
+      }
+
+      console.debug("Realtime event", event);
+      if (event.type === "error") {
+        logClientEvent("realtime_error", {
+          message: event.error?.message || "Realtime API error",
+          code: event.error?.code || "",
+          type: event.error?.type || "",
+        });
+        fail(new Error(event.error?.message || "Realtime API error"));
+        return;
+      }
+      if (event.type === "response.output_audio_transcript.delta") {
+        transcript += event.delta || "";
+        return;
+      }
+      if (event.type === "response.output_audio_transcript.done") {
+        transcript = event.transcript || transcript;
+        return;
+      }
+      if (event.type === "response.done") {
+        const status = event.response?.status || "completed";
+        if (status !== "completed") {
+          const statusDetails = event.response?.status_details || {};
+          const message =
+            statusDetails.error?.message ||
+            statusDetails.reason ||
+            `Realtime response ${status}`;
+          logClientEvent("realtime_response_failed", {
+            status,
+            message,
+            statusDetails,
+          });
+          fail(new Error(message));
+          return;
+        }
+        logClientEvent("realtime_response_done", {
+          transcriptChars: transcript.length,
+        });
+        cleanup();
+        resolve({ transcript });
+      }
+    };
+    channel.addEventListener("message", handleMessage);
+    channel.addEventListener("close", handleClose);
+    channel.addEventListener("error", handleError);
+  });
+}
+
+async function playWindowSummaryRealtime() {
+  if (!window.RTCPeerConnection) {
+    throw new Error("Realtime audio is not supported in this browser");
+  }
+
+  closeRealtimeAudio();
+  state.audio.stopRequested = false;
+  state.audio.abortController = new AbortController();
+  const peerConnection = new RTCPeerConnection();
+  const dataChannel = peerConnection.createDataChannel("oai-events");
+  const audioElement = new Audio();
+  audioElement.autoplay = true;
+  audioElement.playsInline = true;
+  audioElement.hidden = true;
+  audioElement.setAttribute("playsinline", "");
+  document.body.append(audioElement);
+
+  state.audio.peerConnection = peerConnection;
+  state.audio.dataChannel = dataChannel;
+  state.audio.audioElement = audioElement;
+
+  peerConnection.addTransceiver("audio", { direction: "recvonly" });
+  peerConnection.addEventListener("connectionstatechange", () => {
+    setStatus(`realtime: ${peerConnection.connectionState}`);
+    logClientEvent("realtime_connection_state", {
+      state: peerConnection.connectionState,
+    });
+  });
+  peerConnection.addEventListener("track", (event) => {
+    audioElement.srcObject = event.streams[0] || new MediaStream([event.track]);
+    audioElement.play().catch((error) => {
+      console.warn("Realtime audio playback was blocked.", error);
+      logClientEvent("realtime_playback_blocked", {
+        message: error.message,
+      });
+      addChat("system", error.message, "audio error");
+    });
+  });
+
+  const offer = await peerConnection.createOffer();
+  await peerConnection.setLocalDescription(offer);
+  await waitForIceGatheringComplete(peerConnection);
+
+  const data = await api("/api/window-realtime-session", {
+    method: "POST",
+    signal: state.audio.abortController.signal,
+    body: JSON.stringify({
+      windowId: state.windowId,
+      lines: 100,
+      sdp: peerConnection.localDescription?.sdp || offer.sdp,
+    }),
+  });
+
+  await peerConnection.setRemoteDescription({
+    type: "answer",
+    sdp: data.sdp,
+  });
+  logClientEvent("realtime_remote_description_set", {
+    model: data.model,
+    voice: data.voice,
+    lines: data.lines,
+  });
+  await waitForDataChannelOpen(dataChannel);
+  logClientEvent("realtime_data_channel_open", {
+    model: data.model,
+    voice: data.voice,
+  });
+  const inputChunks =
+    Array.isArray(data.inputChunks) && data.inputChunks.length > 0
+      ? data.inputChunks
+      : [data.input];
+  const transcripts = [];
+  for (let index = 0; index < inputChunks.length; index += 1) {
+    if (state.audio.stopRequested) {
+      throw new Error("Realtime read stopped");
+    }
+    logClientEvent("realtime_response_chunk_started", {
+      chunk: index + 1,
+      chunks: inputChunks.length,
+      inputChars: inputChunks[index].length,
+    });
+    setStatus(`realtime: reading ${index + 1}/${inputChunks.length}`);
+    const responseDone = waitForRealtimeResponse(dataChannel);
+    sendRealtimeEvent(
+      dataChannel,
+      realtimeResponseEvent(data, inputChunks[index], index, inputChunks.length),
+    );
+    const result = await responseDone;
+    if (result.transcript.trim()) {
+      transcripts.push(result.transcript.trim());
+    }
+  }
+
+  state.audio.abortController = null;
+  return {
+    transcript: transcripts.join("\n\n"),
+    model: data.model,
+    voice: data.voice,
+  };
 }
 
 async function playAudioBase64(base64, mimeType) {
   const bytes = audioBytesFromBase64(base64);
-  const context = await ensureAudioContext();
-  if (context) {
-    if (state.audio.source) {
-      try {
-        state.audio.source.stop();
-      } catch {
-        // The previous source may already have ended.
-      }
-    }
-    const buffer = await context.decodeAudioData(
-      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  let context = null;
+  try {
+    context = await ensureAudioContext();
+  } catch (error) {
+    console.warn(
+      "AudioContext is unavailable; falling back to audio element.",
+      error,
     );
-    const source = context.createBufferSource();
-    source.buffer = buffer;
-    source.connect(context.destination);
-    source.addEventListener("ended", () => {
-      if (state.audio.source === source) {
-        state.audio.source = null;
+  }
+
+  if (context) {
+    try {
+      if (state.audio.source) {
+        try {
+          state.audio.source.stop();
+        } catch {
+          // The previous source may already have ended.
+        }
       }
-    });
-    state.audio.source = source;
-    source.start();
-    return;
+      const buffer = await context.decodeAudioData(
+        bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+      );
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(context.destination);
+      source.addEventListener("ended", () => {
+        if (state.audio.source === source) {
+          state.audio.source = null;
+        }
+      });
+      state.audio.source = source;
+      source.start();
+      return;
+    } catch (error) {
+      state.audio.source = null;
+      console.warn(
+        "AudioContext playback failed; falling back to audio element.",
+        error,
+      );
+    }
   }
 
   const blob = new Blob([bytes], { type: mimeType || "audio/mpeg" });
   const audioUrl = URL.createObjectURL(blob);
   const audio = new Audio(audioUrl);
-  audio.addEventListener("ended", () => URL.revokeObjectURL(audioUrl), {
-    once: true,
-  });
-  await audio.play();
+  const revokeAudioUrl = () => URL.revokeObjectURL(audioUrl);
+  audio.addEventListener("ended", revokeAudioUrl, { once: true });
+  audio.addEventListener("error", revokeAudioUrl, { once: true });
+  try {
+    await audio.play();
+  } catch (error) {
+    revokeAudioUrl();
+    throw error;
+  }
 }
 
 async function speakWindowSummary() {
@@ -483,18 +985,29 @@ async function speakWindowSummary() {
   }
 
   setSpeakWindowBusy(true);
-  const audioReady = ensureAudioContext().catch(() => null);
-  addChat("system", "Summarizing current window for audio.", "audio");
+  addChat("system", "Connecting Realtime audio stream.", "audio");
 
   try {
-    const data = await api("/api/window-audio-summary", {
-      method: "POST",
-      body: JSON.stringify({ windowId: state.windowId, lines: 100 }),
+    const data = await playWindowSummaryRealtime();
+    if (data.transcript.trim()) {
+      addChat("system", data.transcript.trim(), "Realtime audio summary");
+    }
+    setStatus(`realtime: ${data.model}`);
+  } catch (error) {
+    if (
+      state.audio.stopRequested ||
+      error.name === "AbortError" ||
+      error.message === "Realtime read stopped"
+    ) {
+      logClientEvent("realtime_read_stopped");
+      setStatus("realtime: stopped");
+      return;
+    }
+    logClientEvent("realtime_read_failed", {
+      message: error.message,
     });
-    await audioReady;
-    addChat("system", data.summary, "AI voice summary");
-    await playAudioBase64(data.audioBase64, data.mimeType);
-    setStatus(`voice: ${data.speechModel}`);
+    closeRealtimeAudio();
+    throw error;
   } finally {
     setSpeakWindowBusy(false);
   }
@@ -544,6 +1057,36 @@ function excerptForChat(text) {
 function scrollSnapshotToBottom() {
   requestAnimationFrame(() => {
     els.snapshot.scrollTop = els.snapshot.scrollHeight;
+    state.snapshotPinnedToBottom = true;
+  });
+}
+
+function isSnapshotAtBottom() {
+  const distanceFromBottom =
+    els.snapshot.scrollHeight - els.snapshot.scrollTop - els.snapshot.clientHeight;
+  return distanceFromBottom <= SNAPSHOT_BOTTOM_SLOP_PX;
+}
+
+function updateSnapshotText(text, { forceScrollBottom = false } = {}) {
+  const shouldScrollToBottom =
+    forceScrollBottom || state.snapshotPinnedToBottom || isSnapshotAtBottom();
+  const previousScrollTop = els.snapshot.scrollTop;
+
+  els.snapshot.textContent = text;
+
+  requestAnimationFrame(() => {
+    if (shouldScrollToBottom) {
+      els.snapshot.scrollTop = els.snapshot.scrollHeight;
+      state.snapshotPinnedToBottom = true;
+      return;
+    }
+
+    const maxScrollTop = Math.max(
+      0,
+      els.snapshot.scrollHeight - els.snapshot.clientHeight,
+    );
+    els.snapshot.scrollTop = Math.min(previousScrollTop, maxScrollTop);
+    state.snapshotPinnedToBottom = isSnapshotAtBottom();
   });
 }
 
@@ -610,6 +1153,81 @@ async function selectSession(sessionId) {
   updateTargetUrl();
   if (state.targetPickerOpen) {
     await loadWindowSummaries({ force: true });
+  }
+}
+
+function sessionNameInputValue() {
+  return els.sessionNameInput.value.trim();
+}
+
+async function createTmuxSession() {
+  const name = sessionNameInputValue();
+  if (!name) {
+    setStatus("Enter a session name", false);
+    els.sessionNameInput.focus();
+    return;
+  }
+
+  els.createSession.disabled = true;
+  setStatus("creating session...");
+  try {
+    const session = await api("/api/sessions", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    state.sessionId = session.id;
+    state.windowId = "";
+    state.paneId = "";
+    resetWindowSummaryState();
+    await refreshTree();
+    updateTargetUrl();
+    setStatus(`new session: ${session.name}`);
+    if (state.targetPickerOpen) {
+      loadWindowSummaries({ force: true });
+    }
+  } catch (error) {
+    setStatus(error.message, false);
+  } finally {
+    renderSessions();
+  }
+}
+
+async function renameTmuxSession() {
+  const session = selectedSession();
+  const name = sessionNameInputValue();
+  if (!session) {
+    setStatus("Select a session first", false);
+    return;
+  }
+  if (!name) {
+    setStatus("Enter a session name", false);
+    els.sessionNameInput.focus();
+    return;
+  }
+  if (name === session.name) {
+    setStatus(`session: ${session.name}`);
+    return;
+  }
+
+  els.renameSession.disabled = true;
+  setStatus("renaming session...");
+  try {
+    const renamed = await api("/api/sessions", {
+      method: "PATCH",
+      body: JSON.stringify({ sessionId: session.id, name }),
+    });
+    state.sessionId = renamed.id;
+    resetWindowSummaryState();
+    await refreshTree();
+    updateTargetUrl();
+    setStatus(`renamed session: ${renamed.name}`);
+    if (state.targetPickerOpen) {
+      loadWindowSummaries({ force: true });
+    }
+  } catch (error) {
+    setStatus(error.message, false);
+  } finally {
+    renderSessions();
   }
 }
 
@@ -751,6 +1369,7 @@ async function killSelectedWindow() {
 }
 
 async function loadPanes() {
+  const previousPaneId = state.paneId;
   state.panes = [];
   if (!state.windowId) {
     renderPanes();
@@ -766,7 +1385,7 @@ async function loadPanes() {
   loadChat();
   renderTargetLabels();
   renderChat();
-  await refreshSnapshot();
+  await refreshSnapshot(false, { forceScrollBottom: state.paneId !== previousPaneId });
 }
 
 async function selectPane(paneId) {
@@ -775,13 +1394,13 @@ async function selectPane(paneId) {
   loadChat();
   renderTargetLabels();
   renderChat();
-  await refreshSnapshot();
+  await refreshSnapshot(false, { forceScrollBottom: true });
   closeTargetPicker();
 }
 
-async function refreshSnapshot(addToChat = false) {
+async function refreshSnapshot(addToChat = false, { forceScrollBottom = false } = {}) {
   if (!state.paneId) {
-    els.snapshot.textContent = "Select a pane.";
+    updateSnapshotText("Select a pane.", { forceScrollBottom: true });
     return;
   }
   try {
@@ -791,14 +1410,12 @@ async function refreshSnapshot(addToChat = false) {
       lines: String(state.lines),
     });
     const data = await api(`/api/capture?${params}`);
-    els.snapshot.textContent = data.text || "[no visible output]";
-    scrollSnapshotToBottom();
+    updateSnapshotText(data.text || "[no visible output]", { forceScrollBottom });
     if (addToChat) {
       addChat("pane", excerptForChat(data.text), "tmux output");
     }
   } catch (error) {
-    els.snapshot.textContent = error.message;
-    scrollSnapshotToBottom();
+    updateSnapshotText(error.message, { forceScrollBottom });
     addChat("system", error.message, "error");
   }
 }
@@ -867,6 +1484,13 @@ els.refreshSnapshot.addEventListener("click", () => refreshSnapshot());
 els.fullscreenSnapshot.addEventListener("click", () => {
   setSnapshotFullscreen(!state.snapshotFullscreen);
 });
+els.snapshot.addEventListener(
+  "scroll",
+  () => {
+    state.snapshotPinnedToBottom = isSnapshotAtBottom();
+  },
+  { passive: true },
+);
 els.newWindow.addEventListener("click", createTmuxWindow);
 els.killWindow.addEventListener("click", killSelectedWindow);
 els.lineCount.addEventListener("change", () => {
@@ -877,11 +1501,28 @@ els.autoRefresh.addEventListener("change", () => setAutoRefresh(els.autoRefresh.
 els.mobileSessionSelect.addEventListener("change", () => {
   selectSession(els.mobileSessionSelect.value);
 });
+els.sessionNameInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  if (state.sessionId) {
+    renameTmuxSession();
+    return;
+  }
+  createTmuxSession();
+});
+els.createSession.addEventListener("click", createTmuxSession);
+els.renameSession.addEventListener("click", renameTmuxSession);
 els.openTargetPicker.addEventListener("click", openTargetPicker);
 els.closeTargetPicker.addEventListener("click", closeTargetPicker);
 els.targetBackdrop.addEventListener("click", closeTargetPicker);
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
+els.submitVoice.addEventListener("click", submitVoiceRecording);
+els.cancelVoice.addEventListener("click", cancelVoiceRecording);
 els.speakWindow.addEventListener("click", async () => {
+  if (state.audio.busy) {
+    stopWindowSummary();
+    return;
+  }
   try {
     await speakWindowSummary();
   } catch (error) {

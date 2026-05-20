@@ -12,13 +12,18 @@ loadLocalEnv(path.join(__dirname, ".env"));
 
 const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 3737);
-const MAX_BODY_BYTES = 64 * 1024;
+const MAX_BODY_BYTES = 512 * 1024;
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const MAX_TEXT_BYTES = 8192;
 const MAX_CAPTURE_LINES = 5000;
 const TRANSCRIBE_MODEL =
   process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
 const SUMMARY_MODEL = process.env.OPENAI_SUMMARY_MODEL || "gpt-5.4-mini";
+const WINDOW_BRIEFING_MODEL =
+  process.env.OPENAI_WINDOW_BRIEFING_MODEL || "gpt-5.4-mini";
+const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime";
+const REALTIME_VOICE =
+  process.env.OPENAI_REALTIME_VOICE || process.env.OPENAI_SPEECH_VOICE || "cedar";
 const SPEECH_MODEL =
   process.env.OPENAI_SPEECH_MODEL || "gpt-4o-mini-tts-2025-12-15";
 const SPEECH_VOICE = process.env.OPENAI_SPEECH_VOICE || "cedar";
@@ -33,10 +38,40 @@ const SUBMIT_NUDGE_DELAY_MS =
 const SUMMARY_CACHE_MS = 60_000;
 const SUMMARY_LINES_DEFAULT = 20;
 const WINDOW_BRIEFING_LINES = 100;
+const REALTIME_WINDOW_BRIEFING_CHUNK_LINES = parsePositiveInteger(
+  process.env.OPENAI_REALTIME_WINDOW_BRIEFING_CHUNK_LINES,
+  12,
+);
+const REALTIME_WINDOW_BRIEFING_CHUNK_CHARS = parsePositiveInteger(
+  process.env.OPENAI_REALTIME_WINDOW_BRIEFING_CHUNK_CHARS,
+  1200,
+);
 const BRACKETED_PASTE_START = "\x1b[200~";
 const BRACKETED_PASTE_END = "\x1b[201~";
+const WINDOW_BRIEFING_INSTRUCTIONS =
+  "You are turning the last visible terminal output into something useful to listen to. The input is the last lines captured from the active pane of a tmux window where a coding agent, shell, editor, or test/build process may be running. Your job is to summarize and restate the actual content in those lines, not to describe the fact that an agent is speaking, explaining, coding, or summarizing. If the output contains an explanation, explain the substance of that explanation. If it contains a plan, report the plan. If it contains code-review findings, report the findings. If it contains command output, report the meaningful results, errors, files, commands, and blockers. Avoid meta phrases such as \"the agent is explaining\", \"the output discusses\", \"it mentions\", or \"the terminal shows\" unless there is no substantive content to report. Ignore ANSI escape sequences, control characters, redraw artifacts, repeated progress-only lines, prompts with no meaningful state, and other terminal noise. Be faithful to the visible output and do not invent missing context. Write a natural spoken summary of 3-7 sentences, no Markdown, no bullets, no code fences. Use Chinese if the terminal output or user task is primarily Chinese; otherwise use English.";
+const REALTIME_WINDOW_BRIEFING_INSTRUCTIONS =
+  "You are reading the last visible terminal output aloud for a user who does not want to inspect the terminal manually. The input is a chunk from the last lines captured from the active pane of a tmux window where a coding agent, shell, editor, or test/build process may be running. Restate the actual substance of this chunk completely enough that the user can understand what happened without looking. Do not merely say that an agent is explaining, coding, summarizing, or discussing something. If the output contains an explanation, explain the substance of that explanation. If it contains a plan, report the plan. If it contains code-review findings, report the findings. If it contains command output, report the meaningful results, errors, files, commands, and blockers. Ignore ANSI escape sequences, control characters, redraw artifacts, repeated progress-only lines, prompts with no meaningful state, and other terminal noise. Be faithful to the visible output and do not invent missing context. Speak in a natural way and cover all meaningful content in the chunk. If the input includes chunk metadata, do not announce the chunk number; just continue naturally. Use Chinese if the terminal output or user task is primarily Chinese; otherwise use English.";
+const REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS =
+  parseRealtimeOutputTokenLimit(
+    process.env.OPENAI_REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS,
+  );
 
 const summaryCache = new Map();
+
+function parseRealtimeOutputTokenLimit(value) {
+  const normalized = String(value || "inf").trim().toLowerCase();
+  if (!normalized || normalized === "inf") return "inf";
+
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || parsed <= 0) return "inf";
+  return Math.min(Math.floor(parsed), 4096);
+}
+
+function parsePositiveInteger(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
 
 function loadLocalEnv(filePath) {
   let text;
@@ -149,6 +184,21 @@ function requireId(value, type) {
   return value;
 }
 
+function requireSessionName(value) {
+  const name = String(value || "").trim();
+  if (!name) {
+    const error = new Error("Session name is required");
+    error.status = 400;
+    throw error;
+  }
+  if (name.length > 80 || /[:\t\r\n]/.test(name)) {
+    const error = new Error("Session name cannot include colon, tabs, or newlines");
+    error.status = 400;
+    throw error;
+  }
+  return name;
+}
+
 function parseLines(value) {
   const lines = Number(value || 120);
   if (!Number.isFinite(lines) || lines < 1) return 120;
@@ -158,6 +208,47 @@ function parseLines(value) {
 function textExcerpt(text, max = 5000) {
   if (text.length <= max) return text;
   return `${text.slice(0, max)}\n\n[truncated ${text.length - max} chars]`;
+}
+
+function cleanTerminalText(text) {
+  return String(text || "")
+    .replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)/g, "")
+    .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "")
+    .replace(/\r/g, "\n")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .trimEnd();
+}
+
+function splitRealtimeBriefingOutput(text) {
+  const lines = String(text || "").split("\n");
+  const chunks = [];
+  let current = [];
+  let currentChars = 0;
+
+  const flush = () => {
+    if (current.length === 0) return;
+    chunks.push(current.join("\n").trim());
+    current = [];
+    currentChars = 0;
+  };
+
+  for (const line of lines) {
+    const nextChars = currentChars + line.length + (current.length > 0 ? 1 : 0);
+    const overLineLimit = current.length >= REALTIME_WINDOW_BRIEFING_CHUNK_LINES;
+    const overCharLimit =
+      current.length > 0 && nextChars > REALTIME_WINDOW_BRIEFING_CHUNK_CHARS;
+    if (overLineLimit || overCharLimit) {
+      flush();
+    }
+    current.push(line);
+    currentChars += line.length + (current.length > 1 ? 1 : 0);
+  }
+  flush();
+
+  return chunks.filter(Boolean);
 }
 
 function oneLine(text) {
@@ -257,6 +348,16 @@ function sendSubmitNudge(paneId) {
   }, SUBMIT_NUDGE_DELAY_MS);
 }
 
+function sessionFromRow([id, name, windows, attached, created]) {
+  return {
+    id,
+    name,
+    windows: Number(windows || 0),
+    attached: attached === "1",
+    created,
+  };
+}
+
 function windowFromRow([id, index, name, active, panes, flags, activeCommand]) {
   return {
     id,
@@ -275,6 +376,41 @@ function clearSessionSummaryCache(sessionId) {
       summaryCache.delete(key);
     }
   }
+}
+
+async function createSession(name) {
+  const sessionName = requireSessionName(name);
+  const stdout = await runTmux([
+    "new-session",
+    "-d",
+    "-s",
+    sessionName,
+    "-P",
+    "-F",
+    formats.sessions,
+  ]);
+  const [row] = rows(stdout);
+  if (!row) {
+    const error = new Error("tmux did not return the new session");
+    error.status = 500;
+    throw error;
+  }
+  return sessionFromRow(row);
+}
+
+async function renameSession(sessionId, name) {
+  requireId(sessionId, "session");
+  const sessionName = requireSessionName(name);
+  await runTmux(["rename-session", "-t", sessionId, sessionName]);
+  clearSessionSummaryCache(sessionId);
+  const stdout = await runTmux(["display-message", "-p", "-t", sessionId, formats.sessions]);
+  const [row] = rows(stdout);
+  if (!row) {
+    const error = new Error("tmux did not return the renamed session");
+    error.status = 500;
+    throw error;
+  }
+  return sessionFromRow(row);
 }
 
 async function listWindows(sessionId) {
@@ -425,7 +561,12 @@ async function createJsonModelResponse({ instructions, input, schema, maxOutputT
   return JSON.parse(outputText);
 }
 
-async function createTextModelResponse({ instructions, input, maxOutputTokens }) {
+async function createTextModelResponse({
+  instructions,
+  input,
+  maxOutputTokens,
+  model = SUMMARY_MODEL,
+}) {
   if (!process.env.OPENAI_API_KEY) {
     const error = new Error("OPENAI_API_KEY is not set");
     error.status = 500;
@@ -439,7 +580,7 @@ async function createTextModelResponse({ instructions, input, maxOutputTokens })
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: SUMMARY_MODEL,
+      model,
       instructions,
       input,
       max_output_tokens: maxOutputTokens,
@@ -550,7 +691,7 @@ async function getWindowInfo(windowId) {
   };
 }
 
-async function summarizeWindowForSpeech(windowId, lineCount) {
+async function buildWindowBriefingInput(windowId, lineCount) {
   requireId(windowId, "window");
   const lines = Math.min(parseLines(lineCount || WINDOW_BRIEFING_LINES), 100);
   const [windowInfo, panes] = await Promise.all([
@@ -559,22 +700,67 @@ async function summarizeWindowForSpeech(windowId, lineCount) {
   ]);
   const pane = panes.find((item) => item.active) || panes[0];
   const text = pane ? await capturePane(pane.id, "tail", lines) : "";
+  const cleanedOutput = cleanTerminalText(text);
   const sample = {
     ...windowInfo,
     paneIndex: pane?.index ?? null,
     command: pane?.command || "",
     cwd: pane?.cwd || "",
-    output: textExcerpt(text.trimEnd(), 6000),
+    capturedLines: lines,
+    output: textExcerpt(cleanedOutput, 10000),
   };
+  const chunkOutputs = splitRealtimeBriefingOutput(cleanedOutput);
+  const totalChunks = Math.max(1, chunkOutputs.length);
+  const inputChunks =
+    chunkOutputs.length > 0
+      ? chunkOutputs.map((output, index) =>
+          JSON.stringify({
+            source: "tmux active pane tail for a coding-agent workflow",
+            lines,
+            part: {
+              index: index + 1,
+              total: totalChunks,
+            },
+            window: {
+              ...sample,
+              output,
+            },
+          }),
+        )
+      : [
+          JSON.stringify({
+            source: "tmux active pane tail for a coding-agent workflow",
+            lines,
+            part: {
+              index: 1,
+              total: 1,
+            },
+            window: sample,
+          }),
+        ];
+
+  return {
+    lines,
+    input: JSON.stringify({
+      source: "tmux active pane tail for a coding-agent workflow",
+      lines,
+      window: sample,
+    }),
+    inputChunks,
+  };
+}
+
+async function summarizeWindowForSpeech(windowId, lineCount) {
+  const briefing = await buildWindowBriefingInput(windowId, lineCount);
 
   const summary = await createTextModelResponse({
-    instructions:
-      "Summarize this current tmux window for someone listening on a phone. Use exactly one concise sentence, no Markdown, at most 200 words. Mention the most important active work, errors, blocked state, or idle prompt visible in this window. Do not mention other sessions or windows. Do not invent details. Use concise English unless the terminal output is primarily Chinese.",
-    input: JSON.stringify({ lines, window: sample }),
-    maxOutputTokens: 260,
+    instructions: WINDOW_BRIEFING_INSTRUCTIONS,
+    input: briefing.input,
+    maxOutputTokens: 520,
+    model: WINDOW_BRIEFING_MODEL,
   });
 
-  return limitWords(summary, 200);
+  return limitWords(summary, 320);
 }
 
 async function createSpeechAudio(text) {
@@ -613,6 +799,62 @@ async function createSpeechAudio(text) {
   }
 
   return Buffer.from(await response.arrayBuffer()).toString("base64");
+}
+
+async function createRealtimeCall(sdp) {
+  if (!process.env.OPENAI_API_KEY) {
+    const error = new Error("OPENAI_API_KEY is not set");
+    error.status = 500;
+    throw error;
+  }
+
+  const sdpOffer = String(sdp || "");
+  if (!sdpOffer.trimStart().startsWith("v=0")) {
+    const error = new Error("Invalid WebRTC SDP offer");
+    error.status = 400;
+    throw error;
+  }
+
+  const form = new FormData();
+  form.set("sdp", sdpOffer);
+  form.set(
+    "session",
+    JSON.stringify({
+      type: "realtime",
+      model: REALTIME_MODEL,
+      instructions: REALTIME_WINDOW_BRIEFING_INSTRUCTIONS,
+      max_output_tokens: REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS,
+      output_modalities: ["audio"],
+      audio: {
+        input: {
+          turn_detection: null,
+        },
+        output: {
+          voice: REALTIME_VOICE,
+        },
+      },
+    }),
+  );
+
+  const response = await fetch("https://api.openai.com/v1/realtime/calls", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    body: form,
+  });
+
+  const answerSdp = await response.text();
+  if (!response.ok) {
+    const error = new Error(textExcerpt(answerSdp || response.statusText, 1200));
+    error.status = 502;
+    throw error;
+  }
+
+  return {
+    sdp: answerSdp,
+    callLocation: response.headers.get("location") || "",
+  };
 }
 
 async function readJsonBody(req) {
@@ -692,6 +934,30 @@ function sendJson(res, status, data) {
   res.end(JSON.stringify(data));
 }
 
+function logServerEvent(event, details = {}) {
+  console.log(
+    JSON.stringify({
+      at: new Date().toISOString(),
+      event,
+      ...details,
+    }),
+  );
+}
+
+function logRequestError(req, url, status, error) {
+  console.error(
+    JSON.stringify({
+      at: new Date().toISOString(),
+      event: "request_failed",
+      method: req.method,
+      path: url?.pathname || req.url || "",
+      status,
+      message: error.message || "Internal server error",
+      stack: error.stack || "",
+    }),
+  );
+}
+
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
     sendJson(res, 200, { ok: true });
@@ -704,13 +970,7 @@ async function handleApi(req, res, url) {
       sendJson(
         res,
         200,
-        rows(stdout).map(([id, name, windows, attached, created]) => ({
-          id,
-          name,
-          windows: Number(windows || 0),
-          attached: attached === "1",
-          created,
-        })),
+        rows(stdout).map(sessionFromRow),
       );
     } catch (error) {
       if (isNoServerError(error)) {
@@ -719,6 +979,19 @@ async function handleApi(req, res, url) {
       }
       throw error;
     }
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/sessions") {
+    const body = await readJsonBody(req);
+    sendJson(res, 200, await createSession(body.name));
+    return;
+  }
+
+  if (req.method === "PATCH" && url.pathname === "/api/sessions") {
+    const body = await readJsonBody(req);
+    const sessionId = requireId(body.sessionId, "session");
+    sendJson(res, 200, await renameSession(sessionId, body.name));
     return;
   }
 
@@ -843,18 +1116,91 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && url.pathname === "/api/window-audio-summary") {
     const body = await readJsonBody(req);
     const windowId = requireId(body.windowId, "window");
-    const lines = body.lines || WINDOW_BRIEFING_LINES;
+    const lines = Math.min(parseLines(body.lines || WINDOW_BRIEFING_LINES), 100);
+    const startedAt = Date.now();
+    logServerEvent("window_audio_summary_started", {
+      windowId,
+      lines,
+      summaryModel: WINDOW_BRIEFING_MODEL,
+      speechModel: SPEECH_MODEL,
+      voice: SPEECH_VOICE,
+    });
     const summary = await summarizeWindowForSpeech(windowId, lines);
+    logServerEvent("window_audio_summary_summarized", {
+      windowId,
+      lines,
+      summaryModel: WINDOW_BRIEFING_MODEL,
+      summaryChars: summary.length,
+      elapsedMs: Date.now() - startedAt,
+    });
     const audioBase64 = await createSpeechAudio(summary);
+    logServerEvent("window_audio_summary_completed", {
+      windowId,
+      lines,
+      summaryModel: WINDOW_BRIEFING_MODEL,
+      speechModel: SPEECH_MODEL,
+      audioBase64Chars: audioBase64.length,
+      elapsedMs: Date.now() - startedAt,
+    });
     sendJson(res, 200, {
       summary,
       audioBase64,
       mimeType: "audio/mpeg",
-      lines: Math.min(parseLines(lines), 100),
-      summaryModel: SUMMARY_MODEL,
+      lines,
+      summaryModel: WINDOW_BRIEFING_MODEL,
       speechModel: SPEECH_MODEL,
       voice: SPEECH_VOICE,
     });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/window-realtime-session") {
+    const body = await readJsonBody(req);
+    const windowId = requireId(body.windowId, "window");
+    const lines = Math.min(parseLines(body.lines || WINDOW_BRIEFING_LINES), 100);
+    const sdp = String(body.sdp || "");
+    const startedAt = Date.now();
+    logServerEvent("window_realtime_session_started", {
+      windowId,
+      lines,
+      realtimeModel: REALTIME_MODEL,
+      voice: REALTIME_VOICE,
+      sdpChars: sdp.length,
+    });
+    const briefing = await buildWindowBriefingInput(windowId, lines);
+    const call = await createRealtimeCall(sdp);
+    logServerEvent("window_realtime_session_ready", {
+      windowId,
+      lines: briefing.lines,
+      realtimeModel: REALTIME_MODEL,
+      voice: REALTIME_VOICE,
+      inputChars: briefing.input.length,
+      chunkCount: briefing.inputChunks.length,
+      chunkLines: REALTIME_WINDOW_BRIEFING_CHUNK_LINES,
+      chunkChars: REALTIME_WINDOW_BRIEFING_CHUNK_CHARS,
+      callLocation: call.callLocation,
+      elapsedMs: Date.now() - startedAt,
+    });
+    sendJson(res, 200, {
+      sdp: call.sdp,
+      input: briefing.input,
+      inputChunks: briefing.inputChunks,
+      chunkCount: briefing.inputChunks.length,
+      lines: briefing.lines,
+      model: REALTIME_MODEL,
+      voice: REALTIME_VOICE,
+      maxOutputTokens: REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS,
+    });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/client-log") {
+    const body = await readJsonBody(req);
+    logServerEvent("client_log", {
+      clientEvent: String(body.event || "unknown").slice(0, 120),
+      details: body.details || {},
+    });
+    sendJson(res, 200, { ok: true });
     return;
   }
 
@@ -907,8 +1253,9 @@ async function serveStatic(req, res, url) {
 }
 
 const server = http.createServer(async (req, res) => {
+  let url;
   try {
-    const url = new URL(req.url || "/", `http://${req.headers.host || HOST}`);
+    url = new URL(req.url || "/", `http://${req.headers.host || HOST}`);
     if (url.pathname.startsWith("/api/")) {
       await handleApi(req, res, url);
       return;
@@ -916,6 +1263,11 @@ const server = http.createServer(async (req, res) => {
     await serveStatic(req, res, url);
   } catch (error) {
     const status = error.status || 500;
+    logRequestError(req, url, status, error);
+    if (res.headersSent) {
+      res.destroy();
+      return;
+    }
     sendJson(res, status, {
       error: error.message || "Internal server error",
     });

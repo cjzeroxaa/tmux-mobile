@@ -37,6 +37,7 @@ body {
 
 button,
 select,
+input,
 small {
   font: inherit;
 }
@@ -51,7 +52,8 @@ button:disabled {
 }
 
 button:focus,
-select:focus {
+select:focus,
+input:focus {
   outline: 2px solid rgba(17, 107, 95, 0.24);
   outline-offset: 2px;
 }
@@ -195,7 +197,8 @@ h3 {
   min-width: 0;
 }
 
-select {
+select,
+input {
   min-width: 0;
   max-width: 100%;
   border: 1px solid var(--line);
@@ -265,14 +268,52 @@ select {
   display: none;
 }
 
-.voice-button.recording {
-  border-color: var(--danger);
-  background: var(--danger);
-}
-
 .voice-button.busy {
   border-color: var(--accent-blue);
   background: var(--accent-blue);
+}
+
+.voice-recording-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.voice-waveform {
+  display: flex;
+  min-height: 42px;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f8e9e9;
+  padding: 7px 12px;
+}
+
+.voice-waveform span {
+  width: 3px;
+  height: 3px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--danger);
+  transition: height 100ms;
+}
+
+.voice-recording-actions .small-button {
+  min-height: 42px;
+}
+
+.voice-recording-actions .submit {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.voice-recording-actions .cancel {
+  border-color: rgba(167, 53, 53, 0.36);
+  color: var(--danger);
 }
 
 .quick-action-grid {
@@ -317,6 +358,16 @@ select {
   background: #eef3fa;
   color: #23466e;
   font-size: 11px;
+}
+
+.action-button.audio.reading {
+  border-color: rgba(167, 53, 53, 0.36);
+  background: #fff0ee;
+  color: var(--danger);
+}
+
+.action-button.audio.stopping {
+  opacity: 0.72;
 }
 
 .small-button,
@@ -446,7 +497,7 @@ select {
   display: grid;
   max-height: 92dvh;
   min-height: min(82dvh, 720px);
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
   gap: 12px;
   border-radius: 8px 8px 0 0;
   background: var(--surface);
@@ -480,6 +531,35 @@ select {
 
 .target-select select {
   width: 100%;
+}
+
+.session-management {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.session-name-field {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.session-name-field input {
+  width: 100%;
+}
+
+.session-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.session-actions .small-button {
+  padding: 7px 8px;
 }
 
 .mobile-target-groups {
