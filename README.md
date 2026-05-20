@@ -11,6 +11,18 @@ npm start
 
 Open http://127.0.0.1:3737.
 
+## Network access
+
+This app is meant to be used through a private Tailscale tailnet. It controls local tmux panes, so do not expose it directly to the public internet.
+
+The server binds to `127.0.0.1` by default. To use it from a phone or another device, keep the app local and publish it through Tailscale Serve:
+
+```bash
+tailscale serve --bg 3737
+```
+
+Only devices that are signed in to the same tailnet should be able to reach that Tailscale HTTPS URL. Without Tailscale or another private network proxy, other devices cannot access the default localhost server.
+
 ## Scope
 
 - Uses a mobile-only attached-pane layout.
