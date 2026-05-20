@@ -701,6 +701,26 @@ function waitForIceGatheringComplete(peerConnection, timeoutMs = 1500) {
   });
 }
 
+async function createRealtimeSdpAnswer(clientSecret, sdp, signal) {
+  if (!clientSecret) {
+    throw new Error("Realtime client secret is missing");
+  }
+  const response = await fetch("https://api.openai.com/v1/realtime/calls", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${clientSecret}`,
+      "content-type": "application/sdp",
+    },
+    body: sdp,
+    signal,
+  });
+  const answerSdp = await response.text();
+  if (!response.ok) {
+    throw new Error(answerSdp || `Realtime WebRTC HTTP ${response.status}`);
+  }
+  return answerSdp;
+}
+
 function sendRealtimeEvent(channel, event) {
   if (channel.readyState !== "open") {
     throw new Error("Realtime data channel is not open");
@@ -868,13 +888,24 @@ async function playWindowSummaryRealtime() {
     body: JSON.stringify({
       windowId: state.windowId,
       lines: 100,
-      sdp: peerConnection.localDescription?.sdp || offer.sdp,
     }),
   });
+  logClientEvent("realtime_client_secret_ready", {
+    model: data.model,
+    voice: data.voice,
+    lines: data.lines,
+    chunkCount: data.chunkCount,
+    clientSecretExpiresAt: data.clientSecretExpiresAt || null,
+  });
+  const answerSdp = await createRealtimeSdpAnswer(
+    data.clientSecret,
+    peerConnection.localDescription?.sdp || offer.sdp,
+    state.audio.abortController.signal,
+  );
 
   await peerConnection.setRemoteDescription({
     type: "answer",
-    sdp: data.sdp,
+    sdp: answerSdp,
   });
   logClientEvent("realtime_remote_description_set", {
     model: data.model,

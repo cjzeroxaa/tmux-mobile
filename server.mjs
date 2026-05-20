@@ -46,6 +46,16 @@ const REALTIME_WINDOW_BRIEFING_CHUNK_CHARS = parsePositiveInteger(
   process.env.OPENAI_REALTIME_WINDOW_BRIEFING_CHUNK_CHARS,
   1200,
 );
+const REALTIME_CLIENT_SECRET_TTL_SECONDS = Math.min(
+  Math.max(
+    parsePositiveInteger(
+      process.env.OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+      600,
+    ),
+    10,
+  ),
+  7200,
+);
 const BRACKETED_PASTE_START = "\x1b[200~";
 const BRACKETED_PASTE_END = "\x1b[201~";
 const WINDOW_BRIEFING_INSTRUCTIONS =
@@ -801,59 +811,75 @@ async function createSpeechAudio(text) {
   return Buffer.from(await response.arrayBuffer()).toString("base64");
 }
 
-async function createRealtimeCall(sdp) {
+async function createRealtimeClientSecret() {
   if (!process.env.OPENAI_API_KEY) {
     const error = new Error("OPENAI_API_KEY is not set");
     error.status = 500;
     throw error;
   }
 
-  const sdpOffer = String(sdp || "");
-  if (!sdpOffer.trimStart().startsWith("v=0")) {
-    const error = new Error("Invalid WebRTC SDP offer");
-    error.status = 400;
+  const headers = {
+    authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+    "content-type": "application/json",
+  };
+  if (process.env.OPENAI_SAFETY_IDENTIFIER) {
+    headers["OpenAI-Safety-Identifier"] = process.env.OPENAI_SAFETY_IDENTIFIER;
+  }
+
+  const response = await fetch(
+    "https://api.openai.com/v1/realtime/client_secrets",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        expires_after: {
+          anchor: "created_at",
+          seconds: REALTIME_CLIENT_SECRET_TTL_SECONDS,
+        },
+        session: {
+          type: "realtime",
+          model: REALTIME_MODEL,
+          instructions: REALTIME_WINDOW_BRIEFING_INSTRUCTIONS,
+          max_output_tokens: REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS,
+          output_modalities: ["audio"],
+          audio: {
+            input: {
+              turn_detection: null,
+            },
+            output: {
+              voice: REALTIME_VOICE,
+            },
+          },
+        },
+      }),
+    },
+  );
+
+  const text = await response.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = {};
+  }
+
+  if (!response.ok) {
+    const error = new Error(textExcerpt(text || response.statusText, 1200));
+    error.status = 502;
     throw error;
   }
 
-  const form = new FormData();
-  form.set("sdp", sdpOffer);
-  form.set(
-    "session",
-    JSON.stringify({
-      type: "realtime",
-      model: REALTIME_MODEL,
-      instructions: REALTIME_WINDOW_BRIEFING_INSTRUCTIONS,
-      max_output_tokens: REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS,
-      output_modalities: ["audio"],
-      audio: {
-        input: {
-          turn_detection: null,
-        },
-        output: {
-          voice: REALTIME_VOICE,
-        },
-      },
-    }),
-  );
-
-  const response = await fetch("https://api.openai.com/v1/realtime/calls", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-    },
-    body: form,
-  });
-
-  const answerSdp = await response.text();
-  if (!response.ok) {
-    const error = new Error(textExcerpt(answerSdp || response.statusText, 1200));
+  const secret = data.client_secret || data;
+  if (!secret?.value) {
+    const error = new Error("Realtime client secret response did not include a token");
     error.status = 502;
     throw error;
   }
 
   return {
-    sdp: answerSdp,
-    callLocation: response.headers.get("location") || "",
+    value: secret.value,
+    expiresAt: secret.expires_at || data.expires_at || null,
+    sessionId: data.session?.id || "",
   };
 }
 
@@ -1158,17 +1184,16 @@ async function handleApi(req, res, url) {
     const body = await readJsonBody(req);
     const windowId = requireId(body.windowId, "window");
     const lines = Math.min(parseLines(body.lines || WINDOW_BRIEFING_LINES), 100);
-    const sdp = String(body.sdp || "");
     const startedAt = Date.now();
     logServerEvent("window_realtime_session_started", {
       windowId,
       lines,
       realtimeModel: REALTIME_MODEL,
       voice: REALTIME_VOICE,
-      sdpChars: sdp.length,
+      clientSecretTtlSeconds: REALTIME_CLIENT_SECRET_TTL_SECONDS,
     });
     const briefing = await buildWindowBriefingInput(windowId, lines);
-    const call = await createRealtimeCall(sdp);
+    const clientSecret = await createRealtimeClientSecret();
     logServerEvent("window_realtime_session_ready", {
       windowId,
       lines: briefing.lines,
@@ -1178,11 +1203,13 @@ async function handleApi(req, res, url) {
       chunkCount: briefing.inputChunks.length,
       chunkLines: REALTIME_WINDOW_BRIEFING_CHUNK_LINES,
       chunkChars: REALTIME_WINDOW_BRIEFING_CHUNK_CHARS,
-      callLocation: call.callLocation,
+      clientSecretExpiresAt: clientSecret.expiresAt,
+      realtimeSessionId: clientSecret.sessionId,
       elapsedMs: Date.now() - startedAt,
     });
     sendJson(res, 200, {
-      sdp: call.sdp,
+      clientSecret: clientSecret.value,
+      clientSecretExpiresAt: clientSecret.expiresAt,
       input: briefing.input,
       inputChunks: briefing.inputChunks,
       chunkCount: briefing.inputChunks.length,
