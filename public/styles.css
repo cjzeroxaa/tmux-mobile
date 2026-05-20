@@ -497,6 +497,30 @@ select {
   gap: 8px;
 }
 
+.target-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.window-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.window-actions .small-button {
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.small-button.danger {
+  border-color: rgba(167, 53, 53, 0.36);
+  color: var(--danger);
+}
+
 .list,
 .pane-list {
   display: flex;

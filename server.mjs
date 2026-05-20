@@ -257,6 +257,26 @@ function sendSubmitNudge(paneId) {
   }, SUBMIT_NUDGE_DELAY_MS);
 }
 
+function windowFromRow([id, index, name, active, panes, flags, activeCommand]) {
+  return {
+    id,
+    index: Number(index),
+    name,
+    active: active === "1",
+    panes: Number(panes || 0),
+    flags,
+    activeCommand,
+  };
+}
+
+function clearSessionSummaryCache(sessionId) {
+  for (const key of summaryCache.keys()) {
+    if (key.startsWith(`${sessionId}:`)) {
+      summaryCache.delete(key);
+    }
+  }
+}
+
 async function listWindows(sessionId) {
   requireId(sessionId, "session");
   const stdout = await runTmux([
@@ -266,17 +286,42 @@ async function listWindows(sessionId) {
     "-F",
     formats.windows,
   ]);
-  return rows(stdout).map(
-    ([id, index, name, active, panes, flags, activeCommand]) => ({
-      id,
-      index: Number(index),
-      name,
-      active: active === "1",
-      panes: Number(panes || 0),
-      flags,
-      activeCommand,
-    }),
-  );
+  return rows(stdout).map(windowFromRow);
+}
+
+async function createWindow(sessionId) {
+  requireId(sessionId, "session");
+  const stdout = await runTmux([
+    "new-window",
+    "-P",
+    "-F",
+    formats.windows,
+    "-t",
+    sessionId,
+  ]);
+  clearSessionSummaryCache(sessionId);
+  const [row] = rows(stdout);
+  if (!row) {
+    const error = new Error("tmux did not return the new window");
+    error.status = 500;
+    throw error;
+  }
+  return windowFromRow(row);
+}
+
+async function killWindow(windowId) {
+  requireId(windowId, "window");
+  const windowInfo = await getWindowInfo(windowId);
+  const windows = await listWindows(windowInfo.sessionId);
+  if (windows.length <= 1) {
+    const error = new Error("Cannot kill the last window in a session");
+    error.status = 400;
+    throw error;
+  }
+
+  await runTmux(["kill-window", "-t", windowId]);
+  clearSessionSummaryCache(windowInfo.sessionId);
+  return { ok: true, killed: windowInfo };
 }
 
 async function listPanes(windowId) {
@@ -493,11 +538,12 @@ async function getWindowInfo(windowId) {
     "-p",
     "-t",
     windowId,
-    "#{session_name}\t#{window_index}\t#{window_name}",
+    "#{session_id}\t#{session_name}\t#{window_index}\t#{window_name}",
   ]);
-  const [sessionName = "", windowIndex = "", windowName = ""] =
+  const [sessionId = "", sessionName = "", windowIndex = "", windowName = ""] =
     stdout.trimEnd().split("\t");
   return {
+    sessionId,
     sessionName,
     windowIndex: Number(windowIndex),
     windowName,
@@ -679,6 +725,20 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/windows") {
     const sessionId = requireId(url.searchParams.get("sessionId"), "session");
     sendJson(res, 200, await listWindows(sessionId));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/windows") {
+    const body = await readJsonBody(req);
+    const sessionId = requireId(body.sessionId, "session");
+    sendJson(res, 200, await createWindow(sessionId));
+    return;
+  }
+
+  if (req.method === "DELETE" && url.pathname === "/api/windows") {
+    const body = await readJsonBody(req);
+    const windowId = requireId(body.windowId, "window");
+    sendJson(res, 200, await killWindow(windowId));
     return;
   }
 

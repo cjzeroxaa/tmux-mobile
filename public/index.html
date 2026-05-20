@@ -90,7 +90,13 @@
 
         <div class="mobile-target-groups">
           <section class="target-group">
-            <h3>Windows</h3>
+            <div class="target-group-header">
+              <h3>Windows</h3>
+              <div class="window-actions" aria-label="Window actions">
+                <button id="newWindow" class="small-button" type="button">+ Win</button>
+                <button id="killWindow" class="small-button danger" type="button">Kill</button>
+              </div>
+            </div>
             <div id="mobileWindows" class="list mobile-list"></div>
           </section>
 

@@ -70,6 +70,8 @@ const els = {
   mobileRefresh: document.querySelector("#mobileRefresh"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
+  newWindow: document.querySelector("#newWindow"),
+  killWindow: document.querySelector("#killWindow"),
   lineCount: document.querySelector("#lineCount"),
   autoRefresh: document.querySelector("#autoRefresh"),
   voiceButton: document.querySelector("#voiceButton"),
@@ -206,6 +208,9 @@ function renderSessions() {
 
 function renderWindows() {
   els.mobileWindows.innerHTML = "";
+  els.newWindow.disabled = !state.sessionId;
+  els.killWindow.disabled = !state.windowId || state.windows.length <= 1;
+
   if (state.windows.length === 0) {
     empty(els.mobileWindows, "No windows");
     return;
@@ -678,6 +683,73 @@ async function selectWindow(windowId) {
   updateTargetUrl();
 }
 
+async function createTmuxWindow() {
+  if (!state.sessionId) {
+    setStatus("Select a session first", false);
+    return;
+  }
+
+  els.newWindow.disabled = true;
+  setStatus("creating window...");
+  try {
+    const win = await api("/api/windows", {
+      method: "POST",
+      body: JSON.stringify({ sessionId: state.sessionId }),
+    });
+    resetWindowSummaryState();
+    await loadWindows();
+    if (win?.id && state.windows.some((item) => item.id === win.id)) {
+      await selectWindow(win.id);
+    }
+    updateTargetUrl();
+    setStatus(`new window: ${win.index}`);
+    if (state.targetPickerOpen) {
+      loadWindowSummaries({ force: true });
+    }
+  } catch (error) {
+    setStatus(error.message, false);
+  } finally {
+    renderWindows();
+  }
+}
+
+async function killSelectedWindow() {
+  const win = selectedWindow();
+  if (!win) {
+    setStatus("Select a window first", false);
+    return;
+  }
+  if (state.windows.length <= 1) {
+    setStatus("Cannot kill the last window", false);
+    return;
+  }
+
+  const label = `${win.index}: ${win.name}`;
+  if (!window.confirm(`Kill tmux window ${label}?`)) return;
+
+  els.killWindow.disabled = true;
+  setStatus("killing window...");
+  try {
+    await api("/api/windows", {
+      method: "DELETE",
+      body: JSON.stringify({ windowId: win.id }),
+    });
+    state.windowId = "";
+    state.paneId = "";
+    resetWindowSummaryState();
+    await loadWindows();
+    updateTargetUrl();
+    setStatus(`killed window: ${label}`);
+    if (state.targetPickerOpen) {
+      loadWindowSummaries({ force: true });
+    }
+  } catch (error) {
+    setStatus(error.message, false);
+  } finally {
+    renderWindows();
+  }
+}
+
 async function loadPanes() {
   state.panes = [];
   if (!state.windowId) {
@@ -795,6 +867,8 @@ els.refreshSnapshot.addEventListener("click", () => refreshSnapshot());
 els.fullscreenSnapshot.addEventListener("click", () => {
   setSnapshotFullscreen(!state.snapshotFullscreen);
 });
+els.newWindow.addEventListener("click", createTmuxWindow);
+els.killWindow.addEventListener("click", killSelectedWindow);
 els.lineCount.addEventListener("change", () => {
   state.lines = Number(els.lineCount.value);
   refreshSnapshot();
