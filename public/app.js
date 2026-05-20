@@ -12,6 +12,7 @@ const state = {
   autoRefreshTimer: null,
   chat: [],
   targetPickerOpen: false,
+  snapshotFullscreen: false,
   pendingUrlTarget: readUrlTarget(),
   voice: {
     chunks: [],
@@ -68,6 +69,7 @@ const els = {
   mobileRefreshTree: document.querySelector("#mobileRefreshTree"),
   mobileRefresh: document.querySelector("#mobileRefresh"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
+  fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
   lineCount: document.querySelector("#lineCount"),
   autoRefresh: document.querySelector("#autoRefresh"),
   voiceButton: document.querySelector("#voiceButton"),
@@ -540,6 +542,14 @@ function scrollSnapshotToBottom() {
   });
 }
 
+function setSnapshotFullscreen(enabled) {
+  state.snapshotFullscreen = enabled;
+  document.body.classList.toggle("snapshot-fullscreen", enabled);
+  els.fullscreenSnapshot.textContent = enabled ? "Exit" : "FS";
+  els.fullscreenSnapshot.setAttribute("aria-pressed", String(enabled));
+  scrollSnapshotToBottom();
+}
+
 function resetWindowSummaryState() {
   state.windowSummaries = {};
   state.summariesLoading = false;
@@ -782,6 +792,9 @@ els.mobileRefresh.addEventListener("click", async () => {
   await refreshSnapshot();
 });
 els.refreshSnapshot.addEventListener("click", () => refreshSnapshot());
+els.fullscreenSnapshot.addEventListener("click", () => {
+  setSnapshotFullscreen(!state.snapshotFullscreen);
+});
 els.lineCount.addEventListener("change", () => {
   state.lines = Number(els.lineCount.value);
   refreshSnapshot();
@@ -803,6 +816,10 @@ els.speakWindow.addEventListener("click", async () => {
 });
 
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.snapshotFullscreen) {
+    setSnapshotFullscreen(false);
+    return;
+  }
   if (event.key === "Escape" && state.targetPickerOpen) {
     closeTargetPicker();
   }

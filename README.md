@@ -28,6 +28,7 @@ Only devices that are signed in to the same tailnet should be able to reach that
 - Uses a mobile-only attached-pane layout.
 - Selects one tmux session from a dropdown, then lists that session's windows and panes.
 - Captures the selected pane as visible screen, tail, or full scrollback.
+- Expands the terminal output to a larger fullscreen reading view.
 - Summarizes each window's active pane from its last 20 lines when the target picker is opened or refreshed, using `gpt-5.4-mini` by default.
 - Sends voice transcription directly to the selected pane with Enter.
 - Sends compact actions for Enter, q, Esc, Ctrl-C, Claude, Codex, AGR, and reading the current window.

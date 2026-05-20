@@ -234,14 +234,19 @@ function bracketedPastePayload(text) {
     .replace(/\x1b\[(?:200|201)~/g, "")}${BRACKETED_PASTE_END}`;
 }
 
-async function sendTextToPane(paneId, text) {
+async function sendTextToPane(paneId, text, { enter = false } = {}) {
+  if (enter) {
+    await runTmux(["send-keys", "-t", paneId, text, "Enter"]);
+    return { mode: "keys-with-enter", sentEnter: true };
+  }
+
   if (await isCodexPane(paneId).catch(() => false)) {
     await runTmux(["send-keys", "-t", paneId, "-l", bracketedPastePayload(text)]);
-    return { mode: "bracketed-paste" };
+    return { mode: "bracketed-paste", sentEnter: false };
   }
 
   await runTmux(["send-keys", "-t", paneId, "-l", text]);
-  return { mode: "literal" };
+  return { mode: "literal", sentEnter: false };
 }
 
 function sendSubmitNudge(paneId) {
@@ -737,12 +742,16 @@ async function handleApi(req, res, url) {
     }
 
     const sendResult =
-      text.length > 0 ? await sendTextToPane(paneId, text) : { mode: "none" };
-    if (sendEnter) {
+      text.length > 0
+        ? await sendTextToPane(paneId, text, { enter: sendEnter })
+        : { mode: "none", sentEnter: false };
+    if (sendEnter && !sendResult.sentEnter) {
       await runTmux(["send-keys", "-t", paneId, "Enter"]);
       if (submitNudge && text.length > 0) {
         sendSubmitNudge(paneId);
       }
+    } else if (sendEnter && submitNudge && text.length > 0) {
+      sendSubmitNudge(paneId);
     }
     sendJson(res, 200, {
       ok: true,
