@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import http from "node:http";
 import { readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,6 +13,7 @@ loadLocalEnv(path.join(__dirname, ".env"));
 
 const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 3737);
+const APP_TITLE = process.env.TMUX_MOBILE_APP_TITLE || os.hostname() || "tmux Mobile";
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const MAX_TEXT_BYTES = 8192;
@@ -218,6 +220,35 @@ function parseLines(value) {
 function textExcerpt(text, max = 5000) {
   if (text.length <= max) return text;
   return `${text.slice(0, max)}\n\n[truncated ${text.length - max} chars]`;
+}
+
+function escapeHtmlAttribute(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function renderIndexHtml(template) {
+  return template.replaceAll("__APP_TITLE__", escapeHtmlAttribute(APP_TITLE));
+}
+
+function sendWebManifest(res) {
+  const body = JSON.stringify({
+    name: APP_TITLE,
+    short_name: APP_TITLE,
+    start_url: "/",
+    scope: "/",
+    display: "standalone",
+    background_color: "#f5f1e8",
+    theme_color: "#202124",
+  });
+  res.writeHead(200, {
+    "content-type": "application/manifest+json; charset=utf-8",
+    "cache-control": "no-store",
+  });
+  res.end(body);
 }
 
 function cleanTerminalText(text) {
@@ -1252,10 +1283,16 @@ const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
   [".js", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
+  [".webmanifest", "application/manifest+json; charset=utf-8"],
 ]);
 
 async function serveStatic(req, res, url) {
   const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
+  if (pathname === "/manifest.webmanifest") {
+    sendWebManifest(res);
+    return;
+  }
+
   const relative = path.normalize(pathname).replace(/^(\.\.(\/|\\|$))+/, "");
   const filePath = path.join(publicDir, relative.replace(/^\/+/, ""));
 
@@ -1266,7 +1303,10 @@ async function serveStatic(req, res, url) {
   }
 
   try {
-    const body = await readFile(filePath);
+    const isIndexHtml = path.basename(filePath) === "index.html";
+    const body = isIndexHtml
+      ? renderIndexHtml(await readFile(filePath, "utf8"))
+      : await readFile(filePath);
     res.writeHead(200, {
       "content-type":
         contentTypes.get(path.extname(filePath)) || "application/octet-stream",
