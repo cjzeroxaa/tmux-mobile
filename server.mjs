@@ -22,11 +22,8 @@ const SPEECH_VOICE = process.env.OPENAI_SPEECH_VOICE || "cedar";
 const SUMMARY_CACHE_MS = 60_000;
 const SUMMARY_LINES_DEFAULT = 20;
 const WINDOW_BRIEFING_LINES = 100;
-const configuredEnterDelayMs = Number(process.env.TMUX_ENTER_AFTER_TEXT_DELAY_MS);
-const ENTER_AFTER_TEXT_DELAY_MS =
-  Number.isFinite(configuredEnterDelayMs) && configuredEnterDelayMs >= 0
-    ? configuredEnterDelayMs
-    : 180;
+const BRACKETED_PASTE_START = "\x1b[200~";
+const BRACKETED_PASTE_END = "\x1b[201~";
 
 const summaryCache = new Map();
 
@@ -145,18 +142,62 @@ function summarizeOutput(text) {
   };
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, Math.max(0, ms));
-  });
+async function currentPaneProcess(paneId) {
+  requireId(paneId, "pane");
+  const stdout = await runTmux([
+    "display-message",
+    "-p",
+    "-t",
+    paneId,
+    "#{pane_current_command}\t#{pane_pid}",
+  ]);
+  const [command = "", pid = ""] = stdout.trim().split("\t");
+  return { command, pid: Number(pid) };
+}
+
+async function processArgs(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return "";
+  return (await runFile("ps", ["-p", String(pid), "-o", "args="])).trim();
+}
+
+async function childProcessNames(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return "";
+  return await runFile("pgrep", ["-P", String(pid), "-l"]).catch(() => "");
+}
+
+function isCodexNodeArgs(args) {
+  return (
+    /(?:^|\s)node\s+(?:\S*\/)?codex(?:\s|$)/.test(args) ||
+    /@openai\/codex|\/codex\.js(?:\s|$)/.test(args)
+  );
+}
+
+async function isCodexPane(paneId) {
+  const { command, pid } = await currentPaneProcess(paneId);
+  if (command === "codex") return true;
+  if (command !== "node") return false;
+
+  const args = await processArgs(pid).catch(() => "");
+  if (isCodexNodeArgs(args)) return true;
+
+  const children = await childProcessNames(pid);
+  return /^\d+\s+codex$/m.test(children);
+}
+
+function bracketedPastePayload(text) {
+  return `${BRACKETED_PASTE_START}${text
+    .replace(/\r\n?/g, "\n")
+    .replace(/\x1b\[(?:200|201)~/g, "")}${BRACKETED_PASTE_END}`;
 }
 
 async function sendTextToPane(paneId, text) {
-  requireId(paneId, "pane");
-  const bufferName = `tmux-chat-web-${process.pid}-${Date.now()}`;
-  await runTmux(["set-buffer", "-b", bufferName, "--", text]);
-  await runTmux(["paste-buffer", "-d", "-p", "-r", "-b", bufferName, "-t", paneId]);
-  return { mode: "paste-buffer" };
+  if (await isCodexPane(paneId).catch(() => false)) {
+    await runTmux(["send-keys", "-t", paneId, "-l", bracketedPastePayload(text)]);
+    return { mode: "bracketed-paste" };
+  }
+
+  await runTmux(["send-keys", "-t", paneId, "-l", text]);
+  return { mode: "literal" };
 }
 
 async function listWindows(sessionId) {
@@ -645,16 +686,9 @@ async function handleApi(req, res, url) {
     const sendResult =
       text.length > 0 ? await sendTextToPane(paneId, text) : { mode: "none" };
     if (sendEnter) {
-      if (text.length > 0) {
-        await sleep(ENTER_AFTER_TEXT_DELAY_MS);
-      }
       await runTmux(["send-keys", "-t", paneId, "Enter"]);
     }
-    sendJson(res, 200, {
-      ok: true,
-      sendMode: sendResult.mode,
-      enterDelayMs: sendEnter && text.length > 0 ? ENTER_AFTER_TEXT_DELAY_MS : 0,
-    });
+    sendJson(res, 200, { ok: true, sendMode: sendResult.mode });
     return;
   }
 
