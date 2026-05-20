@@ -15,8 +15,8 @@
     <main class="app-shell">
       <header class="mobile-topbar">
         <button id="openTargetPicker" class="target-pill" type="button">
-          <span>Attached pane</span>
-          <strong id="mobileTargetLabel">No pane selected</strong>
+          <span>Attached window</span>
+          <strong id="mobileTargetLabel">No window selected</strong>
         </button>
         <button id="mobileRefresh" class="icon-button" title="Refresh">R</button>
       </header>
@@ -45,7 +45,7 @@
           </label>
           <button id="fullscreenSnapshot" class="small-button" type="button" aria-pressed="false">FS</button>
         </div>
-        <pre id="snapshot" class="snapshot">Select a pane.</pre>
+        <pre id="snapshot" class="snapshot">Select a window.</pre>
       </section>
 
       <section class="control-panel">
@@ -83,7 +83,7 @@
         <div class="target-panel-header">
           <div>
             <h2 id="targetSheetTitle">Switch Target</h2>
-            <p class="muted">Select a session, then choose a window and pane.</p>
+            <p class="muted">Select a session, then choose a window.</p>
           </div>
           <button id="closeTargetPicker" class="icon-button" type="button" title="Close">X</button>
         </div>
@@ -119,11 +119,6 @@
               </div>
             </div>
             <div id="mobileWindows" class="list mobile-list"></div>
-          </section>
-
-          <section class="target-group">
-            <h3>Panes</h3>
-            <div id="mobilePanes" class="pane-list mobile-list"></div>
           </section>
         </div>
       </section>

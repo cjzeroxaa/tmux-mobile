@@ -80,7 +80,6 @@ const els = {
   createSession: document.querySelector("#createSession"),
   renameSession: document.querySelector("#renameSession"),
   mobileWindows: document.querySelector("#mobileWindows"),
-  mobilePanes: document.querySelector("#mobilePanes"),
   mobileTargetLabel: document.querySelector("#mobileTargetLabel"),
   snapshot: document.querySelector("#snapshot"),
   chat: document.querySelector("#chat"),
@@ -140,10 +139,6 @@ function selectedSession() {
 
 function selectedWindow() {
   return state.windows.find((item) => item.id === state.windowId);
-}
-
-function selectedPane() {
-  return state.panes.find((item) => item.id === state.paneId);
 }
 
 function paneChatKey() {
@@ -231,7 +226,6 @@ function renderSessions() {
     els.mobileSessionSelect.append(new Option("No tmux sessions", ""));
     els.renameSession.disabled = true;
     empty(els.mobileWindows, "No windows");
-    empty(els.mobilePanes, "No panes");
     return;
   }
 
@@ -269,35 +263,11 @@ function renderWindows() {
   }
 }
 
-function renderPanes() {
-  els.mobilePanes.innerHTML = "";
-  if (state.panes.length === 0) {
-    empty(els.mobilePanes, "No panes");
-    return;
-  }
-
-  for (const pane of state.panes) {
-    const config = {
-      active: pane.id === state.paneId,
-      title: `Pane ${pane.index}`,
-      meta: `${pane.command || "unknown"} | ${pane.cwd || pane.title || pane.id}`,
-      badge: pane.active ? "active" : `${pane.width}x${pane.height}`,
-      badgeGreen: pane.active,
-      className: "pane-item",
-      onClick: () => selectPane(pane.id),
-    };
-    els.mobilePanes.append(itemButton(config));
-  }
-}
-
 function renderTargetLabels() {
   const session = selectedSession();
   const win = selectedWindow();
-  const pane = selectedPane();
   const label =
-    session && win && pane
-      ? `${session.name} / ${win.index}:${win.name} / pane ${pane.index}`
-      : "No pane selected";
+    session && win ? `${session.name} / ${win.index}:${win.name}` : "No window selected";
   els.mobileTargetLabel.textContent = label;
 }
 
@@ -432,7 +402,7 @@ function stopVoiceStream() {
 
 async function startVoiceRecording() {
   if (!state.paneId) {
-    addChat("system", "Select a pane first.", "system");
+    addChat("system", "Select a window first.", "system");
     return;
   }
   if (!window.isSecureContext) {
@@ -1047,11 +1017,11 @@ async function speakWindowSummary() {
 function renderChat() {
   els.chat.innerHTML = "";
   if (!state.paneId) {
-    empty(els.chat, "Select a pane");
+    empty(els.chat, "Select a window");
     return;
   }
   if (state.chat.length === 0) {
-    empty(els.chat, "No messages for this pane");
+    empty(els.chat, "No messages for this window");
     return;
   }
 
@@ -1268,7 +1238,6 @@ async function loadWindows({ urlTarget = readUrlTarget(), forceUrlTarget = false
   if (!state.sessionId) {
     resetWindowSummaryState();
     renderWindows();
-    renderPanes();
     renderTargetLabels();
     return;
   }
@@ -1330,6 +1299,7 @@ async function selectWindow(windowId) {
   renderWindows();
   await loadPanes();
   updateTargetUrl();
+  closeTargetPicker();
 }
 
 async function createTmuxWindow() {
@@ -1403,35 +1373,21 @@ async function loadPanes() {
   const previousPaneId = state.paneId;
   state.panes = [];
   if (!state.windowId) {
-    renderPanes();
     renderTargetLabels();
     return;
   }
 
   state.panes = await api(`/api/panes?windowId=${encodeURIComponent(state.windowId)}`);
-  if (!state.panes.some((item) => item.id === state.paneId)) {
-    state.paneId = state.panes.find((item) => item.active)?.id || state.panes[0]?.id || "";
-  }
-  renderPanes();
+  state.paneId = state.panes[0]?.id || "";
   loadChat();
   renderTargetLabels();
   renderChat();
   await refreshSnapshot(false, { forceScrollBottom: state.paneId !== previousPaneId });
 }
 
-async function selectPane(paneId) {
-  state.paneId = paneId;
-  renderPanes();
-  loadChat();
-  renderTargetLabels();
-  renderChat();
-  await refreshSnapshot(false, { forceScrollBottom: true });
-  closeTargetPicker();
-}
-
 async function refreshSnapshot(addToChat = false, { forceScrollBottom = false } = {}) {
   if (!state.paneId) {
-    updateSnapshotText("Select a pane.", { forceScrollBottom: true });
+    updateSnapshotText("Select a window.", { forceScrollBottom: true });
     return;
   }
   try {
@@ -1453,7 +1409,7 @@ async function refreshSnapshot(addToChat = false, { forceScrollBottom = false } 
 
 async function sendMessage(text, enter, { submitNudge = false } = {}) {
   if (!state.paneId) {
-    addChat("system", "Select a pane first.", "system");
+    addChat("system", "Select a window first.", "system");
     return;
   }
 
@@ -1467,7 +1423,7 @@ async function sendMessage(text, enter, { submitNudge = false } = {}) {
 
 async function sendKey(key) {
   if (!state.paneId) {
-    addChat("system", "Select a pane first.", "system");
+    addChat("system", "Select a window first.", "system");
     return;
   }
   addChat("user", `[${key}]`, "key");

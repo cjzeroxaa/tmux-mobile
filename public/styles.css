@@ -565,7 +565,7 @@ input {
 .mobile-target-groups {
   display: grid;
   min-height: 0;
-  grid-template-rows: minmax(150px, 1fr) minmax(125px, 0.78fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 12px;
   overflow: hidden;
 }
@@ -601,8 +601,7 @@ input {
   color: var(--danger);
 }
 
-.list,
-.pane-list {
+.list {
   display: flex;
   min-height: 0;
   flex: 1;
@@ -611,8 +610,7 @@ input {
   overflow: auto;
 }
 
-.item,
-.pane-item {
+.item {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -623,14 +621,11 @@ input {
 }
 
 .item.active,
-.pane-item.active,
-.item:hover,
-.pane-item:hover {
+.item:hover {
   border-color: var(--accent);
 }
 
-.item.active,
-.pane-item.active {
+.item.active {
   background: #e9f3ef;
 }
 
