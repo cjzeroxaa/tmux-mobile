@@ -277,8 +277,8 @@ select {
 
 .quick-action-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 5px;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 4px;
 }
 
 .action-button {
@@ -292,7 +292,7 @@ select {
   color: var(--ink);
   padding: 0;
   overflow: hidden;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 800;
   line-height: 1;
 }

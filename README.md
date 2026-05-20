@@ -30,7 +30,7 @@ Only devices that are signed in to the same tailnet should be able to reach that
 - Captures the selected pane as visible screen, tail, or full scrollback.
 - Summarizes each window's active pane from its last 20 lines when the target picker is opened or refreshed, using `gpt-5.4-mini` by default.
 - Sends voice transcription directly to the selected pane with Enter.
-- Sends compact actions for Esc, Ctrl-C, Claude, Codex, AGR, and reading the current window.
+- Sends compact actions for Enter, q, Esc, Ctrl-C, Claude, Codex, AGR, and reading the current window.
 - Encodes the selected session/window in the URL as `?session=<name>&window=<index>`.
 - Auto refresh is enabled by default for the selected pane view.
 
@@ -55,6 +55,12 @@ The default transcription model is `gpt-4o-mini-transcribe`. Override it with:
 
 ```bash
 OPENAI_TRANSCRIBE_MODEL=gpt-4o-transcribe npm start
+```
+
+Voice sends include one delayed extra Enter as a submit nudge for terminal UIs that sometimes keep pasted text in the prompt. The default delay is 700 ms. Override it with:
+
+```bash
+TMUX_SUBMIT_NUDGE_DELAY_MS=1000 npm start
 ```
 
 Window summaries use `gpt-5.4-mini` by default. Override them with:

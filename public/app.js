@@ -378,7 +378,7 @@ async function finishVoiceRecording() {
   });
 
   setVoiceStatus("sending", "Sending", data.text);
-  await sendMessage(data.text, true);
+  await sendMessage(data.text, true, { submitNudge: true });
   setVoiceStatus(
     "idle",
     "Start Recording",
@@ -721,7 +721,7 @@ async function refreshSnapshot(addToChat = false) {
   }
 }
 
-async function sendMessage(text, enter) {
+async function sendMessage(text, enter, { submitNudge = false } = {}) {
   if (!state.paneId) {
     addChat("system", "Select a pane first.", "system");
     return;
@@ -730,7 +730,7 @@ async function sendMessage(text, enter) {
   addChat("user", text || "[Enter]", enter ? "send + Enter" : "send");
   await api("/api/send", {
     method: "POST",
-    body: JSON.stringify({ paneId: state.paneId, text, enter }),
+    body: JSON.stringify({ paneId: state.paneId, text, enter, submitNudge }),
   });
   window.setTimeout(() => refreshSnapshot(true), 350);
 }

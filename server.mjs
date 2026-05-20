@@ -22,6 +22,14 @@ const SUMMARY_MODEL = process.env.OPENAI_SUMMARY_MODEL || "gpt-5.4-mini";
 const SPEECH_MODEL =
   process.env.OPENAI_SPEECH_MODEL || "gpt-4o-mini-tts-2025-12-15";
 const SPEECH_VOICE = process.env.OPENAI_SPEECH_VOICE || "cedar";
+const configuredSubmitNudgeDelayMs = Number(
+  process.env.TMUX_SUBMIT_NUDGE_DELAY_MS,
+);
+const SUBMIT_NUDGE_DELAY_MS =
+  Number.isFinite(configuredSubmitNudgeDelayMs) &&
+  configuredSubmitNudgeDelayMs >= 0
+    ? configuredSubmitNudgeDelayMs
+    : 700;
 const SUMMARY_CACHE_MS = 60_000;
 const SUMMARY_LINES_DEFAULT = 20;
 const WINDOW_BRIEFING_LINES = 100;
@@ -75,6 +83,7 @@ const formats = {
 
 const allowedKeys = new Set([
   "Enter",
+  "q",
   "C-c",
   "C-d",
   "C-z",
@@ -233,6 +242,14 @@ async function sendTextToPane(paneId, text) {
 
   await runTmux(["send-keys", "-t", paneId, "-l", text]);
   return { mode: "literal" };
+}
+
+function sendSubmitNudge(paneId) {
+  setTimeout(() => {
+    runTmux(["send-keys", "-t", paneId, "Enter"]).catch((error) => {
+      console.error(`submit nudge failed: ${error.message}`);
+    });
+  }, SUBMIT_NUDGE_DELAY_MS);
 }
 
 async function listWindows(sessionId) {
@@ -712,6 +729,7 @@ async function handleApi(req, res, url) {
     const paneId = requireId(body.paneId, "pane");
     const text = String(body.text ?? "");
     const sendEnter = body.enter !== false;
+    const submitNudge = body.submitNudge === true;
 
     if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
       sendJson(res, 413, { error: "Text is too large" });
@@ -722,8 +740,16 @@ async function handleApi(req, res, url) {
       text.length > 0 ? await sendTextToPane(paneId, text) : { mode: "none" };
     if (sendEnter) {
       await runTmux(["send-keys", "-t", paneId, "Enter"]);
+      if (submitNudge && text.length > 0) {
+        sendSubmitNudge(paneId);
+      }
     }
-    sendJson(res, 200, { ok: true, sendMode: sendResult.mode });
+    sendJson(res, 200, {
+      ok: true,
+      sendMode: sendResult.mode,
+      submitNudgeDelayMs:
+        submitNudge && sendEnter && text.length > 0 ? SUBMIT_NUDGE_DELAY_MS : 0,
+    });
     return;
   }
 
