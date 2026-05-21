@@ -23,6 +23,12 @@ const TRANSCRIBE_MODEL =
 const SUMMARY_MODEL = process.env.OPENAI_SUMMARY_MODEL || "gpt-5.4-mini";
 const WINDOW_BRIEFING_MODEL =
   process.env.OPENAI_WINDOW_BRIEFING_MODEL || "gpt-5.4-mini";
+const AGENT_RESPONSE_EXTRACT_MODEL =
+  process.env.OPENAI_AGENT_RESPONSE_EXTRACT_MODEL || "gpt-4o-mini";
+const AGENT_RESPONSE_EXTRACT_MAX_OUTPUT_TOKENS = parsePositiveInteger(
+  process.env.OPENAI_AGENT_RESPONSE_EXTRACT_MAX_OUTPUT_TOKENS,
+  4096,
+);
 const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime";
 const REALTIME_VOICE =
   process.env.OPENAI_REALTIME_VOICE || process.env.OPENAI_SPEECH_VOICE || "cedar";
@@ -62,8 +68,10 @@ const BRACKETED_PASTE_START = "\x1b[200~";
 const BRACKETED_PASTE_END = "\x1b[201~";
 const WINDOW_BRIEFING_INSTRUCTIONS =
   "You are turning the last visible terminal output into something useful to listen to. The input is the last lines captured from the active pane of a tmux window where a coding agent, shell, editor, or test/build process may be running. Your job is to summarize and restate the actual content in those lines, not to describe the fact that an agent is speaking, explaining, coding, or summarizing. If the output contains an explanation, explain the substance of that explanation. If it contains a plan, report the plan. If it contains code-review findings, report the findings. If it contains command output, report the meaningful results, errors, files, commands, and blockers. Avoid meta phrases such as \"the agent is explaining\", \"the output discusses\", \"it mentions\", or \"the terminal shows\" unless there is no substantive content to report. Ignore ANSI escape sequences, control characters, redraw artifacts, repeated progress-only lines, prompts with no meaningful state, and other terminal noise. Be faithful to the visible output and do not invent missing context. Write a natural spoken summary of 3-7 sentences, no Markdown, no bullets, no code fences. Use Chinese if the terminal output or user task is primarily Chinese; otherwise use English.";
+const AGENT_RESPONSE_EXTRACT_INSTRUCTIONS =
+  "You receive the last 100 lines captured from a tmux pane that is usually running a coding agent such as Codex, Claude Code, or another terminal agent. The capture includes terminal chrome, prompts, tool calls, command output, progress spinners, diffs, status lines, and possibly the final assistant response. Extract only the latest user-facing agent response that should be read aloud. Preserve that response verbatim: keep the original language, wording, file paths, commands, bullets, numbering, and line breaks. Do not summarize, rewrite, explain, translate, add a preface, or wrap it in Markdown fences. Remove terminal noise, prompt text, tool-call logs, command output that is not part of the final response, repeated redraw artifacts, and unrelated earlier context. If the latest agent response is split across multiple wrapped terminal lines, reconstruct it as readable text without adding new content. If no clear user-facing agent response is visible, return the last meaningful non-noise text from the agent output. Return only the extracted text.";
 const REALTIME_WINDOW_BRIEFING_INSTRUCTIONS =
-  "You are reading the last visible terminal output aloud for a user who does not want to inspect the terminal manually. The input is a chunk from the last lines captured from the active pane of a tmux window where a coding agent, shell, editor, or test/build process may be running. Restate the actual substance of this chunk completely enough that the user can understand what happened without looking. Do not merely say that an agent is explaining, coding, summarizing, or discussing something. If the output contains an explanation, explain the substance of that explanation. If it contains a plan, report the plan. If it contains code-review findings, report the findings. If it contains command output, report the meaningful results, errors, files, commands, and blockers. Ignore ANSI escape sequences, control characters, redraw artifacts, repeated progress-only lines, prompts with no meaningful state, and other terminal noise. Be faithful to the visible output and do not invent missing context. Speak in a natural way and cover all meaningful content in the chunk. If the input includes chunk metadata, do not announce the chunk number; just continue naturally. Use Chinese if the terminal output or user task is primarily Chinese; otherwise use English.";
+  "Read aloud the provided extracted coding-agent response. Do not summarize, rewrite, explain, or add context. Preserve the substance and ordering of the text you are given. If the text is in Chinese, read it in Chinese; if it is in English, read it in English. If the input is one chunk of a longer response, continue naturally without announcing chunk numbers or metadata.";
 const REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS =
   parseRealtimeOutputTokenLimit(
     process.env.OPENAI_REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS,
@@ -261,6 +269,12 @@ function cleanTerminalText(text) {
     .map((line) => line.trimEnd())
     .join("\n")
     .trimEnd();
+}
+
+function stripMarkdownFence(text) {
+  const trimmed = String(text || "").trim();
+  const match = /^```(?:[a-z0-9_-]+)?\n([\s\S]*?)\n```$/i.exec(trimmed);
+  return match ? match[1].trim() : trimmed;
 }
 
 function splitRealtimeBriefingOutput(text) {
@@ -732,6 +746,29 @@ async function getWindowInfo(windowId) {
   };
 }
 
+async function extractLatestAgentResponse({ windowInfo, pane, lines, output }) {
+  if (!output.trim()) return "";
+
+  const extracted = await createTextModelResponse({
+    instructions: AGENT_RESPONSE_EXTRACT_INSTRUCTIONS,
+    input: JSON.stringify({
+      source: "tmux pane tail from a coding-agent workflow",
+      lines,
+      window: {
+        ...windowInfo,
+        paneIndex: pane?.index ?? null,
+        command: pane?.command || "",
+        cwd: pane?.cwd || "",
+      },
+      output: textExcerpt(output, 14000),
+    }),
+    maxOutputTokens: AGENT_RESPONSE_EXTRACT_MAX_OUTPUT_TOKENS,
+    model: AGENT_RESPONSE_EXTRACT_MODEL,
+  });
+
+  return stripMarkdownFence(extracted);
+}
+
 async function buildWindowBriefingInput(windowId, lineCount) {
   requireId(windowId, "window");
   const lines = Math.min(parseLines(lineCount || WINDOW_BRIEFING_LINES), 100);
@@ -739,55 +776,40 @@ async function buildWindowBriefingInput(windowId, lineCount) {
     getWindowInfo(windowId),
     listPanes(windowId),
   ]);
-  const pane = panes.find((item) => item.active) || panes[0];
+  const pane = panes[0];
   const text = pane ? await capturePane(pane.id, "tail", lines) : "";
   const cleanedOutput = cleanTerminalText(text);
+  const extractedOutput =
+    (await extractLatestAgentResponse({
+      windowInfo,
+      pane,
+      lines,
+      output: cleanedOutput,
+    })) || cleanedOutput;
   const sample = {
     ...windowInfo,
     paneIndex: pane?.index ?? null,
     command: pane?.command || "",
     cwd: pane?.cwd || "",
     capturedLines: lines,
-    output: textExcerpt(cleanedOutput, 10000),
+    extractionModel: AGENT_RESPONSE_EXTRACT_MODEL,
+    output: textExcerpt(extractedOutput, 10000),
   };
-  const chunkOutputs = splitRealtimeBriefingOutput(cleanedOutput);
-  const totalChunks = Math.max(1, chunkOutputs.length);
+  const chunkOutputs = splitRealtimeBriefingOutput(extractedOutput);
   const inputChunks =
     chunkOutputs.length > 0
-      ? chunkOutputs.map((output, index) =>
-          JSON.stringify({
-            source: "tmux active pane tail for a coding-agent workflow",
-            lines,
-            part: {
-              index: index + 1,
-              total: totalChunks,
-            },
-            window: {
-              ...sample,
-              output,
-            },
-          }),
-        )
+      ? chunkOutputs
       : [
-          JSON.stringify({
-            source: "tmux active pane tail for a coding-agent workflow",
-            lines,
-            part: {
-              index: 1,
-              total: 1,
-            },
-            window: sample,
-          }),
+          sample.output || "No readable agent response is visible.",
         ];
 
   return {
     lines,
-    input: JSON.stringify({
-      source: "tmux active pane tail for a coding-agent workflow",
-      lines,
-      window: sample,
-    }),
+    input: sample.output,
     inputChunks,
+    rawChars: cleanedOutput.length,
+    extractedChars: extractedOutput.length,
+    extractionModel: AGENT_RESPONSE_EXTRACT_MODEL,
   };
 }
 
@@ -1231,6 +1253,9 @@ async function handleApi(req, res, url) {
       realtimeModel: REALTIME_MODEL,
       voice: REALTIME_VOICE,
       inputChars: briefing.input.length,
+      rawChars: briefing.rawChars,
+      extractedChars: briefing.extractedChars,
+      extractionModel: briefing.extractionModel,
       chunkCount: briefing.inputChunks.length,
       chunkLines: REALTIME_WINDOW_BRIEFING_CHUNK_LINES,
       chunkChars: REALTIME_WINDOW_BRIEFING_CHUNK_CHARS,
@@ -1247,6 +1272,8 @@ async function handleApi(req, res, url) {
       lines: briefing.lines,
       model: REALTIME_MODEL,
       voice: REALTIME_VOICE,
+      extractionModel: briefing.extractionModel,
+      extractedChars: briefing.extractedChars,
       maxOutputTokens: REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS,
     });
     return;

@@ -865,6 +865,8 @@ async function playWindowSummaryRealtime() {
     voice: data.voice,
     lines: data.lines,
     chunkCount: data.chunkCount,
+    extractionModel: data.extractionModel || "",
+    extractedChars: data.extractedChars || 0,
     clientSecretExpiresAt: data.clientSecretExpiresAt || null,
   });
   const answerSdp = await createRealtimeSdpAnswer(

@@ -73,13 +73,16 @@ OPENAI_SUMMARY_MODEL=gpt-5.4-mini npm start
 
 Summaries are requested only from the target picker: opening the picker, selecting a session inside it, or tapping its Refresh button. The server caches summaries for 60 seconds unless Refresh forces a new one.
 
-Window audio summaries use the OpenAI Realtime API over WebRTC. The server
-captures the tmux output and mints a short-lived Realtime client secret. The
-browser uses that token to connect directly to OpenAI and sends the captured
-tmux output over the Realtime data channel.
+Window audio reads use a two-step OpenAI flow. The server captures the last
+100 tmux lines, uses a text model to extract the latest user-facing agent
+response verbatim, then mints a short-lived Realtime client secret. The browser
+uses that token to connect directly to OpenAI and sends only the extracted
+response over the Realtime data channel for reading.
 Defaults:
 
 ```bash
+OPENAI_AGENT_RESPONSE_EXTRACT_MODEL=gpt-4o-mini
+OPENAI_AGENT_RESPONSE_EXTRACT_MAX_OUTPUT_TOKENS=4096
 OPENAI_REALTIME_MODEL=gpt-realtime
 OPENAI_REALTIME_VOICE=cedar
 OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS=600
