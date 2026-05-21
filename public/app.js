@@ -36,6 +36,8 @@ const state = {
     context: null,
     dataChannel: null,
     peerConnection: null,
+    remoteStream: null,
+    remoteTrack: null,
     source: null,
     busy: false,
     stopRequested: false,
@@ -601,6 +603,8 @@ function closeRealtimeAudio() {
     state.audio.peerConnection.close();
     state.audio.peerConnection = null;
   }
+  state.audio.remoteStream = null;
+  state.audio.remoteTrack = null;
   if (state.audio.audioElement) {
     state.audio.audioElement.pause();
     state.audio.audioElement.srcObject = null;
@@ -809,6 +813,119 @@ function waitForRealtimeResponse(channel, timeoutMs = 90000) {
   });
 }
 
+function estimateRealtimePlaybackMs(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return 2500;
+  const words = trimmed.split(/\s+/).filter(Boolean).length;
+  const wordBasedMs = (words / 150) * 60000;
+  const charBasedMs = (trimmed.length / 13) * 1000;
+  return Math.min(180000, Math.max(3500, Math.max(wordBasedMs, charBasedMs) + 2000));
+}
+
+function audioLevelFromAnalyser(analyser, samples) {
+  analyser.getByteTimeDomainData(samples);
+  let sum = 0;
+  for (const sample of samples) {
+    const value = (sample - 128) / 128;
+    sum += value * value;
+  }
+  return Math.sqrt(sum / samples.length);
+}
+
+async function waitForRealtimePlaybackToFinish({
+  audioElement,
+  peerConnection,
+  stream,
+  track,
+  transcript,
+}) {
+  const timeoutMs = estimateRealtimePlaybackMs(transcript);
+  const startedAt = performance.now();
+  const quietSettleMs = 2500;
+  let lastSoundAt = startedAt;
+  let sawSound = false;
+  let context = null;
+  let source = null;
+  let analyser = null;
+  let samples = null;
+
+  if (stream) {
+    try {
+      context = await ensureAudioContext();
+      if (context?.state === "running") {
+        source = context.createMediaStreamSource(stream);
+        analyser = context.createAnalyser();
+        analyser.fftSize = 1024;
+        samples = new Uint8Array(analyser.fftSize);
+        source.connect(analyser);
+      }
+    } catch (error) {
+      console.warn("Realtime audio monitor failed.", error);
+    }
+  }
+
+  return new Promise((resolve) => {
+    let done = false;
+    const cleanup = (reason) => {
+      if (done) return;
+      done = true;
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+      audioElement?.removeEventListener("ended", handleEnded);
+      audioElement?.removeEventListener("error", handleEnded);
+      track?.removeEventListener("ended", handleEnded);
+      peerConnection?.removeEventListener("connectionstatechange", handleConnectionChange);
+      try {
+        source?.disconnect();
+      } catch {
+        // The monitor may already be disconnected.
+      }
+      logClientEvent("realtime_playback_finished", {
+        reason,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        transcriptChars: transcript.length,
+      });
+      resolve();
+    };
+    const handleEnded = () => cleanup("ended");
+    const handleConnectionChange = () => {
+      const stateName = peerConnection?.connectionState;
+      if (stateName === "closed" || stateName === "failed") {
+        cleanup(stateName);
+      }
+    };
+    const checkPlayback = () => {
+      if (state.audio.stopRequested) {
+        cleanup("stopped");
+        return;
+      }
+      if (track?.readyState === "ended" || audioElement?.ended) {
+        cleanup("ended");
+        return;
+      }
+      if (!analyser || !samples) return;
+      const now = performance.now();
+      const level = audioLevelFromAnalyser(analyser, samples);
+      if (level > 0.012) {
+        sawSound = true;
+        lastSoundAt = now;
+        return;
+      }
+      if (!sawSound) return;
+      if (sawSound && now - lastSoundAt < quietSettleMs) return;
+      cleanup("silence");
+    };
+    const timeout = window.setTimeout(() => cleanup("timeout"), timeoutMs);
+    const interval = window.setInterval(checkPlayback, 150);
+
+    audioElement?.addEventListener("ended", handleEnded, { once: true });
+    audioElement?.addEventListener("error", handleEnded, { once: true });
+    track?.addEventListener("ended", handleEnded, { once: true });
+    peerConnection?.addEventListener("connectionstatechange", handleConnectionChange);
+    checkPlayback();
+  });
+}
+
 async function playWindowSummaryRealtime() {
   if (!window.RTCPeerConnection) {
     throw new Error("Realtime audio is not supported in this browser");
@@ -838,7 +955,10 @@ async function playWindowSummaryRealtime() {
     });
   });
   peerConnection.addEventListener("track", (event) => {
-    audioElement.srcObject = event.streams[0] || new MediaStream([event.track]);
+    const stream = event.streams[0] || new MediaStream([event.track]);
+    state.audio.remoteStream = stream;
+    state.audio.remoteTrack = event.track;
+    audioElement.srcObject = stream;
     audioElement.play().catch((error) => {
       console.warn("Realtime audio playback was blocked.", error);
       logClientEvent("realtime_playback_blocked", {
@@ -915,9 +1035,18 @@ async function playWindowSummaryRealtime() {
     }
   }
 
-  state.audio.abortController = null;
+  const transcript = transcripts.join("\n\n");
+  setStatus("realtime: finishing audio");
+  await waitForRealtimePlaybackToFinish({
+    audioElement,
+    peerConnection,
+    stream: state.audio.remoteStream,
+    track: state.audio.remoteTrack,
+    transcript: transcript || inputChunks.join("\n\n"),
+  });
+  closeRealtimeAudio();
   return {
-    transcript: transcripts.join("\n\n"),
+    transcript,
     model: data.model,
     voice: data.voice,
   };
