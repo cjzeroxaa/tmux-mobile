@@ -27,6 +27,7 @@ const state = {
     sampleTimer: null,
     stream: null,
     status: "idle",
+    textMode: false,
     waveform: [],
   },
   audio: {
@@ -94,9 +95,15 @@ const els = {
   killWindow: document.querySelector("#killWindow"),
   lineCount: document.querySelector("#lineCount"),
   autoRefresh: document.querySelector("#autoRefresh"),
+  voiceEntry: document.querySelector("#voiceEntry"),
   voiceButton: document.querySelector("#voiceButton"),
   voiceTitle: document.querySelector("#voiceTitle"),
   voiceSubtitle: document.querySelector("#voiceSubtitle"),
+  keyboardButton: document.querySelector("#keyboardButton"),
+  textComposer: document.querySelector("#textComposer"),
+  textInput: document.querySelector("#textInput"),
+  submitText: document.querySelector("#submitText"),
+  cancelText: document.querySelector("#cancelText"),
   voiceRecordingActions: document.querySelector("#voiceRecordingActions"),
   voiceWaveform: document.querySelector("#voiceWaveform"),
   submitVoice: document.querySelector("#submitVoice"),
@@ -308,12 +315,56 @@ function closeTargetPicker() {
   document.body.classList.remove("sheet-open");
 }
 
+function renderComposerMode() {
+  const textMode = state.voice.textMode && state.voice.status === "idle";
+  els.voiceEntry.hidden = textMode || state.voice.status === "recording";
+  els.textComposer.hidden = !textMode;
+  els.keyboardButton.disabled = state.voice.status !== "idle";
+}
+
+function showTextComposer() {
+  if (state.voice.status !== "idle") return;
+  state.voice.textMode = true;
+  renderComposerMode();
+  requestAnimationFrame(() => els.textInput.focus());
+}
+
+function hideTextComposer({ clear = false } = {}) {
+  state.voice.textMode = false;
+  if (clear) {
+    els.textInput.value = "";
+  }
+  renderComposerMode();
+}
+
+async function submitTextComposer(event) {
+  event?.preventDefault();
+  const text = els.textInput.value;
+  if (!text.trim()) {
+    els.textInput.focus();
+    return;
+  }
+  if (!state.paneId) {
+    addChat("system", "Select a window first.", "system");
+    return;
+  }
+
+  els.submitText.disabled = true;
+  try {
+    await sendMessage(text, true);
+    hideTextComposer({ clear: true });
+  } catch (error) {
+    addChat("system", error.message, "send error");
+  } finally {
+    els.submitText.disabled = false;
+  }
+}
+
 function setVoiceStatus(status, title, subtitle) {
   state.voice.status = status;
   els.voiceTitle.textContent = title;
   els.voiceSubtitle.textContent = subtitle;
   els.voiceRecordingActions.hidden = status !== "recording";
-  els.voiceButton.hidden = status === "recording";
   els.submitVoice.disabled = status !== "recording";
   els.cancelVoice.disabled = status !== "recording";
   els.voiceButton.classList.toggle("recording", status === "recording");
@@ -322,6 +373,10 @@ function setVoiceStatus(status, title, subtitle) {
     status === "transcribing" || status === "sending",
   );
   els.voiceButton.disabled = status !== "idle";
+  if (status !== "idle") {
+    state.voice.textMode = false;
+  }
+  renderComposerMode();
 }
 
 function chooseAudioMimeType() {
@@ -1685,6 +1740,9 @@ els.windowActivityStatus.addEventListener("click", openTargetPicker);
 els.closeTargetPicker.addEventListener("click", closeTargetPicker);
 els.targetBackdrop.addEventListener("click", closeTargetPicker);
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
+els.keyboardButton.addEventListener("click", showTextComposer);
+els.textComposer.addEventListener("submit", submitTextComposer);
+els.cancelText.addEventListener("click", () => hideTextComposer());
 els.submitVoice.addEventListener("click", submitVoiceRecording);
 els.cancelVoice.addEventListener("click", cancelVoiceRecording);
 els.speakWindow.addEventListener("click", async () => {

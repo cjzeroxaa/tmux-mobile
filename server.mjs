@@ -16,7 +16,7 @@ const PORT = Number(process.env.PORT || 3737);
 const APP_TITLE = process.env.TMUX_MOBILE_APP_TITLE || os.hostname() || "tmux Mobile";
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
-const MAX_TEXT_BYTES = 8192;
+const MAX_TEXT_BYTES = 64 * 1024;
 const MAX_CAPTURE_LINES = 5000;
 const TRANSCRIBE_MODEL =
   process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
@@ -65,8 +65,6 @@ const REALTIME_CLIENT_SECRET_TTL_SECONDS = Math.min(
   ),
   7200,
 );
-const BRACKETED_PASTE_START = "\x1b[200~";
-const BRACKETED_PASTE_END = "\x1b[201~";
 const WINDOW_BRIEFING_INSTRUCTIONS =
   "You are turning the last visible terminal output into something useful to listen to. The input is the last lines captured from the active pane of a tmux window where a coding agent, shell, editor, or test/build process may be running. Your job is to summarize and restate the actual content in those lines, not to describe the fact that an agent is speaking, explaining, coding, or summarizing. If the output contains an explanation, explain the substance of that explanation. If it contains a plan, report the plan. If it contains code-review findings, report the findings. If it contains command output, report the meaningful results, errors, files, commands, and blockers. Avoid meta phrases such as \"the agent is explaining\", \"the output discusses\", \"it mentions\", or \"the terminal shows\" unless there is no substantive content to report. Ignore ANSI escape sequences, control characters, redraw artifacts, repeated progress-only lines, prompts with no meaningful state, and other terminal noise. Be faithful to the visible output and do not invent missing context. Write a natural spoken summary of 3-7 sentences, no Markdown, no bullets, no code fences. Use Chinese if the terminal output or user task is primarily Chinese; otherwise use English.";
 const AGENT_RESPONSE_EXTRACT_INSTRUCTIONS =
@@ -338,67 +336,22 @@ function summarizeOutput(text) {
   };
 }
 
-async function currentPaneProcess(paneId) {
-  requireId(paneId, "pane");
-  const stdout = await runTmux([
-    "display-message",
-    "-p",
-    "-t",
-    paneId,
-    "#{pane_current_command}\t#{pane_pid}",
-  ]);
-  const [command = "", pid = ""] = stdout.trim().split("\t");
-  return { command, pid: Number(pid) };
-}
-
-async function processArgs(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return "";
-  return (await runFile("ps", ["-p", String(pid), "-o", "args="])).trim();
-}
-
-async function childProcessNames(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return "";
-  return await runFile("pgrep", ["-P", String(pid), "-l"]).catch(() => "");
-}
-
-function isCodexNodeArgs(args) {
-  return (
-    /(?:^|\s)node\s+(?:\S*\/)?codex(?:\s|$)/.test(args) ||
-    /@openai\/codex|\/codex\.js(?:\s|$)/.test(args)
-  );
-}
-
-async function isCodexPane(paneId) {
-  const { command, pid } = await currentPaneProcess(paneId);
-  if (command === "codex") return true;
-  if (command !== "node") return false;
-
-  const args = await processArgs(pid).catch(() => "");
-  if (isCodexNodeArgs(args)) return true;
-
-  const children = await childProcessNames(pid);
-  return /^\d+\s+codex$/m.test(children);
-}
-
-function bracketedPastePayload(text) {
-  return `${BRACKETED_PASTE_START}${text
-    .replace(/\r\n?/g, "\n")
-    .replace(/\x1b\[(?:200|201)~/g, "")}${BRACKETED_PASTE_END}`;
+async function pasteTextToPane(paneId, text) {
+  const bufferName = `tmux-chat-web-${Date.now()}-${Math.random()
+    .toString(16)
+    .slice(2)}`;
+  const cleanText = text.replace(/\r\n?/g, "\n").replace(/\x1b\[(?:200|201)~/g, "");
+  await runTmux(["set-buffer", "-b", bufferName, cleanText]);
+  await runTmux(["paste-buffer", "-dpr", "-b", bufferName, "-t", paneId]);
 }
 
 async function sendTextToPane(paneId, text, { enter = false } = {}) {
+  await pasteTextToPane(paneId, text);
   if (enter) {
-    await runTmux(["send-keys", "-t", paneId, text, "Enter"]);
-    return { mode: "keys-with-enter", sentEnter: true };
+    await runTmux(["send-keys", "-t", paneId, "Enter"]);
+    return { mode: "paste-buffer", sentEnter: true };
   }
-
-  if (await isCodexPane(paneId).catch(() => false)) {
-    await runTmux(["send-keys", "-t", paneId, "-l", bracketedPastePayload(text)]);
-    return { mode: "bracketed-paste", sentEnter: false };
-  }
-
-  await runTmux(["send-keys", "-t", paneId, "-l", text]);
-  return { mode: "literal", sentEnter: false };
+  return { mode: "paste-buffer", sentEnter: false };
 }
 
 function sendSubmitNudge(paneId) {
@@ -1223,15 +1176,13 @@ async function handleApi(req, res, url) {
 
     const sendResult =
       text.length > 0
-        ? await sendTextToPane(paneId, text, { enter: sendEnter })
+        ? await sendTextToPane(paneId, text, { enter: false })
         : { mode: "none", sentEnter: false };
-    if (sendEnter && !sendResult.sentEnter) {
+    if (sendEnter) {
       await runTmux(["send-keys", "-t", paneId, "Enter"]);
       if (submitNudge && text.length > 0) {
         sendSubmitNudge(paneId);
       }
-    } else if (sendEnter && submitNudge && text.length > 0) {
-      sendSubmitNudge(paneId);
     }
     sendJson(res, 200, {
       ok: true,

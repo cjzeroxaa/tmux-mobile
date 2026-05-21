@@ -261,6 +261,12 @@ input {
   gap: 8px;
 }
 
+.voice-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 48px;
+  gap: 6px;
+}
+
 .voice-button {
   display: grid;
   width: 100%;
@@ -272,6 +278,20 @@ input {
   color: #fff;
   padding: 10px 12px;
   text-align: center;
+}
+
+.keyboard-button {
+  display: grid;
+  min-width: 0;
+  min-height: 62px;
+  place-items: center;
+  border: 1px solid rgba(39, 68, 114, 0.28);
+  border-radius: 8px;
+  background: #f2f4f7;
+  color: #274472;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .voice-button span {
@@ -289,6 +309,47 @@ input {
 .voice-button.busy {
   border-color: var(--accent-blue);
   background: var(--accent-blue);
+}
+
+.text-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 82px;
+  gap: 6px;
+}
+
+.text-composer textarea {
+  width: 100%;
+  min-height: 86px;
+  max-height: 36dvh;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  padding: 9px 10px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.text-composer-actions {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 6px;
+}
+
+.text-composer-actions .small-button {
+  min-height: 40px;
+}
+
+.text-composer-actions .submit {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.text-composer-actions .cancel {
+  border-color: var(--line);
+  color: var(--muted);
 }
 
 .voice-recording-actions {

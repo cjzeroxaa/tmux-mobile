@@ -49,10 +49,20 @@
 
         <div id="voiceComposer" class="voice-composer">
           <div class="voice-actions">
-            <button id="voiceButton" class="voice-button" type="button">
-              <span id="voiceTitle">Start Recording</span>
-              <small id="voiceSubtitle">Tap to record a voice command</small>
-            </button>
+            <div id="voiceEntry" class="voice-entry">
+              <button id="voiceButton" class="voice-button" type="button">
+                <span id="voiceTitle">Start Recording</span>
+                <small id="voiceSubtitle">Tap to record a voice command</small>
+              </button>
+              <button id="keyboardButton" class="keyboard-button" type="button" title="Paste text" aria-label="Paste text">Kbd</button>
+            </div>
+            <form id="textComposer" class="text-composer" hidden>
+              <textarea id="textInput" rows="4" autocomplete="off" autocapitalize="sentences" spellcheck="true" placeholder="Paste text"></textarea>
+              <div class="text-composer-actions">
+                <button id="submitText" class="small-button submit" type="submit">Submit</button>
+                <button id="cancelText" class="small-button cancel" type="button">Voice</button>
+              </div>
+            </form>
             <div id="voiceRecordingActions" class="voice-recording-actions" hidden>
               <div id="voiceWaveform" class="voice-waveform" aria-hidden="true"></div>
               <button id="cancelVoice" class="small-button cancel" type="button">Cancel</button>
