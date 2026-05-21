@@ -50,11 +50,16 @@
         <div id="voiceComposer" class="voice-composer">
           <div class="voice-actions">
             <div id="voiceEntry" class="voice-entry">
-              <button id="voiceButton" class="voice-button" type="button">
-                <span id="voiceTitle">Start Recording</span>
-                <small id="voiceSubtitle">Tap to record a voice command</small>
+              <button id="voiceButton" class="voice-button" type="button" title="Record voice" aria-label="Record voice">
+                <span class="mic-icon" aria-hidden="true"></span>
+                <span id="voiceTitle" class="sr-only">Record voice</span>
+                <small id="voiceSubtitle" class="sr-only">Tap to record a voice command</small>
               </button>
-              <button id="keyboardButton" class="keyboard-button" type="button" title="Paste text" aria-label="Paste text">Kbd</button>
+              <button id="keyboardButton" class="keyboard-button" type="button" title="Text input" aria-label="Text input">Text</button>
+            </div>
+            <div class="voice-status-row">
+              <div id="voiceStatus" class="voice-status" role="status" aria-live="polite">Ready</div>
+              <button id="retryVoice" class="small-button retry" type="button" hidden>Retry</button>
             </div>
             <form id="textComposer" class="text-composer" hidden>
               <textarea id="textInput" rows="4" autocomplete="off" autocapitalize="sentences" spellcheck="true" placeholder="Paste text"></textarea>
@@ -80,6 +85,13 @@
               <button type="button" data-send-text="/clear" data-send-enter="true" class="action-button quick-action agent" title="Run /clear" aria-label="Run slash clear">Clear</button>
               <button id="speakWindow" type="button" class="action-button quick-action audio" title="Read current window" aria-label="Read current window">Read</button>
             </div>
+            <section id="directoryNavigator" class="directory-navigator" aria-label="Current directory">
+              <div class="directory-header">
+                <span>Dir</span>
+                <strong id="directoryPath">No window selected</strong>
+              </div>
+              <div id="directoryList" class="directory-list"></div>
+            </section>
           </div>
         </div>
       </section>

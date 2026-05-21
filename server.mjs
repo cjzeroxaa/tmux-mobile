@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import http from "node:http";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -495,6 +495,36 @@ async function listPanes(windowId) {
       title,
     }),
   );
+}
+
+async function getPaneCwd(paneId) {
+  requireId(paneId, "pane");
+  return (
+    await runTmux(["display-message", "-p", "-t", paneId, "#{pane_current_path}"])
+  ).trim();
+}
+
+async function listPaneDirectories(paneId) {
+  const cwd = await getPaneCwd(paneId);
+  const entries = await readdir(cwd, { withFileTypes: true });
+  const directories = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => ({
+      name: entry.name,
+      path: path.join(cwd, entry.name),
+      hidden: entry.name.startsWith("."),
+    }))
+    .sort((a, b) => {
+      if (a.hidden !== b.hidden) return a.hidden ? 1 : -1;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    })
+    .slice(0, 80);
+
+  return {
+    cwd,
+    parent: path.dirname(cwd),
+    entries: directories,
+  };
 }
 
 async function capturePane(paneId, mode, lineCount) {
@@ -1118,6 +1148,12 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/panes") {
     const windowId = requireId(url.searchParams.get("windowId"), "window");
     sendJson(res, 200, await listPanes(windowId));
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/directories") {
+    const paneId = requireId(url.searchParams.get("paneId"), "pane");
+    sendJson(res, 200, await listPaneDirectories(paneId));
     return;
   }
 

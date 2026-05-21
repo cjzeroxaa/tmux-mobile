@@ -270,20 +270,59 @@ input {
 .voice-button {
   display: grid;
   width: 100%;
-  min-height: 62px;
+  height: 48px;
+  min-height: 48px;
   place-items: center;
-  border: 1px solid var(--accent);
-  border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
-  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 999px;
+  background: linear-gradient(#ffffff, #e8ebef);
+  color: #263238;
+  padding: 0;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 1px 2px rgba(15, 20, 24, 0.18);
   text-align: center;
+}
+
+.voice-button:active {
+  background: linear-gradient(#dfe3e8, #ffffff);
+}
+
+.mic-icon {
+  position: relative;
+  width: 22px;
+  height: 28px;
+  color: currentColor;
+}
+
+.mic-icon::before {
+  position: absolute;
+  top: 0;
+  left: 5px;
+  width: 10px;
+  height: 17px;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+  content: "";
+}
+
+.mic-icon::after {
+  position: absolute;
+  left: 3px;
+  bottom: 0;
+  width: 16px;
+  height: 12px;
+  border-bottom: 2px solid currentColor;
+  border-left: 2px solid transparent;
+  border-radius: 0 0 999px 999px;
+  box-shadow: 6px 6px 0 -4px currentColor;
+  content: "";
 }
 
 .keyboard-button {
   display: grid;
   min-width: 0;
-  min-height: 62px;
+  min-height: 48px;
   place-items: center;
   border: 1px solid rgba(39, 68, 114, 0.28);
   border-radius: 8px;
@@ -294,21 +333,45 @@ input {
   font-weight: 800;
 }
 
-.voice-button span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: 19px;
-  font-weight: 800;
-  line-height: 1.15;
+.voice-status-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  min-height: 30px;
 }
 
-.voice-button small {
-  display: none;
+.voice-status {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-status.active {
+  color: var(--accent-dark);
+}
+
+.voice-status.error {
+  color: var(--danger);
+}
+
+.voice-status-row .retry {
+  min-height: 30px;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  padding: 0 12px;
 }
 
 .voice-button.busy {
   border-color: var(--accent-blue);
-  background: var(--accent-blue);
+  background: #eef3fa;
+  color: var(--accent-blue);
 }
 
 .text-composer {
@@ -456,6 +519,80 @@ input {
   opacity: 0.72;
 }
 
+.directory-navigator {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px;
+}
+
+.directory-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+  min-width: 0;
+}
+
+.directory-header span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.directory-header strong {
+  min-width: 0;
+  overflow: hidden;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directory-list {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 1px;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.directory-button {
+  min-width: 0;
+  max-width: 150px;
+  min-height: 32px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid rgba(17, 107, 95, 0.24);
+  border-radius: 999px;
+  background: #edf5f2;
+  color: var(--accent-dark);
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directory-button.parent {
+  border-color: rgba(39, 68, 114, 0.24);
+  background: #f2f4f7;
+  color: #274472;
+}
+
+.directory-status {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 32px;
+}
+
 .small-button,
 .icon-button {
   border: 1px solid var(--line);
@@ -515,6 +652,15 @@ input {
 .muted {
   color: var(--muted);
   font-size: 12px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
 }
 
 .chat {

@@ -18,12 +18,23 @@ const state = {
   snapshotFullscreen: false,
   snapshotPinnedToBottom: true,
   pendingUrlTarget: readUrlTarget(),
+  directories: {
+    cwd: "",
+    parent: "",
+    entries: [],
+    loading: false,
+    error: "",
+  },
   voice: {
     analyser: null,
     audioContext: null,
     chunks: [],
     cancelRequested: false,
     mediaRecorder: null,
+    pendingAudio: null,
+    pendingError: "",
+    pendingMimeType: "",
+    pendingTranscript: "",
     sampleTimer: null,
     stream: null,
     status: "idle",
@@ -99,6 +110,7 @@ const els = {
   voiceButton: document.querySelector("#voiceButton"),
   voiceTitle: document.querySelector("#voiceTitle"),
   voiceSubtitle: document.querySelector("#voiceSubtitle"),
+  voiceStatus: document.querySelector("#voiceStatus"),
   keyboardButton: document.querySelector("#keyboardButton"),
   textComposer: document.querySelector("#textComposer"),
   textInput: document.querySelector("#textInput"),
@@ -108,6 +120,10 @@ const els = {
   voiceWaveform: document.querySelector("#voiceWaveform"),
   submitVoice: document.querySelector("#submitVoice"),
   cancelVoice: document.querySelector("#cancelVoice"),
+  retryVoice: document.querySelector("#retryVoice"),
+  directoryNavigator: document.querySelector("#directoryNavigator"),
+  directoryPath: document.querySelector("#directoryPath"),
+  directoryList: document.querySelector("#directoryList"),
   openTargetPicker: document.querySelector("#openTargetPicker"),
   closeTargetPicker: document.querySelector("#closeTargetPicker"),
   targetBackdrop: document.querySelector("#targetBackdrop"),
@@ -302,6 +318,75 @@ function renderWindowActivityStatus() {
   els.windowActivityStatus.classList.toggle("auto-off", !autoEnabled);
 }
 
+function pathLabel(value) {
+  const text = String(value || "");
+  const trimmed = text.replace(/\/+$/, "");
+  if (!trimmed) return text || "/";
+  return trimmed.split("/").pop() || trimmed || "/";
+}
+
+function shellQuote(value) {
+  return "'" + String(value || "").replaceAll("'", "'\\''") + "'";
+}
+
+function resetDirectoryNavigator(message = "No window selected") {
+  state.directories = {
+    cwd: "",
+    parent: "",
+    entries: [],
+    loading: false,
+    error: message,
+  };
+  renderDirectoryNavigator();
+}
+
+function directoryButton(label, targetPath, className = "") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `directory-button ${className}`.trim();
+  button.textContent = label;
+  button.title = targetPath;
+  button.dataset.cwdPath = targetPath;
+  return button;
+}
+
+function renderDirectoryNavigator() {
+  const { cwd, parent, entries, loading, error } = state.directories;
+  els.directoryPath.textContent = cwd || error || "No window selected";
+  els.directoryNavigator.classList.toggle("loading", loading);
+  els.directoryList.replaceChildren();
+
+  if (!state.paneId) {
+    els.directoryList.append(directoryStatus("Select a window."));
+    return;
+  }
+  if (loading && entries.length === 0) {
+    els.directoryList.append(directoryStatus("Loading directories..."));
+    return;
+  }
+  if (error && entries.length === 0) {
+    els.directoryList.append(directoryStatus(error));
+    return;
+  }
+
+  if (parent && parent !== cwd) {
+    els.directoryList.append(directoryButton("..", parent, "parent"));
+  }
+  for (const entry of entries) {
+    els.directoryList.append(directoryButton(entry.name, entry.path));
+  }
+  if (entries.length === 0 && !(parent && parent !== cwd)) {
+    els.directoryList.append(directoryStatus("No child directories."));
+  }
+}
+
+function directoryStatus(text) {
+  const item = document.createElement("span");
+  item.className = "directory-status";
+  item.textContent = text;
+  return item;
+}
+
 function openTargetPicker() {
   state.targetPickerOpen = true;
   els.targetSheet.hidden = false;
@@ -337,6 +422,47 @@ function hideTextComposer({ clear = false } = {}) {
   renderComposerMode();
 }
 
+function visibleVoiceStatus(title, subtitle, status) {
+  if (state.voice.pendingAudio && state.voice.pendingError && status === "idle") {
+    return "Send failed - Audio saved for retry";
+  }
+  if (status === "idle") {
+    return "Ready";
+  }
+  if (subtitle && status !== "idle") {
+    return `${title} - ${subtitle}`;
+  }
+  return title;
+}
+
+function renderVoiceRetry() {
+  const hasPendingAudio = Boolean(state.voice.pendingAudio);
+  const canRetry = hasPendingAudio && state.voice.status === "idle";
+  els.retryVoice.hidden = !canRetry;
+  els.retryVoice.disabled = !canRetry;
+  els.voiceStatus.classList.toggle(
+    "error",
+    canRetry && Boolean(state.voice.pendingError),
+  );
+  els.voiceStatus.classList.toggle("active", state.voice.status !== "idle");
+}
+
+function rememberPendingVoiceAudio(blob) {
+  state.voice.pendingAudio = blob;
+  state.voice.pendingMimeType = blob.type || "audio/webm";
+  state.voice.pendingTranscript = "";
+  state.voice.pendingError = "";
+  renderVoiceRetry();
+}
+
+function clearPendingVoiceAudio() {
+  state.voice.pendingAudio = null;
+  state.voice.pendingMimeType = "";
+  state.voice.pendingTranscript = "";
+  state.voice.pendingError = "";
+  renderVoiceRetry();
+}
+
 async function submitTextComposer(event) {
   event?.preventDefault();
   const text = els.textInput.value;
@@ -364,6 +490,10 @@ function setVoiceStatus(status, title, subtitle) {
   state.voice.status = status;
   els.voiceTitle.textContent = title;
   els.voiceSubtitle.textContent = subtitle;
+  els.voiceStatus.textContent = visibleVoiceStatus(title, subtitle, status);
+  const buttonLabel = status === "idle" ? "Record voice" : title;
+  els.voiceButton.title = buttonLabel;
+  els.voiceButton.setAttribute("aria-label", buttonLabel);
   els.voiceRecordingActions.hidden = status !== "recording";
   els.submitVoice.disabled = status !== "recording";
   els.cancelVoice.disabled = status !== "recording";
@@ -376,6 +506,7 @@ function setVoiceStatus(status, title, subtitle) {
   if (status !== "idle") {
     state.voice.textMode = false;
   }
+  renderVoiceRetry();
   renderComposerMode();
 }
 
@@ -487,7 +618,7 @@ async function startVoiceRecording() {
   if (!window.isSecureContext) {
     setVoiceStatus(
       "idle",
-      "Start Recording",
+      "Record voice",
       "Microphone needs HTTPS or localhost",
     );
     addChat("system", "Microphone access needs HTTPS or localhost.", "system");
@@ -525,16 +656,7 @@ async function startVoiceRecording() {
     }
 
     finishVoiceRecording().catch((error) => {
-      addChat("system", error.message, "voice error");
-      stopVoiceAnalysis({ clearWaveform: true });
-      state.voice.cancelRequested = false;
-      state.voice.mediaRecorder = null;
-      state.voice.chunks = [];
-      setVoiceStatus(
-        "idle",
-        "Start Recording",
-        "Tap to record a voice command",
-      );
+      handleVoiceSendError(error);
     });
   });
 
@@ -557,7 +679,7 @@ function discardVoiceRecording() {
   state.voice.chunks = [];
   state.voice.cancelRequested = false;
   state.voice.mediaRecorder = null;
-  setVoiceStatus("idle", "Start Recording", "Tap to record a voice command");
+  setVoiceStatus("idle", "Record voice", "Tap to record a voice command");
 }
 
 function cancelVoiceRecording() {
@@ -583,20 +705,62 @@ async function finishVoiceRecording() {
     throw new Error("No audio captured");
   }
 
-  const data = await api("/api/transcribe", {
-    method: "POST",
-    headers: { "content-type": blob.type || "audio/webm" },
-    body: blob,
-  });
+  rememberPendingVoiceAudio(blob);
+  await sendPendingVoiceRecording();
+}
 
-  setVoiceStatus("sending", "Sending", data.text);
-  await sendMessage(data.text, true, { submitNudge: true });
-  setVoiceStatus(
-    "idle",
-    "Start Recording",
-    "Tap to record a voice command",
-  );
+async function sendPendingVoiceRecording() {
+  const blob = state.voice.pendingAudio;
+  if (!blob) return;
+
+  state.voice.pendingError = "";
+  renderVoiceRetry();
+
+  let transcript = state.voice.pendingTranscript;
+  if (!transcript) {
+    setVoiceStatus("transcribing", "Transcribing", "Converting speech to text");
+    const data = await api("/api/transcribe", {
+      method: "POST",
+      headers: { "content-type": state.voice.pendingMimeType || "audio/webm" },
+      body: blob,
+    });
+    transcript = String(data.text || "").trim();
+    if (!transcript) {
+      throw new Error("No speech detected");
+    }
+    state.voice.pendingTranscript = transcript;
+  }
+
+  setVoiceStatus("sending", "Sending", transcript);
+  await sendMessage(transcript, true, { submitNudge: true });
+  clearPendingVoiceAudio();
+  setVoiceStatus("idle", "Ready", "Tap mic to record");
   stopVoiceAnalysis({ clearWaveform: true });
+}
+
+function handleVoiceSendError(error) {
+  const message = error.message || "Voice send failed";
+  addChat("system", message, "voice error");
+  stopVoiceAnalysis({ clearWaveform: true });
+  stopVoiceStream();
+  state.voice.cancelRequested = false;
+  state.voice.mediaRecorder = null;
+  state.voice.chunks = [];
+  if (state.voice.pendingAudio) {
+    state.voice.pendingError = message;
+    setVoiceStatus("idle", "Send failed", "Audio saved for retry");
+    return;
+  }
+  setVoiceStatus("idle", "Ready", "Tap mic to record");
+}
+
+async function retryVoiceRecording() {
+  if (state.voice.status !== "idle" || !state.voice.pendingAudio) return;
+  try {
+    await sendPendingVoiceRecording();
+  } catch (error) {
+    handleVoiceSendError(error);
+  }
 }
 
 async function toggleVoiceRecording() {
@@ -610,7 +774,7 @@ async function toggleVoiceRecording() {
     state.voice.mediaRecorder = null;
     setVoiceStatus(
       "idle",
-      "Start Recording",
+      "Record voice",
       "Tap to record a voice command",
     );
     addChat("system", error.message, "voice error");
@@ -1617,6 +1781,7 @@ async function loadPanes() {
   state.panes = [];
   if (!state.windowId) {
     renderTargetLabels();
+    resetDirectoryNavigator();
     return;
   }
 
@@ -1625,7 +1790,63 @@ async function loadPanes() {
   loadChat();
   renderTargetLabels();
   renderChat();
+  await loadDirectories({ clear: state.paneId !== previousPaneId });
   await refreshSnapshot(false, { forceScrollBottom: state.paneId !== previousPaneId });
+}
+
+async function loadDirectories({ clear = false } = {}) {
+  const paneId = state.paneId;
+  if (!paneId) {
+    resetDirectoryNavigator();
+    return;
+  }
+
+  state.directories.loading = true;
+  state.directories.error = "";
+  if (clear) {
+    state.directories.cwd = "";
+    state.directories.parent = "";
+    state.directories.entries = [];
+  }
+  renderDirectoryNavigator();
+  try {
+    const data = await api(`/api/directories?paneId=${encodeURIComponent(paneId)}`);
+    if (state.paneId !== paneId) return;
+    state.directories = {
+      cwd: data.cwd || "",
+      parent: data.parent || "",
+      entries: Array.isArray(data.entries) ? data.entries : [],
+      loading: false,
+      error: "",
+    };
+  } catch (error) {
+    if (state.paneId !== paneId) return;
+    state.directories = {
+      cwd: "",
+      parent: "",
+      entries: [],
+      loading: false,
+      error: error.message || "Directory unavailable",
+    };
+  }
+  renderDirectoryNavigator();
+}
+
+async function changeDirectory(targetPath) {
+  if (!state.paneId) {
+    addChat("system", "Select a window first.", "system");
+    return;
+  }
+  if (!targetPath) return;
+
+  const label = pathLabel(targetPath);
+  setStatus(`cd: ${label}`);
+  await sendMessage(`cd ${shellQuote(targetPath)}`, true);
+  window.setTimeout(() => {
+    loadPanes().catch((error) => {
+      addChat("system", error.message, "directory error");
+    });
+  }, 650);
 }
 
 async function refreshSnapshot(addToChat = false, { forceScrollBottom = false } = {}) {
@@ -1745,6 +1966,17 @@ els.textComposer.addEventListener("submit", submitTextComposer);
 els.cancelText.addEventListener("click", () => hideTextComposer());
 els.submitVoice.addEventListener("click", submitVoiceRecording);
 els.cancelVoice.addEventListener("click", cancelVoiceRecording);
+els.retryVoice.addEventListener("click", retryVoiceRecording);
+els.directoryList.addEventListener("click", async (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const button = target?.closest("[data-cwd-path]");
+  if (!button) return;
+  try {
+    await changeDirectory(button.dataset.cwdPath);
+  } catch (error) {
+    addChat("system", error.message, "directory error");
+  }
+});
 els.speakWindow.addEventListener("click", async () => {
   if (state.audio.busy) {
     stopWindowSummary();
