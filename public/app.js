@@ -563,19 +563,27 @@ function audioBytesFromBase64(base64) {
 
 function setSpeakWindowBusy(busy) {
   state.audio.busy = busy;
-  els.speakWindow.disabled = false;
-  els.speakWindow.textContent = busy
-    ? state.audio.stopRequested
-      ? "..."
-      : "Stop"
-    : "Read";
-  els.speakWindow.title = busy ? "Stop reading" : "Read current window";
+  if (!busy) {
+    state.audio.stopRequested = false;
+  }
+  const stopping = busy && state.audio.stopRequested;
+  els.speakWindow.disabled = stopping;
+  els.speakWindow.textContent = busy ? "Stop" : "Read";
+  els.speakWindow.title = stopping
+    ? "Stopping reading"
+    : busy
+      ? "Stop reading"
+      : "Read current window";
   els.speakWindow.setAttribute(
     "aria-label",
-    busy ? "Stop reading current window" : "Read current window",
+    stopping
+      ? "Stopping reading current window"
+      : busy
+        ? "Stop reading current window"
+        : "Read current window",
   );
   els.speakWindow.classList.toggle("reading", busy);
-  els.speakWindow.classList.toggle("stopping", busy && state.audio.stopRequested);
+  els.speakWindow.classList.toggle("stopping", stopping);
 }
 
 function closeRealtimeAudio() {
