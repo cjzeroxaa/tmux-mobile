@@ -46,6 +46,7 @@ const SUBMIT_NUDGE_DELAY_MS =
 const SUMMARY_CACHE_MS = 60_000;
 const SUMMARY_LINES_DEFAULT = 20;
 const WINDOW_BRIEFING_LINES = 100;
+const REALTIME_WINDOW_BRIEFING_MAX_CAPTURE_LINES = 500;
 const REALTIME_WINDOW_BRIEFING_CHUNK_LINES = parsePositiveInteger(
   process.env.OPENAI_REALTIME_WINDOW_BRIEFING_CHUNK_LINES,
   12,
@@ -69,7 +70,7 @@ const BRACKETED_PASTE_END = "\x1b[201~";
 const WINDOW_BRIEFING_INSTRUCTIONS =
   "You are turning the last visible terminal output into something useful to listen to. The input is the last lines captured from the active pane of a tmux window where a coding agent, shell, editor, or test/build process may be running. Your job is to summarize and restate the actual content in those lines, not to describe the fact that an agent is speaking, explaining, coding, or summarizing. If the output contains an explanation, explain the substance of that explanation. If it contains a plan, report the plan. If it contains code-review findings, report the findings. If it contains command output, report the meaningful results, errors, files, commands, and blockers. Avoid meta phrases such as \"the agent is explaining\", \"the output discusses\", \"it mentions\", or \"the terminal shows\" unless there is no substantive content to report. Ignore ANSI escape sequences, control characters, redraw artifacts, repeated progress-only lines, prompts with no meaningful state, and other terminal noise. Be faithful to the visible output and do not invent missing context. Write a natural spoken summary of 3-7 sentences, no Markdown, no bullets, no code fences. Use Chinese if the terminal output or user task is primarily Chinese; otherwise use English.";
 const AGENT_RESPONSE_EXTRACT_INSTRUCTIONS =
-  "You receive the last 100 lines captured from a tmux pane that is usually running a coding agent such as Codex, Claude Code, or another terminal agent. The capture includes terminal chrome, prompts, tool calls, command output, progress spinners, diffs, status lines, and possibly the final assistant response. Extract only the latest user-facing agent response that should be read aloud. Preserve that response verbatim: keep the original language, wording, file paths, commands, bullets, numbering, and line breaks. Do not summarize, rewrite, explain, translate, add a preface, or wrap it in Markdown fences. Remove terminal noise, prompt text, tool-call logs, command output that is not part of the final response, repeated redraw artifacts, and unrelated earlier context. If the latest agent response is split across multiple wrapped terminal lines, reconstruct it as readable text without adding new content. If no clear user-facing agent response is visible, return the last meaningful non-noise text from the agent output. Return only the extracted text.";
+  "You receive the latest captured tail from a tmux pane that is usually running a coding agent such as Codex, Claude Code, or another terminal agent. The capture includes terminal chrome, prompts, tool calls, command output, progress spinners, diffs, status lines, and possibly the final assistant response. Extract only the latest user-facing agent response that should be read aloud, preferring the bottom-most complete response when multiple responses are visible. Preserve that response verbatim: keep the original language, wording, file paths, commands, bullets, numbering, and line breaks. Do not summarize, rewrite, explain, translate, add a preface, or wrap it in Markdown fences. Remove terminal noise, prompt text, tool-call logs, command output that is not part of the final response, repeated redraw artifacts, and unrelated earlier context. If the latest agent response is split across multiple wrapped terminal lines, reconstruct it as readable text without adding new content. If no clear user-facing agent response is visible, return the last meaningful non-noise text from the agent output. Return only the extracted text.";
 const REALTIME_WINDOW_BRIEFING_INSTRUCTIONS =
   "Read aloud the provided extracted coding-agent response. Do not summarize, rewrite, explain, or add context. Preserve the substance and ordering of the text you are given. If the text is in Chinese, read it in Chinese; if it is in English, read it in English. If the input is one chunk of a longer response, continue naturally without announcing chunk numbers or metadata.";
 const REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS =
@@ -228,6 +229,11 @@ function parseLines(value) {
 function textExcerpt(text, max = 5000) {
   if (text.length <= max) return text;
   return `${text.slice(0, max)}\n\n[truncated ${text.length - max} chars]`;
+}
+
+function tailTextExcerpt(text, max = 5000) {
+  if (text.length <= max) return text;
+  return `[truncated ${text.length - max} earlier chars]\n\n${text.slice(-max)}`;
 }
 
 function escapeHtmlAttribute(value) {
@@ -739,10 +745,57 @@ async function getWindowInfo(windowId) {
   const [sessionId = "", sessionName = "", windowIndex = "", windowName = ""] =
     stdout.trimEnd().split("\t");
   return {
+    windowId,
     sessionId,
     sessionName,
     windowIndex: Number(windowIndex),
     windowName,
+  };
+}
+
+async function getPaneContext(paneId) {
+  requireId(paneId, "pane");
+  const stdout = await runTmux([
+    "display-message",
+    "-p",
+    "-t",
+    paneId,
+    "#{window_id}\t#{session_id}\t#{session_name}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_title}",
+  ]);
+  const [
+    windowId = "",
+    sessionId = "",
+    sessionName = "",
+    windowIndex = "",
+    windowName = "",
+    resolvedPaneId = "",
+    paneIndex = "",
+    paneActive = "",
+    command = "",
+    cwd = "",
+    width = "",
+    height = "",
+    title = "",
+  ] = stdout.trimEnd().split("\t");
+
+  return {
+    windowInfo: {
+      windowId,
+      sessionId,
+      sessionName,
+      windowIndex: Number(windowIndex),
+      windowName,
+    },
+    pane: {
+      id: resolvedPaneId || paneId,
+      index: Number(paneIndex),
+      active: paneActive === "1",
+      command,
+      cwd,
+      width: Number(width || 0),
+      height: Number(height || 0),
+      title,
+    },
   };
 }
 
@@ -760,7 +813,7 @@ async function extractLatestAgentResponse({ windowInfo, pane, lines, output }) {
         command: pane?.command || "",
         cwd: pane?.cwd || "",
       },
-      output: textExcerpt(output, 14000),
+      output: tailTextExcerpt(output, 14000),
     }),
     maxOutputTokens: AGENT_RESPONSE_EXTRACT_MAX_OUTPUT_TOKENS,
     model: AGENT_RESPONSE_EXTRACT_MODEL,
@@ -769,33 +822,31 @@ async function extractLatestAgentResponse({ windowInfo, pane, lines, output }) {
   return stripMarkdownFence(extracted);
 }
 
-async function buildWindowBriefingInput(windowId, lineCount) {
-  requireId(windowId, "window");
-  const lines = Math.min(parseLines(lineCount || WINDOW_BRIEFING_LINES), 100);
-  const [windowInfo, panes] = await Promise.all([
-    getWindowInfo(windowId),
-    listPanes(windowId),
-  ]);
-  const pane = panes[0];
+async function buildBriefingInputForPane({ windowInfo, pane, lineCount }) {
+  const lines = Math.min(
+    parseLines(lineCount || WINDOW_BRIEFING_LINES),
+    REALTIME_WINDOW_BRIEFING_MAX_CAPTURE_LINES,
+  );
   const text = pane ? await capturePane(pane.id, "tail", lines) : "";
   const cleanedOutput = cleanTerminalText(text);
-  const extractedOutput =
-    (await extractLatestAgentResponse({
-      windowInfo,
-      pane,
-      lines,
-      output: cleanedOutput,
-    })) || cleanedOutput;
+  const extractedOutput = await extractLatestAgentResponse({
+    windowInfo,
+    pane,
+    lines,
+    output: cleanedOutput,
+  });
+  const readableOutput = extractedOutput || tailTextExcerpt(cleanedOutput, 10000);
   const sample = {
     ...windowInfo,
     paneIndex: pane?.index ?? null,
+    paneId: pane?.id || "",
     command: pane?.command || "",
     cwd: pane?.cwd || "",
     capturedLines: lines,
     extractionModel: AGENT_RESPONSE_EXTRACT_MODEL,
-    output: textExcerpt(extractedOutput, 10000),
+    output: textExcerpt(readableOutput, 10000),
   };
-  const chunkOutputs = splitRealtimeBriefingOutput(extractedOutput);
+  const chunkOutputs = splitRealtimeBriefingOutput(readableOutput);
   const inputChunks =
     chunkOutputs.length > 0
       ? chunkOutputs
@@ -808,9 +859,26 @@ async function buildWindowBriefingInput(windowId, lineCount) {
     input: sample.output,
     inputChunks,
     rawChars: cleanedOutput.length,
-    extractedChars: extractedOutput.length,
+    extractedChars: readableOutput.length,
     extractionModel: AGENT_RESPONSE_EXTRACT_MODEL,
+    paneId: pane?.id || "",
+    windowId: windowInfo.windowId || "",
   };
+}
+
+async function buildWindowBriefingInput(windowId, lineCount) {
+  requireId(windowId, "window");
+  const [windowInfo, panes] = await Promise.all([
+    getWindowInfo(windowId),
+    listPanes(windowId),
+  ]);
+  const pane = panes.find((item) => item.active) || panes[0];
+  return buildBriefingInputForPane({ windowInfo, pane, lineCount });
+}
+
+async function buildPaneBriefingInput(paneId, lineCount) {
+  const { windowInfo, pane } = await getPaneContext(paneId);
+  return buildBriefingInputForPane({ windowInfo, pane, lineCount });
 }
 
 async function summarizeWindowForSpeech(windowId, lineCount) {
@@ -1235,20 +1303,33 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/window-realtime-session") {
     const body = await readJsonBody(req);
-    const windowId = requireId(body.windowId, "window");
-    const lines = Math.min(parseLines(body.lines || WINDOW_BRIEFING_LINES), 100);
+    const paneId = body.paneId ? requireId(body.paneId, "pane") : "";
+    const windowId = body.windowId ? requireId(body.windowId, "window") : "";
+    if (!paneId && !windowId) {
+      const error = new Error("Pane or window id is required");
+      error.status = 400;
+      throw error;
+    }
+    const lines = Math.min(
+      parseLines(body.lines || WINDOW_BRIEFING_LINES),
+      REALTIME_WINDOW_BRIEFING_MAX_CAPTURE_LINES,
+    );
     const startedAt = Date.now();
     logServerEvent("window_realtime_session_started", {
       windowId,
+      paneId,
       lines,
       realtimeModel: REALTIME_MODEL,
       voice: REALTIME_VOICE,
       clientSecretTtlSeconds: REALTIME_CLIENT_SECRET_TTL_SECONDS,
     });
-    const briefing = await buildWindowBriefingInput(windowId, lines);
+    const briefing = paneId
+      ? await buildPaneBriefingInput(paneId, lines)
+      : await buildWindowBriefingInput(windowId, lines);
     const clientSecret = await createRealtimeClientSecret();
     logServerEvent("window_realtime_session_ready", {
-      windowId,
+      windowId: briefing.windowId || windowId,
+      paneId: briefing.paneId || paneId,
       lines: briefing.lines,
       realtimeModel: REALTIME_MODEL,
       voice: REALTIME_VOICE,
@@ -1270,6 +1351,8 @@ async function handleApi(req, res, url) {
       inputChunks: briefing.inputChunks,
       chunkCount: briefing.inputChunks.length,
       lines: briefing.lines,
+      windowId: briefing.windowId || windowId,
+      paneId: briefing.paneId || paneId,
       model: REALTIME_MODEL,
       voice: REALTIME_VOICE,
       extractionModel: briefing.extractionModel,

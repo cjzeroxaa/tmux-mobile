@@ -144,42 +144,12 @@ h3 {
 }
 
 .toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  display: flex;
+  flex-wrap: wrap;
   gap: 7px;
   align-items: center;
   border-bottom: 1px solid var(--line);
   padding: 8px;
-}
-
-.segmented {
-  display: flex;
-  grid-column: 1 / -1;
-  width: 100%;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-
-.segmented button {
-  min-width: 0;
-  flex: 1 1 0;
-  border: 0;
-  border-right: 1px solid var(--line);
-  background: #fff;
-  color: var(--ink);
-  padding: 9px 6px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.segmented button:last-child {
-  border-right: 0;
-}
-
-.segmented button.active {
-  background: var(--accent);
-  color: #fff;
 }
 
 .line-picker,
@@ -194,7 +164,8 @@ h3 {
 }
 
 .line-picker {
-  min-width: 0;
+  min-width: 112px;
+  flex: 1 1 112px;
 }
 
 select,
@@ -210,6 +181,53 @@ input {
 
 #lineCount {
   width: 76px;
+}
+
+.activity-status {
+  display: inline-flex;
+  min-width: 54px;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f7faf8;
+  color: var(--muted);
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.activity-status::before {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #9aa4aa;
+  content: "";
+}
+
+.activity-status.active {
+  border-color: rgba(17, 107, 95, 0.34);
+  background: #edf7f3;
+  color: var(--accent-dark);
+}
+
+.activity-status.active::before {
+  background: #16865f;
+  box-shadow: 0 0 0 3px rgba(22, 134, 95, 0.14);
+}
+
+.activity-status.background {
+  background: #f5f7f9;
+  color: #4f5a63;
+}
+
+.activity-status.auto-off {
+  opacity: 0.62;
 }
 
 .snapshot {
@@ -318,7 +336,7 @@ input {
 
 .quick-action-grid {
   display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 4px;
 }
 
@@ -351,6 +369,13 @@ input {
   border-color: rgba(17, 107, 95, 0.28);
   background: #edf5f2;
   color: var(--accent-dark);
+}
+
+.action-button.agent {
+  border-color: rgba(39, 68, 114, 0.28);
+  background: #f2f4f7;
+  color: #274472;
+  font-size: 10px;
 }
 
 .action-button.audio {
@@ -413,11 +438,9 @@ input {
 }
 
 .snapshot-fullscreen .toolbar {
-  grid-template-columns: minmax(0, 1fr) auto auto;
   background: var(--surface);
 }
 
-.snapshot-fullscreen .segmented,
 .snapshot-fullscreen .line-picker {
   display: none;
 }

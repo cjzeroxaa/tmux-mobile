@@ -11,7 +11,6 @@ const state = {
   sessionId: "",
   windowId: "",
   paneId: "",
-  captureMode: "tail",
   lines: 120,
   autoRefreshTimer: null,
   chat: [],
@@ -38,6 +37,7 @@ const state = {
     peerConnection: null,
     remoteStream: null,
     remoteTrack: null,
+    readId: 0,
     source: null,
     busy: false,
     stopRequested: false,
@@ -89,6 +89,7 @@ const els = {
   mobileRefresh: document.querySelector("#mobileRefresh"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
+  windowActivityStatus: document.querySelector("#windowActivityStatus"),
   newWindow: document.querySelector("#newWindow"),
   killWindow: document.querySelector("#killWindow"),
   lineCount: document.querySelector("#lineCount"),
@@ -117,6 +118,7 @@ async function api(path, options = {}) {
   }
 
   const response = await fetch(path, {
+    cache: "no-store",
     ...options,
     headers,
   });
@@ -271,6 +273,26 @@ function renderTargetLabels() {
   const label =
     session && win ? `${session.name} / ${win.index}:${win.name}` : "No window selected";
   els.mobileTargetLabel.textContent = label;
+  renderWindowActivityStatus();
+}
+
+function renderWindowActivityStatus() {
+  const win = selectedWindow();
+  const autoEnabled = Boolean(state.autoRefreshTimer);
+  const status = win?.active ? "active" : win ? "background" : "idle";
+  const text =
+    status === "active" ? "Active" : status === "background" ? "Bg" : "Idle";
+  const title = win
+    ? `${win.index}:${win.name} is ${win.active ? "active" : "in the background"}; auto refresh is ${autoEnabled ? "on" : "off"}`
+    : `No active window selected; auto refresh is ${autoEnabled ? "on" : "off"}`;
+
+  els.windowActivityStatus.textContent = text;
+  els.windowActivityStatus.title = title;
+  els.windowActivityStatus.setAttribute("aria-label", title);
+  els.windowActivityStatus.classList.toggle("active", status === "active");
+  els.windowActivityStatus.classList.toggle("background", status === "background");
+  els.windowActivityStatus.classList.toggle("idle", status === "idle");
+  els.windowActivityStatus.classList.toggle("auto-off", !autoEnabled);
 }
 
 function openTargetPicker() {
@@ -563,11 +585,8 @@ function audioBytesFromBase64(base64) {
 
 function setSpeakWindowBusy(busy) {
   state.audio.busy = busy;
-  if (!busy) {
-    state.audio.stopRequested = false;
-  }
   const stopping = busy && state.audio.stopRequested;
-  els.speakWindow.disabled = stopping;
+  els.speakWindow.disabled = false;
   els.speakWindow.textContent = busy ? "Stop" : "Read";
   els.speakWindow.title = stopping
     ? "Stopping reading"
@@ -584,6 +603,16 @@ function setSpeakWindowBusy(busy) {
   );
   els.speakWindow.classList.toggle("reading", busy);
   els.speakWindow.classList.toggle("stopping", stopping);
+}
+
+function isCurrentAudioRead(readId) {
+  return state.audio.readId === readId;
+}
+
+function throwIfAudioReadStopped(readId) {
+  if (!isCurrentAudioRead(readId) || state.audio.stopRequested) {
+    throw new Error("Realtime read stopped");
+  }
 }
 
 function closeRealtimeAudio() {
@@ -624,10 +653,11 @@ function closeRealtimeAudio() {
 function stopWindowSummary() {
   if (!state.audio.busy) return;
   state.audio.stopRequested = true;
+  state.audio.readId += 1;
   logClientEvent("realtime_read_stop_requested");
-  setStatus("realtime: stopping");
-  setSpeakWindowBusy(true);
+  setStatus("realtime: stopped");
   closeRealtimeAudio();
+  setSpeakWindowBusy(false);
 }
 
 function waitForDataChannelOpen(channel, timeoutMs = 10000) {
@@ -934,14 +964,14 @@ async function waitForRealtimePlaybackToFinish({
   });
 }
 
-async function playWindowSummaryRealtime() {
+async function playWindowSummaryRealtime({ readId, windowId, paneId }) {
   if (!window.RTCPeerConnection) {
     throw new Error("Realtime audio is not supported in this browser");
   }
 
   closeRealtimeAudio();
-  state.audio.stopRequested = false;
-  state.audio.abortController = new AbortController();
+  const abortController = new AbortController();
+  state.audio.abortController = abortController;
   const peerConnection = new RTCPeerConnection();
   const dataChannel = peerConnection.createDataChannel("oai-events");
   const audioElement = new Audio();
@@ -979,19 +1009,23 @@ async function playWindowSummaryRealtime() {
   const offer = await peerConnection.createOffer();
   await peerConnection.setLocalDescription(offer);
   await waitForIceGatheringComplete(peerConnection);
+  throwIfAudioReadStopped(readId);
 
   const data = await api("/api/window-realtime-session", {
     method: "POST",
-    signal: state.audio.abortController.signal,
+    signal: abortController.signal,
     body: JSON.stringify({
-      windowId: state.windowId,
-      lines: 100,
+      windowId,
+      paneId,
+      lines: Math.min(state.lines, 500),
     }),
   });
+  throwIfAudioReadStopped(readId);
   logClientEvent("realtime_client_secret_ready", {
     model: data.model,
     voice: data.voice,
     lines: data.lines,
+    paneId: data.paneId || paneId,
     chunkCount: data.chunkCount,
     extractionModel: data.extractionModel || "",
     extractedChars: data.extractedChars || 0,
@@ -1000,8 +1034,9 @@ async function playWindowSummaryRealtime() {
   const answerSdp = await createRealtimeSdpAnswer(
     data.clientSecret,
     peerConnection.localDescription?.sdp || offer.sdp,
-    state.audio.abortController.signal,
+    abortController.signal,
   );
+  throwIfAudioReadStopped(readId);
 
   await peerConnection.setRemoteDescription({
     type: "answer",
@@ -1013,6 +1048,7 @@ async function playWindowSummaryRealtime() {
     lines: data.lines,
   });
   await waitForDataChannelOpen(dataChannel);
+  throwIfAudioReadStopped(readId);
   logClientEvent("realtime_data_channel_open", {
     model: data.model,
     voice: data.voice,
@@ -1023,9 +1059,7 @@ async function playWindowSummaryRealtime() {
       : [data.input];
   const transcripts = [];
   for (let index = 0; index < inputChunks.length; index += 1) {
-    if (state.audio.stopRequested) {
-      throw new Error("Realtime read stopped");
-    }
+    throwIfAudioReadStopped(readId);
     logClientEvent("realtime_response_chunk_started", {
       chunk: index + 1,
       chunks: inputChunks.length,
@@ -1038,6 +1072,7 @@ async function playWindowSummaryRealtime() {
       realtimeResponseEvent(data, inputChunks[index], index, inputChunks.length),
     );
     const result = await responseDone;
+    throwIfAudioReadStopped(readId);
     if (result.transcript.trim()) {
       transcripts.push(result.transcript.trim());
     }
@@ -1052,6 +1087,7 @@ async function playWindowSummaryRealtime() {
     track: state.audio.remoteTrack,
     transcript: transcript || inputChunks.join("\n\n"),
   });
+  throwIfAudioReadStopped(readId);
   closeRealtimeAudio();
   return {
     transcript,
@@ -1119,28 +1155,38 @@ async function playAudioBase64(base64, mimeType) {
 }
 
 async function speakWindowSummary() {
-  if (!state.windowId) {
+  if (!state.paneId) {
     addChat("system", "Select a window first.", "system");
     return;
   }
 
+  const readId = state.audio.readId + 1;
+  const paneId = state.paneId;
+  const windowId = state.windowId;
+  state.audio.readId = readId;
+  state.audio.stopRequested = false;
   setSpeakWindowBusy(true);
   addChat("system", "Connecting Realtime audio stream.", "audio");
 
   try {
-    const data = await playWindowSummaryRealtime();
-    if (data.transcript.trim()) {
+    const data = await playWindowSummaryRealtime({ readId, windowId, paneId });
+    if (isCurrentAudioRead(readId) && data.transcript.trim()) {
       addChat("system", data.transcript.trim(), "Realtime audio summary");
     }
-    setStatus(`realtime: ${data.model}`);
+    if (isCurrentAudioRead(readId)) {
+      setStatus(`realtime: ${data.model}`);
+    }
   } catch (error) {
     if (
+      !isCurrentAudioRead(readId) ||
       state.audio.stopRequested ||
       error.name === "AbortError" ||
       error.message === "Realtime read stopped"
     ) {
       logClientEvent("realtime_read_stopped");
-      setStatus("realtime: stopped");
+      if (isCurrentAudioRead(readId)) {
+        setStatus("realtime: stopped");
+      }
       return;
     }
     logClientEvent("realtime_read_failed", {
@@ -1149,7 +1195,10 @@ async function speakWindowSummary() {
     closeRealtimeAudio();
     throw error;
   } finally {
-    setSpeakWindowBusy(false);
+    if (isCurrentAudioRead(readId)) {
+      state.audio.stopRequested = false;
+      setSpeakWindowBusy(false);
+    }
   }
 }
 
@@ -1517,7 +1566,7 @@ async function loadPanes() {
   }
 
   state.panes = await api(`/api/panes?windowId=${encodeURIComponent(state.windowId)}`);
-  state.paneId = state.panes[0]?.id || "";
+  state.paneId = state.panes.find((pane) => pane.active)?.id || state.panes[0]?.id || "";
   loadChat();
   renderTargetLabels();
   renderChat();
@@ -1532,7 +1581,7 @@ async function refreshSnapshot(addToChat = false, { forceScrollBottom = false } 
   try {
     const params = new URLSearchParams({
       paneId: state.paneId,
-      mode: state.captureMode,
+      mode: "tail",
       lines: String(state.lines),
     });
     const data = await api(`/api/capture?${params}`);
@@ -1577,14 +1626,6 @@ async function runActionCommand(command) {
   await sendMessage(command, true);
 }
 
-function setCaptureMode(mode) {
-  state.captureMode = mode;
-  for (const button of document.querySelectorAll("[data-mode]")) {
-    button.classList.toggle("active", button.dataset.mode === mode);
-  }
-  refreshSnapshot();
-}
-
 function setAutoRefresh(enabled) {
   if (state.autoRefreshTimer) {
     window.clearInterval(state.autoRefreshTimer);
@@ -1596,6 +1637,7 @@ function setAutoRefresh(enabled) {
       refreshSnapshot();
     }, 3000);
   }
+  renderWindowActivityStatus();
 }
 
 els.mobileRefreshTree.addEventListener("click", async () => {
@@ -1639,6 +1681,7 @@ els.sessionNameInput.addEventListener("keydown", (event) => {
 els.createSession.addEventListener("click", createTmuxSession);
 els.renameSession.addEventListener("click", renameTmuxSession);
 els.openTargetPicker.addEventListener("click", openTargetPicker);
+els.windowActivityStatus.addEventListener("click", openTargetPicker);
 els.closeTargetPicker.addEventListener("click", closeTargetPicker);
 els.targetBackdrop.addEventListener("click", closeTargetPicker);
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
@@ -1666,10 +1709,6 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-for (const button of document.querySelectorAll("[data-mode]")) {
-  button.addEventListener("click", () => setCaptureMode(button.dataset.mode));
-}
-
 for (const button of document.querySelectorAll("[data-key]")) {
   button.addEventListener("click", async () => {
     try {
@@ -1684,6 +1723,16 @@ for (const button of document.querySelectorAll("[data-command]")) {
   button.addEventListener("click", async () => {
     try {
       await runActionCommand(button.dataset.command);
+    } catch (error) {
+      addChat("system", error.message, "error");
+    }
+  });
+}
+
+for (const button of document.querySelectorAll("[data-send-text]")) {
+  button.addEventListener("click", async () => {
+    try {
+      await sendMessage(button.dataset.sendText || "", button.dataset.sendEnter === "true");
     } catch (error) {
       addChat("system", error.message, "error");
     }
