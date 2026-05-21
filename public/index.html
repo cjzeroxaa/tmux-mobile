@@ -9,10 +9,141 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <title>__APP_TITLE__</title>
-    <script type="module" crossorigin src="/assets/index-CLN4SQlu.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-rH8jMKTM.css">
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div id="root"></div>
+    <main class="app-shell">
+      <header class="mobile-topbar">
+        <button id="openTargetPicker" class="target-pill" type="button">
+          <span>Attached window</span>
+          <strong id="mobileTargetLabel">No window selected</strong>
+        </button>
+        <button id="mobileRefresh" class="icon-button" title="Refresh">R</button>
+      </header>
+
+      <section class="snapshot-panel">
+        <div class="toolbar">
+          <label class="line-picker">
+            <span>Lines</span>
+            <select id="lineCount">
+              <option value="50">50</option>
+              <option value="120" selected>120</option>
+              <option value="250">250</option>
+              <option value="500">500</option>
+              <option value="1000">1000</option>
+            </select>
+          </label>
+          <button id="refreshSnapshot" class="small-button">Refresh</button>
+          <label class="toggle">
+            <input id="autoRefresh" type="checkbox" checked />
+            <span>Auto</span>
+          </label>
+          <button id="windowActivityStatus" class="activity-status idle" type="button" title="No active window selected" aria-label="No active window selected">Idle</button>
+          <button id="fullscreenSnapshot" class="small-button" type="button" aria-pressed="false">FS</button>
+        </div>
+        <pre id="snapshot" class="snapshot">Select a window.</pre>
+      </section>
+
+      <section class="control-panel">
+        <div id="chat" class="chat" hidden></div>
+
+        <div id="voiceComposer" class="voice-composer">
+          <div class="voice-actions">
+            <div id="voiceEntry" class="voice-entry">
+              <button id="voiceButton" class="voice-button" type="button" title="Record voice" aria-label="Record voice">
+                <span class="mic-icon" aria-hidden="true"></span>
+                <span id="voiceTitle" class="sr-only">Record voice</span>
+                <small id="voiceSubtitle" class="sr-only">Tap to record a voice command</small>
+              </button>
+              <button id="speakWindow" type="button" class="read-button" title="Read current window" aria-label="Read current window">Read</button>
+              <button id="keyboardButton" class="keyboard-button" type="button" title="Text input" aria-label="Text input">Text</button>
+            </div>
+            <div class="voice-status-row">
+              <div id="voiceStatus" class="voice-status" role="status" aria-live="polite">Ready</div>
+              <button id="retryVoice" class="small-button retry" type="button" hidden>Retry</button>
+            </div>
+            <form id="textComposer" class="text-composer" hidden>
+              <textarea id="textInput" rows="4" autocomplete="off" autocapitalize="sentences" spellcheck="true" placeholder="Paste text"></textarea>
+              <div class="text-composer-actions">
+                <button id="submitText" class="small-button submit" type="submit">Submit</button>
+                <button id="cancelText" class="small-button cancel" type="button">Voice</button>
+              </div>
+            </form>
+            <div id="voiceRecordingActions" class="voice-recording-actions" hidden>
+              <div id="voiceWaveform" class="voice-waveform" aria-hidden="true"></div>
+              <button id="cancelVoice" class="small-button cancel" type="button">Cancel</button>
+              <button id="submitVoice" class="small-button submit" type="button">Stop</button>
+            </div>
+            <div class="quick-action-grid" aria-label="Pane actions">
+              <button type="button" data-key="Enter" class="action-button quick-action" title="Enter" aria-label="Enter">Ent</button>
+              <button type="button" data-key="q" class="action-button quick-action" title="q" aria-label="q">Q</button>
+              <button type="button" data-key="Escape" class="action-button quick-action" title="Escape" aria-label="Escape">Esc</button>
+              <button type="button" data-key="C-c" class="action-button quick-action danger" title="Control-C" aria-label="Control-C">^C</button>
+              <button type="button" data-command="claude" class="action-button quick-action command" title="Claude" aria-label="Run Claude">Cl</button>
+              <button type="button" data-command="codex" class="action-button quick-action command" title="Codex" aria-label="Run Codex">Cx</button>
+              <button type="button" data-command="agr" class="action-button quick-action command" title="AGR" aria-label="Run AGR">Ag</button>
+              <button type="button" data-send-text="/goal " data-send-enter="false" class="action-button quick-action agent" title="Insert /goal" aria-label="Insert slash goal">Goal</button>
+              <button type="button" data-send-text="/clear" data-send-enter="true" class="action-button quick-action agent" title="Run /clear" aria-label="Run slash clear">Clear</button>
+            </div>
+            <section id="directoryNavigator" class="directory-navigator" aria-label="Current directory">
+              <div class="directory-header">
+                <span>Dir</span>
+                <strong id="directoryPath">No window selected</strong>
+              </div>
+              <div id="directoryList" class="directory-list"></div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div id="targetSheet" class="target-sheet" hidden>
+      <button id="targetBackdrop" class="target-backdrop" type="button" aria-label="Close target picker"></button>
+      <section class="target-panel" role="dialog" aria-modal="true" aria-labelledby="targetSheetTitle">
+        <div class="target-panel-header">
+          <div>
+            <h2 id="targetSheetTitle">Switch Target</h2>
+            <p class="muted">Select a session, then choose a window.</p>
+          </div>
+          <button id="closeTargetPicker" class="icon-button" type="button" title="Close">X</button>
+        </div>
+
+        <div class="target-panel-actions">
+          <button id="mobileRefreshTree" class="small-button" type="button">Refresh</button>
+          <span id="mobileConnectionStatus" class="muted">localhost</span>
+        </div>
+
+        <label class="target-select">
+          <span>Session</span>
+          <select id="mobileSessionSelect"></select>
+        </label>
+
+        <div class="session-management" aria-label="Session management">
+          <label class="session-name-field">
+            <span>Name</span>
+            <input id="sessionNameInput" type="text" autocomplete="off" placeholder="session name" />
+          </label>
+          <div class="session-actions">
+            <button id="createSession" class="small-button" type="button">New</button>
+            <button id="renameSession" class="small-button" type="button">Rename</button>
+          </div>
+        </div>
+
+        <div class="mobile-target-groups">
+          <section class="target-group">
+            <div class="target-group-header">
+              <h3>Windows</h3>
+              <div class="window-actions" aria-label="Window actions">
+                <button id="newWindow" class="small-button" type="button">+ Win</button>
+                <button id="killWindow" class="small-button danger" type="button">Kill</button>
+              </div>
+            </div>
+            <div id="mobileWindows" class="list mobile-list"></div>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <script src="/app.js" type="module"></script>
   </body>
 </html>

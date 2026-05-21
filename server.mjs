@@ -864,9 +864,7 @@ async function buildPaneBriefingInput(paneId, lineCount) {
   return buildBriefingInputForPane({ windowInfo, pane, lineCount });
 }
 
-async function summarizeWindowForSpeech(windowId, lineCount) {
-  const briefing = await buildWindowBriefingInput(windowId, lineCount);
-
+async function summarizeBriefingForSpeech(briefing) {
   const summary = await createTextModelResponse({
     instructions: WINDOW_BRIEFING_INSTRUCTIONS,
     input: briefing.input,
@@ -875,6 +873,24 @@ async function summarizeWindowForSpeech(windowId, lineCount) {
   });
 
   return limitWords(summary, 320);
+}
+
+async function summarizeWindowForSpeech(windowId, lineCount) {
+  const briefing = await buildWindowBriefingInput(windowId, lineCount);
+  return {
+    summary: await summarizeBriefingForSpeech(briefing),
+    paneId: briefing.paneId,
+    windowId: briefing.windowId || windowId,
+  };
+}
+
+async function summarizePaneForSpeech(paneId, lineCount) {
+  const briefing = await buildPaneBriefingInput(paneId, lineCount);
+  return {
+    summary: await summarizeBriefingForSpeech(briefing),
+    paneId: briefing.paneId || paneId,
+    windowId: briefing.windowId,
+  };
 }
 
 async function createSpeechAudio(text) {
@@ -1247,29 +1263,79 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/voice-send") {
+    const paneId = requireId(url.searchParams.get("paneId"), "pane");
+    const sendEnter = url.searchParams.get("enter") !== "0";
+    const submitNudge = url.searchParams.get("submitNudge") !== "0";
+    const contentType = req.headers["content-type"] || "audio/webm";
+    const audio = await readRequestBuffer(req, MAX_AUDIO_BYTES);
+    if (audio.length === 0) {
+      sendJson(res, 400, { error: "No audio received" });
+      return;
+    }
+
+    const text = await transcribeAudio(audio, contentType);
+    if (!text) {
+      sendJson(res, 422, { error: "No speech recognized" });
+      return;
+    }
+    if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
+      sendJson(res, 413, { error: "Transcribed text is too large" });
+      return;
+    }
+
+    const sendResult = await sendTextToPane(paneId, text, { enter: false });
+    if (sendEnter) {
+      await runTmux(["send-keys", "-t", paneId, "Enter"]);
+      if (submitNudge) {
+        sendSubmitNudge(paneId);
+      }
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      text,
+      model: TRANSCRIBE_MODEL,
+      sendMode: sendResult.mode,
+      submitNudgeDelayMs:
+        submitNudge && sendEnter && text.length > 0 ? SUBMIT_NUDGE_DELAY_MS : 0,
+    });
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/window-audio-summary") {
     const body = await readJsonBody(req);
-    const windowId = requireId(body.windowId, "window");
+    const paneId = body.paneId ? requireId(body.paneId, "pane") : "";
+    const windowId = body.windowId ? requireId(body.windowId, "window") : "";
+    if (!paneId && !windowId) {
+      sendJson(res, 400, { error: "paneId or windowId is required" });
+      return;
+    }
     const lines = Math.min(parseLines(body.lines || WINDOW_BRIEFING_LINES), 100);
     const startedAt = Date.now();
     logServerEvent("window_audio_summary_started", {
+      paneId,
       windowId,
       lines,
       summaryModel: WINDOW_BRIEFING_MODEL,
       speechModel: SPEECH_MODEL,
       voice: SPEECH_VOICE,
     });
-    const summary = await summarizeWindowForSpeech(windowId, lines);
+    const briefing = paneId
+      ? await summarizePaneForSpeech(paneId, lines)
+      : await summarizeWindowForSpeech(windowId, lines);
     logServerEvent("window_audio_summary_summarized", {
-      windowId,
+      paneId: briefing.paneId || paneId,
+      windowId: briefing.windowId || windowId,
       lines,
       summaryModel: WINDOW_BRIEFING_MODEL,
-      summaryChars: summary.length,
+      summaryChars: briefing.summary.length,
       elapsedMs: Date.now() - startedAt,
     });
-    const audioBase64 = await createSpeechAudio(summary);
+    const audioBase64 = await createSpeechAudio(briefing.summary);
     logServerEvent("window_audio_summary_completed", {
-      windowId,
+      paneId: briefing.paneId || paneId,
+      windowId: briefing.windowId || windowId,
       lines,
       summaryModel: WINDOW_BRIEFING_MODEL,
       speechModel: SPEECH_MODEL,
@@ -1277,9 +1343,11 @@ async function handleApi(req, res, url) {
       elapsedMs: Date.now() - startedAt,
     });
     sendJson(res, 200, {
-      summary,
+      summary: briefing.summary,
       audioBase64,
       mimeType: "audio/mpeg",
+      paneId: briefing.paneId || paneId,
+      windowId: briefing.windowId || windowId,
       lines,
       summaryModel: WINDOW_BRIEFING_MODEL,
       speechModel: SPEECH_MODEL,
