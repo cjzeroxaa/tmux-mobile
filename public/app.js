@@ -2,6 +2,37 @@ const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
 const WAVEFORM_SAMPLE_INTERVAL_MS = 200;
 
+if (window.location.search) {
+  const cleanUrl = new URL(window.location.href);
+  cleanUrl.search = "";
+  window.history.replaceState({}, "", cleanUrl);
+}
+
+function createPersistedAtom(key, defaultValue) {
+  let value = defaultValue;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw !== null) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") value = { ...defaultValue, ...parsed };
+    }
+  } catch {}
+  return {
+    get: () => value,
+    set: (next) => {
+      value = { ...value, ...next };
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+      } catch {}
+    },
+  };
+}
+
+const targetAtom = createPersistedAtom("tmux-mobile-target", {
+  session: "0",
+  windowIndex: "1",
+});
+
 const state = {
   sessions: [],
   windows: [],
@@ -57,11 +88,7 @@ const state = {
 };
 
 function readUrlTarget() {
-  const params = new URLSearchParams(window.location.search);
-  return {
-    session: params.get("session") || "",
-    windowIndex: params.get("window") || "",
-  };
+  return targetAtom.get();
 }
 
 function hasUrlTarget(target = readUrlTarget()) {
@@ -73,18 +100,14 @@ function targetMatchesSession(target) {
   return !target.session || session?.name === target.session;
 }
 
-function updateTargetUrl({ replace = false } = {}) {
+function updateTargetUrl() {
   const session = selectedSession();
   const win = selectedWindow();
   if (!session || !win) return;
-
-  const url = new URL(window.location.href);
-  url.searchParams.set("session", session.name);
-  url.searchParams.set("window", String(win.index));
-
-  if (url.toString() === window.location.href) return;
-  const method = replace ? "replaceState" : "pushState";
-  window.history[method]({}, "", url);
+  targetAtom.set({
+    session: session.name,
+    windowIndex: String(win.index),
+  });
 }
 
 const els = {
@@ -1509,7 +1532,6 @@ function updateSnapshotText(text, { forceScrollBottom = false } = {}) {
 function setSnapshotFullscreen(enabled) {
   state.snapshotFullscreen = enabled;
   document.body.classList.toggle("snapshot-fullscreen", enabled);
-  els.fullscreenSnapshot.textContent = enabled ? "Exit" : "FS";
   els.fullscreenSnapshot.setAttribute("aria-pressed", String(enabled));
   scrollSnapshotToBottom();
   if (enabled && isWideViewport()) {
@@ -1612,7 +1634,7 @@ async function refreshTree({
     renderSessions();
     await loadWindows({ urlTarget, forceUrlTarget });
     if (syncUrl) {
-      updateTargetUrl({ replace: true });
+      updateTargetUrl();
     }
     state.pendingUrlTarget = null;
     setStatus("localhost");

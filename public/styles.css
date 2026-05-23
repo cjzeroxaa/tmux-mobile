@@ -659,6 +659,18 @@ input {
   display: inline-flex;
 }
 
+#fullscreenSnapshot .icon-busy {
+  display: none;
+}
+
+#fullscreenSnapshot[aria-pressed="true"] .icon-idle {
+  display: none;
+}
+
+#fullscreenSnapshot[aria-pressed="true"] .icon-busy {
+  display: block;
+}
+
 .snapshot-fullscreen .app-shell {
   width: 100vw;
   padding: 0;
