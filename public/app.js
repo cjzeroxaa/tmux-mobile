@@ -813,7 +813,6 @@ function setSpeakWindowBusy(busy) {
   state.audio.busy = busy;
   const stopping = busy && state.audio.stopRequested;
   els.speakWindow.disabled = false;
-  els.speakWindow.textContent = busy ? "Stop" : "Read";
   els.speakWindow.title = stopping
     ? "Stopping reading"
     : busy

@@ -349,6 +349,18 @@ input {
   opacity: 0.72;
 }
 
+.read-button .icon-busy {
+  display: none;
+}
+
+.read-button.reading .icon-idle {
+  display: none;
+}
+
+.read-button.reading .icon-busy {
+  display: block;
+}
+
 .voice-status-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
