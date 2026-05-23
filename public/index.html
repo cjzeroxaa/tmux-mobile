@@ -39,6 +39,7 @@
             <span>Auto</span>
           </label>
           <button id="windowActivityStatus" class="activity-status idle" type="button" title="No active window selected" aria-label="No active window selected">Idle</button>
+          <button id="fullscreenRead" class="small-button fullscreen-only" type="button" aria-label="Read current window">Read</button>
           <button id="fullscreenSnapshot" class="small-button" type="button" aria-pressed="false">FS</button>
         </div>
         <pre id="snapshot" class="snapshot">Select a window.</pre>
@@ -83,7 +84,7 @@
               <button type="button" data-key="BSpace" class="action-button quick-action" title="Delete" aria-label="Delete">Del</button>
               <button type="button" data-command="claude" class="action-button quick-action command" title="Claude" aria-label="Run Claude">Cl</button>
               <button type="button" data-command="codex" class="action-button quick-action command" title="Codex" aria-label="Run Codex">Cx</button>
-              <button type="button" data-command="agr" class="action-button quick-action command" title="AGR" aria-label="Run AGR">Ag</button>
+              <button type="button" data-key="Tab" class="action-button quick-action" title="Tab" aria-label="Tab">Tab</button>
               <button type="button" data-send-text="/goal " data-send-enter="false" class="action-button quick-action agent" title="Insert /goal" aria-label="Insert slash goal">Goal</button>
               <button type="button" data-send-text="/clear" data-send-enter="true" class="action-button quick-action agent" title="Run /clear" aria-label="Run slash clear">Clear</button>
             </div>

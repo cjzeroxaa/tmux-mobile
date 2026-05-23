@@ -643,6 +643,14 @@ input {
   display: none;
 }
 
+.fullscreen-only {
+  display: none;
+}
+
+.snapshot-fullscreen .fullscreen-only {
+  display: inline-flex;
+}
+
 .snapshot-fullscreen .app-shell {
   width: 100vw;
   padding: 0;

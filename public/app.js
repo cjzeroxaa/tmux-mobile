@@ -101,6 +101,7 @@ const els = {
   mobileRefresh: document.querySelector("#mobileRefresh"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
+  fullscreenRead: document.querySelector("#fullscreenRead"),
   paneInput: document.querySelector("#paneInput"),
   windowActivityStatus: document.querySelector("#windowActivityStatus"),
   newWindow: document.querySelector("#newWindow"),
@@ -828,6 +829,9 @@ function setSpeakWindowBusy(busy) {
   );
   els.speakWindow.classList.toggle("reading", busy);
   els.speakWindow.classList.toggle("stopping", stopping);
+  els.fullscreenRead.textContent = busy ? "Stop" : "Read";
+  els.fullscreenRead.classList.toggle("reading", busy);
+  els.fullscreenRead.classList.toggle("stopping", stopping);
 }
 
 function isCurrentAudioRead(readId) {
@@ -1242,7 +1246,6 @@ async function playWindowSummaryRealtime({ readId, windowId, paneId }) {
     body: JSON.stringify({
       windowId,
       paneId,
-      lines: Math.min(state.lines, 500),
     }),
   });
   throwIfAudioReadStopped(readId);
@@ -1510,11 +1513,15 @@ function setSnapshotFullscreen(enabled) {
   els.fullscreenSnapshot.textContent = enabled ? "Exit" : "FS";
   els.fullscreenSnapshot.setAttribute("aria-pressed", String(enabled));
   scrollSnapshotToBottom();
-  if (enabled) {
+  if (enabled && isWideViewport()) {
     focusPaneInput();
   } else {
     els.paneInput.blur();
   }
+}
+
+function isWideViewport() {
+  return window.matchMedia && window.matchMedia("(min-width: 600px)").matches;
 }
 
 function focusPaneInput() {
@@ -1994,7 +2001,7 @@ els.fullscreenSnapshot.addEventListener("click", () => {
 });
 
 els.snapshot.addEventListener("click", () => {
-  if (state.snapshotFullscreen) focusPaneInput();
+  if (state.snapshotFullscreen && isWideViewport()) focusPaneInput();
 });
 
 els.paneInput.addEventListener("beforeinput", (event) => {
@@ -2073,6 +2080,8 @@ els.directoryList.addEventListener("click", async (event) => {
     addChat("system", error.message, "directory error");
   }
 });
+els.fullscreenRead.addEventListener("click", () => els.speakWindow.click());
+
 els.speakWindow.addEventListener("click", async () => {
   if (state.audio.busy) {
     stopWindowSummary();
