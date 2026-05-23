@@ -45,7 +45,7 @@ const SUBMIT_NUDGE_DELAY_MS =
     : 700;
 const SUMMARY_CACHE_MS = 60_000;
 const SUMMARY_LINES_DEFAULT = 20;
-const WINDOW_BRIEFING_LINES = 100;
+const WINDOW_BRIEFING_LINES = 60;
 const REALTIME_WINDOW_BRIEFING_MAX_CAPTURE_LINES = 500;
 const REALTIME_WINDOW_BRIEFING_CHUNK_LINES = parsePositiveInteger(
   process.env.OPENAI_REALTIME_WINDOW_BRIEFING_CHUNK_LINES,
@@ -68,9 +68,9 @@ const REALTIME_CLIENT_SECRET_TTL_SECONDS = Math.min(
 const WINDOW_BRIEFING_INSTRUCTIONS =
   "You are turning the last visible terminal output into something useful to listen to. The input is the last lines captured from the active pane of a tmux window where a coding agent, shell, editor, or test/build process may be running. Your job is to summarize and restate the actual content in those lines, not to describe the fact that an agent is speaking, explaining, coding, or summarizing. If the output contains an explanation, explain the substance of that explanation. If it contains a plan, report the plan. If it contains code-review findings, report the findings. If it contains command output, report the meaningful results, errors, files, commands, and blockers. Avoid meta phrases such as \"the agent is explaining\", \"the output discusses\", \"it mentions\", or \"the terminal shows\" unless there is no substantive content to report. Ignore ANSI escape sequences, control characters, redraw artifacts, repeated progress-only lines, prompts with no meaningful state, and other terminal noise. Be faithful to the visible output and do not invent missing context. Write a natural spoken summary of 3-7 sentences, no Markdown, no bullets, no code fences. Use Chinese if the terminal output or user task is primarily Chinese; otherwise use English.";
 const AGENT_RESPONSE_EXTRACT_INSTRUCTIONS =
-  "You receive the latest captured tail from a tmux pane that is usually running a coding agent such as Codex, Claude Code, or another terminal agent. The capture includes terminal chrome, prompts, tool calls, command output, progress spinners, diffs, status lines, and possibly the final assistant response. Extract only the latest user-facing agent response that should be read aloud, preferring the bottom-most complete response when multiple responses are visible. Preserve that response verbatim: keep the original language, wording, file paths, commands, bullets, numbering, and line breaks. Do not summarize, rewrite, explain, translate, add a preface, or wrap it in Markdown fences. Remove terminal noise, prompt text, tool-call logs, command output that is not part of the final response, repeated redraw artifacts, and unrelated earlier context. If the latest agent response is split across multiple wrapped terminal lines, reconstruct it as readable text without adding new content. If no clear user-facing agent response is visible, return the last meaningful non-noise text from the agent output. Return only the extracted text.";
+  "From the tmux pane tail below, find the latest agent or shell response and turn it into 3-6 short bullets capturing the core takeaways — what was reported, decided, found, broken, or proposed — keeping specific file paths, commands, identifiers, and numbers when they carry the substance. Drop terminal chrome, prompts, tool-call logs, progress spinners, and decorative separators. Each bullet is one short sentence: specific, not one word, not a paragraph. Use Chinese if the input is primarily Chinese, otherwise English. Return only the bullets, one per line starting with '- '. If nothing useful is visible, return one bullet describing the most recent meaningful line.";
 const REALTIME_WINDOW_BRIEFING_INSTRUCTIONS =
-  "Read aloud the provided extracted coding-agent response. Do not summarize, rewrite, explain, or add context. Preserve the substance and ordering of the text you are given. If the text is in Chinese, read it in Chinese; if it is in English, read it in English. If the input is one chunk of a longer response, continue naturally without announcing chunk numbers or metadata.";
+  "Read the provided bullets aloud as a brisk, natural spoken summary at a quick but clear pace — faster than a default newsreader. Skip the leading '- '. Connect the bullets into flowing sentences rather than reading them staccato. Do not preface, do not add framing, do not translate. Use the input's language. If the input is one chunk of a longer summary, continue naturally without announcing chunk numbers.";
 const REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS =
   parseRealtimeOutputTokenLimit(
     process.env.OPENAI_REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS,
@@ -264,15 +264,30 @@ function sendWebManifest(res) {
 }
 
 function cleanTerminalText(text) {
-  return String(text || "")
+  const lines = String(text || "")
     .replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)/g, "")
     .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "")
     .replace(/\r/g, "\n")
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
     .split("\n")
-    .map((line) => line.trimEnd())
-    .join("\n")
-    .trimEnd();
+    .map((line) => line.trimEnd());
+
+  const kept = [];
+  let lastWasBlank = false;
+  for (const line of lines) {
+    if (isSeparatorLine(line)) continue;
+    const blank = line.length === 0;
+    if (blank && lastWasBlank) continue;
+    kept.push(line);
+    lastWasBlank = blank;
+  }
+  return kept.join("\n").trimEnd();
+}
+
+function isSeparatorLine(line) {
+  const trimmed = line.trim();
+  if (trimmed.length < 6) return false;
+  return /^[-=_*~+─-╿]+$/.test(trimmed);
 }
 
 function stripMarkdownFence(text) {
