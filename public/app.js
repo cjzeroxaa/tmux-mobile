@@ -101,6 +101,7 @@ const els = {
   mobileRefresh: document.querySelector("#mobileRefresh"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
+  themeToggle: document.querySelector("#themeToggle"),
   windowActivityStatus: document.querySelector("#windowActivityStatus"),
   newWindow: document.querySelector("#newWindow"),
   killWindow: document.querySelector("#killWindow"),
@@ -1932,6 +1933,19 @@ els.mobileRefresh.addEventListener("click", async () => {
 els.refreshSnapshot.addEventListener("click", () => refreshSnapshot());
 els.fullscreenSnapshot.addEventListener("click", () => {
   setSnapshotFullscreen(!state.snapshotFullscreen);
+});
+function applyTheme(theme) {
+  const next = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = next;
+  els.themeToggle.textContent = next === "dark" ? "Light" : "Dark";
+  els.themeToggle.setAttribute("aria-pressed", String(next === "dark"));
+  try {
+    localStorage.setItem("tmux-mobile-theme", next);
+  } catch (_) {}
+}
+applyTheme(document.documentElement.dataset.theme || "light");
+els.themeToggle.addEventListener("click", () => {
+  applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
 });
 els.snapshot.addEventListener(
   "scroll",
