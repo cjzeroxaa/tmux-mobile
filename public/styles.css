@@ -361,14 +361,6 @@ input {
   display: block;
 }
 
-.voice-status-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
-  align-items: center;
-  min-height: 30px;
-}
-
 .voice-status {
   min-width: 0;
   overflow: hidden;
@@ -380,6 +372,14 @@ input {
   white-space: nowrap;
 }
 
+.topbar-status {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  max-width: 50%;
+  padding: 0 6px;
+}
+
 .voice-status.active {
   color: var(--accent-dark);
 }
@@ -388,12 +388,12 @@ input {
   color: var(--danger);
 }
 
-.voice-status-row .retry {
-  min-height: 30px;
+.small-button.retry {
   border-color: var(--accent);
   background: var(--accent);
   color: #fff;
-  padding: 0 12px;
+  padding: 4px 10px;
+  flex: 0 0 auto;
 }
 
 .voice-button.busy {
