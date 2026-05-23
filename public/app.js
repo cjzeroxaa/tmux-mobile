@@ -101,6 +101,7 @@ const els = {
   mobileRefresh: document.querySelector("#mobileRefresh"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
+  paneInput: document.querySelector("#paneInput"),
   windowActivityStatus: document.querySelector("#windowActivityStatus"),
   newWindow: document.querySelector("#newWindow"),
   killWindow: document.querySelector("#killWindow"),
@@ -1509,6 +1510,64 @@ function setSnapshotFullscreen(enabled) {
   els.fullscreenSnapshot.textContent = enabled ? "Exit" : "FS";
   els.fullscreenSnapshot.setAttribute("aria-pressed", String(enabled));
   scrollSnapshotToBottom();
+  if (enabled) {
+    focusPaneInput();
+  } else {
+    els.paneInput.blur();
+  }
+}
+
+function focusPaneInput() {
+  els.paneInput.value = "";
+  els.paneInput.focus({ preventScroll: true });
+}
+
+const paneKeyMap = {
+  ArrowUp: "Up",
+  ArrowDown: "Down",
+  ArrowLeft: "Left",
+  ArrowRight: "Right",
+  Enter: "Enter",
+  Backspace: "BSpace",
+  Tab: "Tab",
+  Escape: "Escape",
+};
+
+function mapPaneKey(event) {
+  if (event.ctrlKey && !event.altKey && !event.metaKey) {
+    const k = event.key.toLowerCase();
+    if (k === "c") return "C-c";
+    if (k === "d") return "C-d";
+    if (k === "z") return "C-z";
+  }
+  return paneKeyMap[event.key] || null;
+}
+
+let paneSnapshotRefreshTimer = null;
+function schedulePaneSnapshotRefresh() {
+  if (paneSnapshotRefreshTimer) return;
+  paneSnapshotRefreshTimer = window.setTimeout(() => {
+    paneSnapshotRefreshTimer = null;
+    refreshSnapshot(true);
+  }, 200);
+}
+
+async function sendPaneText(text) {
+  if (!state.paneId || !text) return;
+  await api("/api/send", {
+    method: "POST",
+    body: JSON.stringify({ paneId: state.paneId, text, enter: false }),
+  });
+  schedulePaneSnapshotRefresh();
+}
+
+async function sendPaneKey(key) {
+  if (!state.paneId) return;
+  await api("/api/key", {
+    method: "POST",
+    body: JSON.stringify({ paneId: state.paneId, key }),
+  });
+  schedulePaneSnapshotRefresh();
 }
 
 function resetWindowSummaryState() {
@@ -1933,6 +1992,38 @@ els.refreshSnapshot.addEventListener("click", () => refreshSnapshot());
 els.fullscreenSnapshot.addEventListener("click", () => {
   setSnapshotFullscreen(!state.snapshotFullscreen);
 });
+
+els.snapshot.addEventListener("click", () => {
+  if (state.snapshotFullscreen) focusPaneInput();
+});
+
+els.paneInput.addEventListener("beforeinput", (event) => {
+  if (!state.snapshotFullscreen) return;
+  if (event.inputType === "insertText" && event.data) {
+    event.preventDefault();
+    sendPaneText(event.data).catch(() => {});
+  } else if (event.inputType === "insertLineBreak") {
+    event.preventDefault();
+    sendPaneKey("Enter").catch(() => {});
+  } else if (event.inputType === "deleteContentBackward") {
+    event.preventDefault();
+    sendPaneKey("BSpace").catch(() => {});
+  }
+});
+
+els.paneInput.addEventListener("keydown", (event) => {
+  if (!state.snapshotFullscreen) return;
+  const key = mapPaneKey(event);
+  if (!key) return;
+  event.preventDefault();
+  event.stopPropagation();
+  sendPaneKey(key).catch(() => {});
+});
+
+els.paneInput.addEventListener("input", () => {
+  els.paneInput.value = "";
+});
+
 els.snapshot.addEventListener(
   "scroll",
   () => {

@@ -500,6 +500,16 @@ input {
   aspect-ratio: 1 / 1;
 }
 
+@media (min-width: 600px) {
+  .app-shell {
+    width: 100vw;
+  }
+  .quick-action {
+    aspect-ratio: auto;
+    height: 44px;
+  }
+}
+
 .action-button.danger {
   border-color: rgba(167, 53, 53, 0.36);
   color: var(--danger);
@@ -663,6 +673,17 @@ input {
   padding: 14px;
   font-size: 14px;
   line-height: 1.5;
+}
+
+.pane-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
 }
 
 .muted {

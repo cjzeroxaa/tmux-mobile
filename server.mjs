@@ -143,7 +143,7 @@ const allowedKeys = new Set([
   "C-z",
   "Tab",
   "Escape",
-  "Backspace",
+  "BSpace",
   "Up",
   "Down",
   "Left",
