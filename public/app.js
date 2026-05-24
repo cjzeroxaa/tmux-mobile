@@ -44,7 +44,7 @@ const state = {
   sessionId: "",
   windowId: "",
   paneId: "",
-  lines: 120,
+  lines: 500,
   autoRefreshTimer: null,
   chat: [],
   targetPickerOpen: false,

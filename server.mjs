@@ -219,8 +219,8 @@ function requireSessionName(value) {
 }
 
 function parseLines(value) {
-  const lines = Number(value || 120);
-  if (!Number.isFinite(lines) || lines < 1) return 120;
+  const lines = Number(value || 500);
+  if (!Number.isFinite(lines) || lines < 1) return 500;
   return Math.min(Math.floor(lines), MAX_CAPTURE_LINES);
 }
 
