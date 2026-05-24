@@ -2,6 +2,8 @@ const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
 const WAVEFORM_SAMPLE_INTERVAL_MS = 200;
 
+let screenWakeLock = null;
+
 if (window.location.search) {
   const cleanUrl = new URL(window.location.href);
   cleanUrl.search = "";
@@ -524,8 +526,40 @@ async function submitTextComposer(event) {
   }
 }
 
+async function requestScreenWakeLock() {
+  if (!("wakeLock" in navigator) || screenWakeLock) return;
+  try {
+    screenWakeLock = await navigator.wakeLock.request("screen");
+    screenWakeLock.addEventListener("release", () => {
+      screenWakeLock = null;
+    });
+  } catch {
+    screenWakeLock = null;
+  }
+}
+
+function releaseScreenWakeLock() {
+  if (!screenWakeLock) return;
+  const lock = screenWakeLock;
+  screenWakeLock = null;
+  lock.release().catch(() => {});
+}
+
+function shouldHoldScreenAwake() {
+  return state.voice.status !== "idle" || state.audio.busy;
+}
+
+function syncScreenWakeLock() {
+  if (shouldHoldScreenAwake()) {
+    requestScreenWakeLock();
+  } else {
+    releaseScreenWakeLock();
+  }
+}
+
 function setVoiceStatus(status, title, subtitle) {
   state.voice.status = status;
+  syncScreenWakeLock();
   els.voiceTitle.textContent = title;
   els.voiceSubtitle.textContent = subtitle;
   els.voiceStatus.textContent = visibleVoiceStatus(title, subtitle, status);
@@ -847,6 +881,7 @@ function audioBytesFromBase64(base64) {
 
 function setSpeakWindowBusy(busy) {
   state.audio.busy = busy;
+  syncScreenWakeLock();
   const stopping = busy && state.audio.stopRequested;
   els.speakWindow.disabled = false;
   els.speakWindow.title = stopping
@@ -2135,6 +2170,11 @@ els.refreshDirectoryPicker.addEventListener("click", () => {
   loadDirectories({ clear: false }).catch((error) => {
     addChat("system", error.message, "directory error");
   });
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && shouldHoldScreenAwake()) {
+    requestScreenWakeLock();
+  }
 });
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
 els.keyboardButton.addEventListener("click", showTextComposer);
