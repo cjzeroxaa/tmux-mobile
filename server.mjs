@@ -1230,7 +1230,7 @@ async function handleApi(req, res, url) {
     const paneId = requireId(url.searchParams.get("paneId"), "pane");
     const mode = url.searchParams.get("mode") || "tail";
     const lines = parseLines(url.searchParams.get("lines"));
-    const text = await capturePane(paneId, mode, lines);
+    const text = cleanTerminalText(await capturePane(paneId, mode, lines));
     sendJson(res, 200, { paneId, mode, lines, text });
     return;
   }
