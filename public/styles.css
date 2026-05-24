@@ -240,8 +240,8 @@ input {
   color: var(--code-ink);
   padding: 10px;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 11px;
-  line-height: 1.38;
+  font-size: 13px;
+  line-height: 1.42;
   white-space: pre-wrap;
   word-break: break-word;
 }

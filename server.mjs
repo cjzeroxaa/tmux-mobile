@@ -542,6 +542,32 @@ async function listPaneDirectories(paneId) {
   };
 }
 
+const paneActivitySamples = new Map();
+const PANE_ACTIVITY_SAMPLE_CHARS = 100;
+
+async function getSessionWindowActivity(sessionId) {
+  const windows = await listWindows(sessionId);
+  const result = {};
+  for (const win of windows) {
+    let active = false;
+    try {
+      const panes = await listPanes(win.id);
+      const pane = panes.find((p) => p.active) || panes[0];
+      if (pane) {
+        const text = await capturePane(pane.id, "screen");
+        const sample = text.slice(-PANE_ACTIVITY_SAMPLE_CHARS);
+        const prev = paneActivitySamples.get(pane.id);
+        if (prev !== undefined && prev !== sample) active = true;
+        paneActivitySamples.set(pane.id, sample);
+      }
+    } catch {
+      // pane likely vanished; treat as inactive
+    }
+    result[win.id] = active;
+  }
+  return result;
+}
+
 async function capturePane(paneId, mode, lineCount) {
   requireId(paneId, "pane");
   const args = ["capture-pane", "-p", "-t", paneId];
@@ -1159,6 +1185,12 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/windows") {
     const sessionId = requireId(url.searchParams.get("sessionId"), "session");
     sendJson(res, 200, await listWindows(sessionId));
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/window-activity") {
+    const sessionId = requireId(url.searchParams.get("sessionId"), "session");
+    sendJson(res, 200, await getSessionWindowActivity(sessionId));
     return;
   }
 

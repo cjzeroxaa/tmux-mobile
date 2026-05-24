@@ -37,6 +37,8 @@ const state = {
   sessions: [],
   windows: [],
   windowSummaries: {},
+  windowActivity: {},
+  activityTimer: null,
   summariesLoading: false,
   panes: [],
   sessionId: "",
@@ -126,7 +128,6 @@ const els = {
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
   fullscreenRead: document.querySelector("#fullscreenRead"),
   paneInput: document.querySelector("#paneInput"),
-  windowActivityStatus: document.querySelector("#windowActivityStatus"),
   newWindow: document.querySelector("#newWindow"),
   killWindow: document.querySelector("#killWindow"),
   lineCount: document.querySelector("#lineCount"),
@@ -302,12 +303,13 @@ function renderWindows() {
 
   for (const win of state.windows) {
     const summary = state.windowSummaries[win.id];
+    const live = Boolean(state.windowActivity[win.id]);
     const config = {
       active: win.id === state.windowId,
       title: `${win.index}: ${win.name}`,
       meta: summary || (state.summariesLoading ? "Summarizing..." : win.activeCommand || win.id),
-      badge: win.active ? "active" : `${win.panes} pane`,
-      badgeGreen: win.active,
+      badge: live ? "live" : `${win.panes} pane`,
+      badgeGreen: live,
       onClick: () => selectWindow(win.id),
       metaClassName: summary ? "summary" : "",
     };
@@ -321,26 +323,6 @@ function renderTargetLabels() {
   const label =
     session && win ? `${session.name} / ${win.index}:${win.name}` : "No window selected";
   els.mobileTargetLabel.textContent = label;
-  renderWindowActivityStatus();
-}
-
-function renderWindowActivityStatus() {
-  const win = selectedWindow();
-  const autoEnabled = Boolean(state.autoRefreshTimer);
-  const status = win?.active ? "active" : win ? "background" : "idle";
-  const text =
-    status === "active" ? "Active" : status === "background" ? "Bg" : "Idle";
-  const title = win
-    ? `${win.index}:${win.name} is ${win.active ? "active" : "in the background"}; auto refresh is ${autoEnabled ? "on" : "off"}`
-    : `No active window selected; auto refresh is ${autoEnabled ? "on" : "off"}`;
-
-  els.windowActivityStatus.textContent = text;
-  els.windowActivityStatus.title = title;
-  els.windowActivityStatus.setAttribute("aria-label", title);
-  els.windowActivityStatus.classList.toggle("active", status === "active");
-  els.windowActivityStatus.classList.toggle("background", status === "background");
-  els.windowActivityStatus.classList.toggle("idle", status === "idle");
-  els.windowActivityStatus.classList.toggle("auto-off", !autoEnabled);
 }
 
 function pathLabel(value) {
@@ -1630,6 +1612,8 @@ async function refreshTree({
     }
     if (state.sessionId !== previousSessionId) {
       resetWindowSummaryState();
+      state.windowActivity = {};
+      startActivityPolling();
     }
     renderSessions();
     await loadWindows({ urlTarget, forceUrlTarget });
@@ -1648,6 +1632,8 @@ async function selectSession(sessionId) {
   state.windowId = "";
   state.paneId = "";
   resetWindowSummaryState();
+  state.windowActivity = {};
+  startActivityPolling();
   renderSessions();
   await loadWindows();
   updateTargetUrl();
@@ -1789,6 +1775,35 @@ async function loadWindowSummaries({ force = false } = {}) {
       state.summariesLoading = false;
       renderWindows();
     }
+  }
+}
+
+async function pollWindowActivity() {
+  if (!state.sessionId) return;
+  const sessionId = state.sessionId;
+  try {
+    const data = await api(
+      `/api/window-activity?sessionId=${encodeURIComponent(sessionId)}`,
+    );
+    if (state.sessionId !== sessionId) return;
+    state.windowActivity = data || {};
+    renderWindows();
+  } catch {
+    // ignore transient failures
+  }
+}
+
+function startActivityPolling() {
+  stopActivityPolling();
+  if (!state.sessionId) return;
+  pollWindowActivity();
+  state.activityTimer = window.setInterval(pollWindowActivity, 3000);
+}
+
+function stopActivityPolling() {
+  if (state.activityTimer) {
+    window.clearInterval(state.activityTimer);
+    state.activityTimer = null;
   }
 }
 
@@ -2005,7 +2020,6 @@ function setAutoRefresh(enabled) {
       refreshSnapshot();
     }, 3000);
   }
-  renderWindowActivityStatus();
 }
 
 els.mobileRefreshTree.addEventListener("click", async () => {
@@ -2081,7 +2095,6 @@ els.sessionNameInput.addEventListener("keydown", (event) => {
 els.createSession.addEventListener("click", createTmuxSession);
 els.renameSession.addEventListener("click", renameTmuxSession);
 els.openTargetPicker.addEventListener("click", openTargetPicker);
-els.windowActivityStatus.addEventListener("click", openTargetPicker);
 els.closeTargetPicker.addEventListener("click", closeTargetPicker);
 els.targetBackdrop.addEventListener("click", closeTargetPicker);
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
