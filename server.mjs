@@ -523,14 +523,12 @@ async function listPaneDirectories(paneId) {
   const cwd = await getPaneCwd(paneId);
   const entries = await readdir(cwd, { withFileTypes: true });
   const directories = entries
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
     .map((entry) => ({
       name: entry.name,
       path: path.join(cwd, entry.name),
-      hidden: entry.name.startsWith("."),
     }))
     .sort((a, b) => {
-      if (a.hidden !== b.hidden) return a.hidden ? 1 : -1;
       return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
     })
     .slice(0, 80);

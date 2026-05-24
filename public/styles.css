@@ -127,6 +127,10 @@ h3 {
   line-height: 1.25;
 }
 
+.directory-trigger {
+  color: var(--accent-dark);
+}
+
 .snapshot-panel,
 .control-panel {
   min-width: 0;
@@ -555,6 +559,7 @@ input {
 
 .directory-navigator {
   display: grid;
+  min-height: 0;
   gap: 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -590,27 +595,31 @@ input {
 
 .directory-list {
   display: flex;
-  gap: 4px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 1px;
-  overscroll-behavior-x: contain;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 2px;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
 
 .directory-button {
+  display: block;
+  width: 100%;
   min-width: 0;
-  max-width: 150px;
-  min-height: 32px;
+  min-height: 44px;
   flex: 0 0 auto;
   overflow: hidden;
   border: 1px solid rgba(17, 107, 95, 0.24);
-  border-radius: 999px;
+  border-radius: 8px;
   background: #edf5f2;
   color: var(--accent-dark);
-  padding: 0 10px;
-  font-size: 11px;
+  padding: 12px;
+  font-size: 13px;
   font-weight: 800;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -623,8 +632,9 @@ input {
 
 .directory-status {
   color: var(--muted);
-  font-size: 11px;
-  line-height: 32px;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 12px 4px;
 }
 
 .small-button,
@@ -773,17 +783,40 @@ input {
   line-height: 1.45;
 }
 
+.directory-sheet,
 .target-sheet {
   position: fixed;
   inset: 0;
   z-index: 40;
 }
 
+.directory-sheet {
+  z-index: 42;
+}
+
+.directory-backdrop,
 .target-backdrop {
   position: absolute;
   inset: 0;
   border: 0;
   background: rgba(15, 20, 24, 0.42);
+}
+
+.directory-panel {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: grid;
+  height: min(78dvh, 560px);
+  max-height: 86dvh;
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
+  overflow: hidden;
+  border-radius: 8px 8px 0 0;
+  background: var(--surface);
+  padding: 14px;
+  padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  box-shadow: 0 -18px 38px rgba(15, 20, 24, 0.2);
 }
 
 .target-panel {
@@ -803,6 +836,8 @@ input {
   box-shadow: 0 -18px 38px rgba(15, 20, 24, 0.2);
 }
 
+.directory-panel-header,
+.directory-panel-actions,
 .target-panel-header,
 .target-panel-actions {
   display: flex;
@@ -810,6 +845,19 @@ input {
   justify-content: space-between;
   gap: 12px;
   min-width: 0;
+}
+
+.directory-panel-header h2 {
+  min-width: 0;
+}
+
+.directory-panel-actions {
+  justify-content: flex-start;
+}
+
+.directory-panel .directory-navigator {
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .target-panel-header > div {

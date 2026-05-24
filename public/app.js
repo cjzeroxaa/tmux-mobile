@@ -48,6 +48,7 @@ const state = {
   autoRefreshTimer: null,
   chat: [],
   targetPickerOpen: false,
+  directoryPickerOpen: false,
   snapshotFullscreen: false,
   snapshotPinnedToBottom: true,
   pendingUrlTarget: readUrlTarget(),
@@ -150,6 +151,11 @@ const els = {
   directoryNavigator: document.querySelector("#directoryNavigator"),
   directoryPath: document.querySelector("#directoryPath"),
   directoryList: document.querySelector("#directoryList"),
+  openDirectoryPicker: document.querySelector("#openDirectoryPicker"),
+  closeDirectoryPicker: document.querySelector("#closeDirectoryPicker"),
+  refreshDirectoryPicker: document.querySelector("#refreshDirectoryPicker"),
+  directoryBackdrop: document.querySelector("#directoryBackdrop"),
+  directorySheet: document.querySelector("#directorySheet"),
   openTargetPicker: document.querySelector("#openTargetPicker"),
   closeTargetPicker: document.querySelector("#closeTargetPicker"),
   targetBackdrop: document.querySelector("#targetBackdrop"),
@@ -359,6 +365,7 @@ function directoryButton(label, targetPath, className = "") {
 
 function renderDirectoryNavigator() {
   const { cwd, parent, entries, loading, error } = state.directories;
+  const visibleEntries = entries.filter((entry) => !entry.hidden && !entry.name.startsWith("."));
   els.directoryPath.textContent = cwd || error || "No window selected";
   els.directoryNavigator.classList.toggle("loading", loading);
   els.directoryList.replaceChildren();
@@ -379,10 +386,10 @@ function renderDirectoryNavigator() {
   if (parent && parent !== cwd) {
     els.directoryList.append(directoryButton("..", parent, "parent"));
   }
-  for (const entry of entries) {
+  for (const entry of visibleEntries) {
     els.directoryList.append(directoryButton(entry.name, entry.path));
   }
-  if (entries.length === 0 && !(parent && parent !== cwd)) {
+  if (visibleEntries.length === 0 && !(parent && parent !== cwd)) {
     els.directoryList.append(directoryStatus("No child directories."));
   }
 }
@@ -394,17 +401,41 @@ function directoryStatus(text) {
   return item;
 }
 
+function syncSheetOpenClass() {
+  document.body.classList.toggle(
+    "sheet-open",
+    state.targetPickerOpen || state.directoryPickerOpen,
+  );
+}
+
 function openTargetPicker() {
+  closeDirectoryPicker();
   state.targetPickerOpen = true;
   els.targetSheet.hidden = false;
-  document.body.classList.add("sheet-open");
+  syncSheetOpenClass();
   loadWindowSummaries({ force: false });
 }
 
 function closeTargetPicker() {
   state.targetPickerOpen = false;
   els.targetSheet.hidden = true;
-  document.body.classList.remove("sheet-open");
+  syncSheetOpenClass();
+}
+
+function openDirectoryPicker() {
+  closeTargetPicker();
+  state.directoryPickerOpen = true;
+  els.directorySheet.hidden = false;
+  syncSheetOpenClass();
+  loadDirectories({ clear: false }).catch((error) => {
+    addChat("system", error.message, "directory error");
+  });
+}
+
+function closeDirectoryPicker() {
+  state.directoryPickerOpen = false;
+  els.directorySheet.hidden = true;
+  syncSheetOpenClass();
 }
 
 function renderComposerMode() {
@@ -2097,6 +2128,14 @@ els.renameSession.addEventListener("click", renameTmuxSession);
 els.openTargetPicker.addEventListener("click", openTargetPicker);
 els.closeTargetPicker.addEventListener("click", closeTargetPicker);
 els.targetBackdrop.addEventListener("click", closeTargetPicker);
+els.openDirectoryPicker.addEventListener("click", openDirectoryPicker);
+els.closeDirectoryPicker.addEventListener("click", closeDirectoryPicker);
+els.directoryBackdrop.addEventListener("click", closeDirectoryPicker);
+els.refreshDirectoryPicker.addEventListener("click", () => {
+  loadDirectories({ clear: false }).catch((error) => {
+    addChat("system", error.message, "directory error");
+  });
+});
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
 els.keyboardButton.addEventListener("click", showTextComposer);
 els.textComposer.addEventListener("submit", submitTextComposer);
@@ -2135,6 +2174,10 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape" && state.targetPickerOpen) {
     closeTargetPicker();
+    return;
+  }
+  if (event.key === "Escape" && state.directoryPickerOpen) {
+    closeDirectoryPicker();
   }
 });
 
