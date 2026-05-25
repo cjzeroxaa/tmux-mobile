@@ -1,10 +1,10 @@
-import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import http from "node:http";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { currentBackend, localBackend, withBackend } from "./lib/backend.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -150,32 +150,8 @@ const allowedKeys = new Set([
   "Right",
 ]);
 
-function runFile(file, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    execFile(
-      file,
-      args,
-      {
-        maxBuffer: options.maxBuffer ?? 8 * 1024 * 1024,
-        timeout: options.timeout ?? 10000,
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          const message = (stderr || error.message || "").trim();
-          const tmuxError = new Error(message || `${file} command failed`);
-          tmuxError.code = error.code;
-          tmuxError.stderr = stderr;
-          reject(tmuxError);
-          return;
-        }
-        resolve(stdout);
-      },
-    );
-  });
-}
-
 function runTmux(args, options = {}) {
-  return runFile("tmux", args, options);
+  return currentBackend().tmux(args, options);
 }
 
 function isNoServerError(error) {
@@ -521,9 +497,9 @@ async function getPaneCwd(paneId) {
 
 async function listPaneDirectories(paneId) {
   const cwd = await getPaneCwd(paneId);
-  const entries = await readdir(cwd, { withFileTypes: true });
+  const entries = await currentBackend().readdir(cwd);
   const directories = entries
-    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+    .filter((entry) => entry.isDirectory && !entry.name.startsWith("."))
     .map((entry) => ({
       name: entry.name,
       path: path.join(cwd, entry.name),
@@ -1529,28 +1505,93 @@ async function serveStatic(req, res, url) {
   }
 }
 
-const server = http.createServer(async (req, res) => {
-  let url;
-  try {
-    url = new URL(req.url || "/", `http://${req.headers.host || HOST}`);
-    if (url.pathname.startsWith("/api/")) {
-      await handleApi(req, res, url);
-      return;
-    }
-    await serveStatic(req, res, url);
-  } catch (error) {
-    const status = error.status || 500;
-    logRequestError(req, url, status, error);
-    if (res.headersSent) {
-      res.destroy();
-      return;
-    }
-    sendJson(res, status, {
-      error: error.message || "Internal server error",
-    });
+// Mode: `--register <hubUrl>` runs as an agent for the cloud; `--hub` serves the
+// app and brokers to registered agents; default is today's local server.
+function parseMode(args) {
+  const registerIndex = args.indexOf("--register");
+  if (registerIndex !== -1) {
+    return { kind: "register", hubUrl: args[registerIndex + 1] || process.env.HUB_URL };
   }
-});
+  if (args.includes("--hub")) return { kind: "hub" };
+  return { kind: "local" };
+}
 
-server.listen(PORT, HOST, () => {
-  console.log(`tmux chat web listening at http://${HOST}:${PORT}`);
-});
+const MODE = parseMode(process.argv.slice(2));
+
+if (MODE.kind === "register") {
+  if (!MODE.hubUrl) {
+    console.error("usage: node server.mjs --register <hubUrl>");
+    process.exit(2);
+  }
+  const { runAgent } = await import("./lib/agent.mjs");
+  logServerEvent("agent_starting", { hub: MODE.hubUrl, machine: os.hostname() });
+  runAgent(MODE.hubUrl, localBackend, { logEvent: logServerEvent });
+} else {
+  let hub = null;
+
+  const server = http.createServer(async (req, res) => {
+    let url;
+    try {
+      url = new URL(req.url || "/", `http://${req.headers.host || HOST}`);
+
+      if (req.method === "GET" && url.pathname === "/api/runtime") {
+        sendJson(res, 200, { mode: MODE.kind });
+        return;
+      }
+
+      if (url.pathname.startsWith("/api/")) {
+        if (hub) {
+          if (req.method === "GET" && url.pathname === "/api/machines") {
+            sendJson(res, 200, hub.listMachines());
+            return;
+          }
+          if (url.pathname === "/api/health") {
+            sendJson(res, 200, { ok: true });
+            return;
+          }
+          const machineId =
+            req.headers["x-machine-id"] ||
+            url.searchParams.get("machineId") ||
+            hub.soleMachineId();
+          if (!machineId) {
+            sendJson(res, 400, {
+              error: "machineId is required (multiple machines online)",
+            });
+            return;
+          }
+          if (!hub.hasMachine(machineId)) {
+            sendJson(res, 503, { error: `Machine ${machineId} is offline` });
+            return;
+          }
+          await withBackend(hub.backendFor(machineId), () =>
+            handleApi(req, res, url),
+          );
+          return;
+        }
+        await handleApi(req, res, url);
+        return;
+      }
+
+      await serveStatic(req, res, url);
+    } catch (error) {
+      const status = error.status || 500;
+      logRequestError(req, url, status, error);
+      if (res.headersSent) {
+        res.destroy();
+        return;
+      }
+      sendJson(res, status, {
+        error: error.message || "Internal server error",
+      });
+    }
+  });
+
+  if (MODE.kind === "hub") {
+    const { createHub } = await import("./lib/hub.mjs");
+    hub = createHub(server, { logEvent: logServerEvent });
+  }
+
+  server.listen(PORT, HOST, () => {
+    console.log(`tmux ${MODE.kind} listening at http://${HOST}:${PORT}`);
+  });
+}

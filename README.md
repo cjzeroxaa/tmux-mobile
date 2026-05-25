@@ -2,14 +2,20 @@
 
 A mobile browser UI for selecting tmux sessions and windows, then reading snapshots or sending voice commands without a terminal emulator.
 
-## Run
+It runs in two modes that share the exact same browser UI: **local mode**
+(controls this machine's tmux directly, the original behavior) and **cloud
+mode** (a hub serves the UI and brokers commands to lightweight agents running
+on each of your machines). See [Cloud mode](#cloud-mode-hub--agents).
+
+## Run (local mode)
 
 ```bash
 cd tmux-chat-web
 npm start
 ```
 
-Open http://127.0.0.1:3737.
+Open http://127.0.0.1:3737. This serves the UI and controls this machine's
+tmux directly — nothing about the single-machine app changed.
 
 ## Network access
 
@@ -22,6 +28,75 @@ tailscale serve --bg 3737
 ```
 
 Only devices that are signed in to the same tailnet should be able to reach that Tailscale HTTPS URL. Without Tailscale or another private network proxy, other devices cannot access the default localhost server.
+
+## Cloud mode (hub + agents)
+
+The same `server.mjs` runs in three roles, chosen by flags. The browser UI is
+identical in every case — it just talks to whichever server it connects to.
+
+Cloud mode splits the server into a **hub** (serves the UI, calls OpenAI, brokers
+commands) and one **agent** per machine (`--register`, runs locally, executes
+tmux). The browser reaches the hub; the hub reaches each machine over an outbound
+WebSocket the agent opens, so no machine needs an inbound port.
+
+```
+browser ──HTTPS──► hub (--hub) ──WebSocket──► agent (--register) ──► local tmux
+```
+
+Run a hub anywhere on your tailnet (it does not need tmux itself):
+
+```bash
+PORT=4000 node server.mjs --hub
+```
+
+On every machine you want to control, run an agent pointing at the hub:
+
+```bash
+node server.mjs --register http://HUB_HOST:4000
+# or, over Tailscale:
+node server.mjs --register https://hub.your-tailnet.ts.net:8449
+```
+
+The agent identifies the machine by hostname and reconnects automatically with
+backoff.
+
+Expose the hub on your tailnet with a **dedicated** HTTPS port — pick one not
+already listed by `tailscale serve status` so you do not clobber existing
+proxies:
+
+```bash
+tailscale serve --bg --https=8449 http://127.0.0.1:4000
+```
+
+Then open `https://<your-machine>.<tailnet>.ts.net:8449`.
+
+### Trust model
+
+There is no application-level auth: anyone who can reach the hub on the tailnet
+can control every registered machine. This is intentional — the Tailscale
+tailnet is the security boundary. As defense in depth, agents only run a fixed
+allowlist of tmux subcommands, so even a misbehaving hub cannot make an agent
+run arbitrary tmux (e.g. `kill-server`).
+
+### Hub endpoints
+
+- `GET /api/runtime` → `{ "mode": "local" | "hub" }` (lets the UI know whether to
+  offer a machine picker).
+- `GET /api/machines` → registered machines and online status.
+- Every other `/api/*` call routes to the machine named in the `x-machine-id`
+  header (or `?machineId=`). With exactly one machine online the hub auto-selects
+  it, so the current frontend works unchanged; a browser machine picker for the
+  multi-machine case is still TODO.
+
+### Code layout
+
+- `server.mjs` — entry point and HTTP/API handlers (shared by all modes).
+- `lib/backend.mjs` — the `Backend` seam: every local op (tmux/readdir) goes
+  through it, selected per request via `AsyncLocalStorage`. Local mode uses the
+  in-process backend; the hub injects a remote one.
+- `lib/protocol.mjs` — the hub↔agent wire protocol and tmux allowlist.
+- `lib/hub.mjs` — agent registry, command broker, per-machine remote backend.
+- `lib/agent.mjs` — outbound connection, request serving, reconnect.
 
 ## Scope
 
