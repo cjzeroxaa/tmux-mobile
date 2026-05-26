@@ -35,6 +35,11 @@ const targetAtom = createPersistedAtom("tmux-mobile-target", {
   windowIndex: "1",
 });
 
+// Remembers whether the user last used voice or the text composer. Default voice.
+const composerAtom = createPersistedAtom("tmux-mobile-composer", {
+  textMode: false,
+});
+
 const state = {
   sessions: [],
   windows: [],
@@ -74,7 +79,7 @@ const state = {
     sampleTimer: null,
     stream: null,
     status: "idle",
-    textMode: false,
+    textMode: composerAtom.get().textMode,
     waveform: [],
   },
   audio: {
@@ -449,6 +454,72 @@ function closeDirectoryPicker() {
   syncSheetOpenClass();
 }
 
+// The text composer uses Lexical, loaded from a CDN since the app has no build
+// step (app.js is an ES module). If Lexical fails to load, the element is still
+// a contenteditable, so input keeps working. Plain text for now; rich features
+// can be layered on later.
+const LEXICAL_VERSION = "0.44.0";
+let composerEditor = null;
+
+async function initComposerEditor() {
+  try {
+    const [lexical, plainText] = await Promise.all([
+      import(`https://esm.sh/lexical@${LEXICAL_VERSION}`),
+      import(`https://esm.sh/@lexical/plain-text@${LEXICAL_VERSION}?deps=lexical@${LEXICAL_VERSION}`),
+    ]);
+    const editor = lexical.createEditor({
+      namespace: "tmux-mobile-composer",
+      onError: (error) => console.error("Lexical error", error),
+    });
+    editor.setRootElement(els.textInput);
+    plainText.registerPlainText(editor);
+    editor.update(() => {
+      const root = lexical.$getRoot();
+      if (root.getFirstChild() === null) {
+        root.append(lexical.$createParagraphNode());
+      }
+    });
+    editor.registerUpdateListener(({ editorState }) => {
+      const empty = editorState.read(
+        () => lexical.$getRoot().getTextContent().length === 0,
+      );
+      els.textInput.classList.toggle("empty", empty);
+    });
+    composerEditor = { editor, lexical };
+  } catch (error) {
+    console.error("Lexical failed to load; using plain contenteditable", error);
+    composerEditor = null;
+  }
+}
+
+function composerGetText() {
+  if (composerEditor) {
+    return composerEditor.editor
+      .getEditorState()
+      .read(() => composerEditor.lexical.$getRoot().getTextContent());
+  }
+  return els.textInput.innerText;
+}
+
+function composerClear() {
+  if (composerEditor) {
+    composerEditor.editor.update(() => {
+      const { $getRoot, $createParagraphNode } = composerEditor.lexical;
+      const root = $getRoot();
+      root.clear();
+      root.append($createParagraphNode());
+    });
+  } else {
+    els.textInput.textContent = "";
+  }
+  els.textInput.classList.add("empty");
+}
+
+function composerFocus() {
+  if (composerEditor) composerEditor.editor.focus();
+  else els.textInput.focus();
+}
+
 function renderComposerMode() {
   const textMode = state.voice.textMode && state.voice.status === "idle";
   els.voiceEntry.hidden = textMode || state.voice.status === "recording";
@@ -459,14 +530,16 @@ function renderComposerMode() {
 function showTextComposer() {
   if (state.voice.status !== "idle") return;
   state.voice.textMode = true;
+  composerAtom.set({ textMode: true });
   renderComposerMode();
-  requestAnimationFrame(() => els.textInput.focus());
+  requestAnimationFrame(() => composerFocus());
 }
 
-function hideTextComposer({ clear = false } = {}) {
+function hideTextComposer({ clear = false, persist = false } = {}) {
   state.voice.textMode = false;
+  if (persist) composerAtom.set({ textMode: false });
   if (clear) {
-    els.textInput.value = "";
+    composerClear();
   }
   renderComposerMode();
 }
@@ -514,9 +587,9 @@ function clearPendingVoiceAudio() {
 
 async function submitTextComposer(event) {
   event?.preventDefault();
-  const text = els.textInput.value;
+  const text = composerGetText();
   if (!text.trim()) {
-    els.textInput.focus();
+    composerFocus();
     return;
   }
   if (!state.paneId) {
@@ -2288,7 +2361,12 @@ document.addEventListener("visibilitychange", () => {
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
 els.keyboardButton.addEventListener("click", showTextComposer);
 els.textComposer.addEventListener("submit", submitTextComposer);
-els.cancelText.addEventListener("click", () => hideTextComposer());
+els.cancelText.addEventListener("click", () => hideTextComposer({ persist: true }));
+els.textInput.addEventListener("input", () => {
+  if (!composerEditor) {
+    els.textInput.classList.toggle("empty", els.textInput.innerText.trim().length === 0);
+  }
+});
 els.submitVoice.addEventListener("click", submitVoiceRecording);
 els.cancelVoice.addEventListener("click", cancelVoiceRecording);
 els.retryVoice.addEventListener("click", retryVoiceRecording);
@@ -2366,6 +2444,9 @@ window.addEventListener("popstate", () => {
     forceUrlTarget: true,
   });
 });
+
+renderComposerMode();
+initComposerEditor();
 
 refreshTree({
   urlTarget: state.pendingUrlTarget,

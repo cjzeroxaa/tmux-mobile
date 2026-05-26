@@ -412,11 +412,12 @@ input {
   gap: 6px;
 }
 
-.text-composer textarea {
+.text-composer .lexical-editor {
+  position: relative;
   width: 100%;
   min-height: 86px;
   max-height: 36dvh;
-  resize: vertical;
+  overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
@@ -424,6 +425,23 @@ input {
   padding: 9px 10px;
   font-size: 13px;
   line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+  cursor: text;
+}
+
+.text-composer .lexical-editor p {
+  margin: 0;
+}
+
+.text-composer .lexical-editor.empty::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  top: 9px;
+  left: 10px;
+  color: var(--muted);
+  pointer-events: none;
 }
 
 .text-composer-actions {
@@ -1067,7 +1085,7 @@ input:focus {
 
 select,
 input,
-.text-composer textarea {
+.text-composer .lexical-editor {
   background: #161a1d;
   color: var(--ink);
 }
