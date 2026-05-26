@@ -1006,6 +1006,19 @@ input {
   white-space: nowrap;
 }
 
+.item-cwd {
+  margin-top: 3px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
 .item-meta.summary {
   display: -webkit-box;
   overflow: hidden;

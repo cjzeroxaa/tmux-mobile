@@ -258,6 +258,7 @@ function itemButton({
   onClick,
   className,
   metaClassName = "",
+  cwd = "",
 }) {
   const button = document.createElement("button");
   button.type = "button";
@@ -267,6 +268,7 @@ function itemButton({
       <span>${escapeHtml(title)}</span>
       ${badge ? `<span class="badge ${badgeGreen ? "green" : ""}">${escapeHtml(badge)}</span>` : ""}
     </div>
+    ${cwd ? `<div class="item-cwd" title="${escapeHtml(cwd)}">${escapeHtml(cwd)}</div>` : ""}
     ${meta ? `<div class="item-meta ${escapeHtml(metaClassName)}">${escapeHtml(meta)}</div>` : ""}
   `;
   button.addEventListener("click", onClick);
@@ -320,6 +322,7 @@ function renderWindows() {
       badgeGreen: live,
       onClick: () => selectWindow(win.id),
       metaClassName: summary ? "summary" : "",
+      cwd: abbrevHome(win.cwd),
     };
     els.mobileWindows.append(itemButton(config));
   }
@@ -331,6 +334,12 @@ function renderTargetLabels() {
   const label =
     session && win ? `${session.name} / ${win.index}:${win.name}` : "No window selected";
   els.mobileTargetLabel.textContent = label;
+}
+
+function abbrevHome(value) {
+  return String(value || "")
+    .replace(/^\/(?:Users|home)\/[^/]+/, "~")
+    .replace(/^\/root(?=\/|$)/, "~");
 }
 
 function pathLabel(value) {
@@ -1536,7 +1545,7 @@ function addChat(role, text, label) {
 }
 
 function excerptForChat(text) {
-  const trimmed = text.trimEnd();
+  const trimmed = stripAnsi(text).trimEnd();
   if (trimmed.length <= 4500) return trimmed || "[no visible output]";
   return `${trimmed.slice(-4500)}\n\n[showing last 4500 chars]`;
 }
@@ -1554,12 +1563,112 @@ function isSnapshotAtBottom() {
   return distanceFromBottom <= SNAPSHOT_BOTTOM_SLOP_PX;
 }
 
+// Tango-ish 16-color palette (0-7 normal, 8-15 bright), reads well on the dark
+// snapshot background.
+const ANSI_PALETTE = [
+  "#1b1d1e", "#cc0000", "#4e9a06", "#c4a000", "#3465a4", "#75507b", "#06989a", "#d3d7cf",
+  "#555753", "#ef2929", "#8ae234", "#fce94f", "#729fcf", "#ad7fa8", "#34e2e2", "#eeeeec",
+];
+
+function ansi256(n) {
+  if (n < 16) return ANSI_PALETTE[n];
+  if (n >= 232) {
+    const v = 8 + (n - 232) * 10;
+    return `rgb(${v},${v},${v})`;
+  }
+  const i = n - 16;
+  const steps = [0, 95, 135, 175, 215, 255];
+  return `rgb(${steps[Math.floor(i / 36) % 6]},${steps[Math.floor(i / 6) % 6]},${steps[i % 6]})`;
+}
+
+function freshAnsiState() {
+  return { fg: null, bg: null, bold: false, dim: false, italic: false, underline: false, inverse: false, strike: false };
+}
+
+function applyAnsiSgr(state, paramStr) {
+  const codes = paramStr === "" ? [0] : paramStr.split(";").map((x) => Number(x) || 0);
+  for (let i = 0; i < codes.length; i++) {
+    const c = codes[i];
+    if (c === 0) Object.assign(state, freshAnsiState());
+    else if (c === 1) state.bold = true;
+    else if (c === 2) state.dim = true;
+    else if (c === 3) state.italic = true;
+    else if (c === 4) state.underline = true;
+    else if (c === 7) state.inverse = true;
+    else if (c === 9) state.strike = true;
+    else if (c === 22) { state.bold = false; state.dim = false; }
+    else if (c === 23) state.italic = false;
+    else if (c === 24) state.underline = false;
+    else if (c === 27) state.inverse = false;
+    else if (c === 29) state.strike = false;
+    else if (c >= 30 && c <= 37) state.fg = ANSI_PALETTE[c - 30];
+    else if (c >= 40 && c <= 47) state.bg = ANSI_PALETTE[c - 40];
+    else if (c >= 90 && c <= 97) state.fg = ANSI_PALETTE[8 + c - 90];
+    else if (c >= 100 && c <= 107) state.bg = ANSI_PALETTE[8 + c - 100];
+    else if (c === 39) state.fg = null;
+    else if (c === 49) state.bg = null;
+    else if (c === 38 || c === 48) {
+      const target = c === 38 ? "fg" : "bg";
+      if (codes[i + 1] === 5) { state[target] = ansi256(codes[i + 2] || 0); i += 2; }
+      else if (codes[i + 1] === 2) { state[target] = `rgb(${codes[i + 2] || 0},${codes[i + 3] || 0},${codes[i + 4] || 0})`; i += 4; }
+    }
+  }
+}
+
+function ansiStyle(state) {
+  let fg = state.fg;
+  let bg = state.bg;
+  if (state.inverse) {
+    fg = state.bg || "var(--code-bg)";
+    bg = state.fg || "var(--code-ink)";
+  }
+  const parts = [];
+  if (fg) parts.push(`color:${fg}`);
+  if (bg) parts.push(`background:${bg}`);
+  if (state.bold) parts.push("font-weight:700");
+  if (state.dim) parts.push("opacity:.65");
+  if (state.italic) parts.push("font-style:italic");
+  const deco = [];
+  if (state.underline) deco.push("underline");
+  if (state.strike) deco.push("line-through");
+  if (deco.length) parts.push(`text-decoration:${deco.join(" ")}`);
+  return parts.join(";");
+}
+
+// Convert capture-pane -e output (text with SGR color/style codes) to safe HTML.
+function ansiToHtml(text) {
+  const input = String(text || "");
+  const sgr = /\x1B\[([0-9;:]*)m/g;
+  const state = freshAnsiState();
+  let html = "";
+  let last = 0;
+  let m;
+  const emit = (chunk) => {
+    if (!chunk) return;
+    const style = ansiStyle(state);
+    html += style ? `<span style="${style}">${escapeHtml(chunk)}</span>` : escapeHtml(chunk);
+  };
+  while ((m = sgr.exec(input)) !== null) {
+    emit(input.slice(last, m.index));
+    applyAnsiSgr(state, m[1].replace(/:/g, ";"));
+    last = sgr.lastIndex;
+  }
+  emit(input.slice(last));
+  return html;
+}
+
+function stripAnsi(text) {
+  return String(text || "")
+    .replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)/g, "")
+    .replace(/\x1B\[[0-9;:]*m/g, "");
+}
+
 function updateSnapshotText(text, { forceScrollBottom = false } = {}) {
   const shouldScrollToBottom =
     forceScrollBottom || state.snapshotPinnedToBottom || isSnapshotAtBottom();
   const previousScrollTop = els.snapshot.scrollTop;
 
-  els.snapshot.textContent = text;
+  els.snapshot.innerHTML = ansiToHtml(text);
 
   requestAnimationFrame(() => {
     if (shouldScrollToBottom) {

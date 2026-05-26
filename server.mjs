@@ -128,7 +128,7 @@ const formats = {
   sessions:
     "#{session_id}\t#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created_string}",
   windows:
-    "#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{window_flags}\t#{pane_current_command}",
+    "#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{window_flags}\t#{pane_current_command}\t#{pane_current_path}",
   panes:
     "#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_title}",
   paneInfo:
@@ -266,6 +266,32 @@ function isSeparatorLine(line) {
   return /^[-=_*~+─-╿]+$/.test(trimmed);
 }
 
+// Like cleanTerminalText but keeps SGR (color/style) escape sequences so the
+// browser can render them; still strips OSC, cursor/other CSI, and control
+// chars, and de-noises blank/separator lines (tested on the SGR-stripped text).
+function cleanTerminalTextKeepAnsi(text) {
+  const lines = String(text || "")
+    .replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)/g, "")
+    .replace(/\x1B[@-Z\\-_]/g, "")
+    .replace(/\x1B\[[0-?]*[ -/]*[@-ln-~]/g, "")
+    .replace(/\r/g, "\n")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1A\x1C-\x1F\x7F]/g, "")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/g, ""));
+
+  const kept = [];
+  let lastWasBlank = false;
+  for (const line of lines) {
+    const plain = line.replace(/\x1B\[[0-9;:]*m/g, "");
+    if (isSeparatorLine(plain)) continue;
+    const blank = plain.length === 0;
+    if (blank && lastWasBlank) continue;
+    kept.push(line);
+    lastWasBlank = blank;
+  }
+  return kept.join("\n").trimEnd();
+}
+
 function stripMarkdownFence(text) {
   const trimmed = String(text || "").trim();
   const match = /^```(?:[a-z0-9_-]+)?\n([\s\S]*?)\n```$/i.exec(trimmed);
@@ -363,7 +389,7 @@ function sessionFromRow([id, name, windows, attached, created]) {
   };
 }
 
-function windowFromRow([id, index, name, active, panes, flags, activeCommand]) {
+function windowFromRow([id, index, name, active, panes, flags, activeCommand, cwd]) {
   return {
     id,
     index: Number(index),
@@ -372,6 +398,7 @@ function windowFromRow([id, index, name, active, panes, flags, activeCommand]) {
     panes: Number(panes || 0),
     flags,
     activeCommand,
+    cwd: cwd || "",
   };
 }
 
@@ -542,9 +569,10 @@ async function getSessionWindowActivity(sessionId) {
   return result;
 }
 
-async function capturePane(paneId, mode, lineCount) {
+async function capturePane(paneId, mode, lineCount, { ansi = false } = {}) {
   requireId(paneId, "pane");
   const args = ["capture-pane", "-p", "-t", paneId];
+  if (ansi) args.push("-e"); // keep SGR color/style escape sequences
 
   if (mode === "full") {
     args.push("-S", "-", "-E", "-");
@@ -1206,7 +1234,7 @@ async function handleApi(req, res, url) {
     const paneId = requireId(url.searchParams.get("paneId"), "pane");
     const mode = url.searchParams.get("mode") || "tail";
     const lines = parseLines(url.searchParams.get("lines"));
-    const text = cleanTerminalText(await capturePane(paneId, mode, lines));
+    const text = cleanTerminalTextKeepAnsi(await capturePane(paneId, mode, lines, { ansi: true }));
     sendJson(res, 200, { paneId, mode, lines, text });
     return;
   }
