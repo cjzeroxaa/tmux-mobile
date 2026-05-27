@@ -122,10 +122,8 @@ function updateTargetUrl() {
 
 const els = {
   mobileConnectionStatus: document.querySelector("#mobileConnectionStatus"),
-  mobileSessionSelect: document.querySelector("#mobileSessionSelect"),
   sessionNameInput: document.querySelector("#sessionNameInput"),
   createSession: document.querySelector("#createSession"),
-  renameSession: document.querySelector("#renameSession"),
   mobileWindows: document.querySelector("#mobileWindows"),
   mobileTargetLabel: document.querySelector("#mobileTargetLabel"),
   snapshot: document.querySelector("#snapshot"),
@@ -280,56 +278,51 @@ function itemButton({
   return button;
 }
 
-function renderSessions() {
-  els.mobileSessionSelect.innerHTML = "";
-  const session = selectedSession();
-  if (!els.sessionNameInput.matches(":focus")) {
-    els.sessionNameInput.value = session?.name || "";
-  }
-  els.createSession.disabled = false;
-  els.renameSession.disabled = !state.sessionId;
-
-  if (state.sessions.length === 0) {
-    els.mobileSessionSelect.disabled = true;
-    els.mobileSessionSelect.append(new Option("No tmux sessions", ""));
-    els.renameSession.disabled = true;
-    empty(els.mobileWindows, "No windows");
-    return;
-  }
-
-  for (const session of state.sessions) {
-    const label = `${session.name} (${session.windows} win${session.windows === 1 ? "" : "s"})`;
-    const option = new Option(label, session.id);
-    option.selected = session.id === state.sessionId;
-    els.mobileSessionSelect.append(option);
-  }
-  els.mobileSessionSelect.disabled = false;
+function windowsForSession(sessionId) {
+  return state.windows.filter((win) => win.sessionId === sessionId);
 }
 
+// One flat list of every window, grouped under a session header — no session
+// dropdown, so any window is one tap away.
 function renderWindows() {
   els.mobileWindows.innerHTML = "";
   els.newWindow.disabled = !state.sessionId;
-  els.killWindow.disabled = !state.windowId || state.windows.length <= 1;
+  els.killWindow.disabled =
+    !state.windowId || windowsForSession(state.sessionId).length <= 1;
 
   if (state.windows.length === 0) {
     empty(els.mobileWindows, "No windows");
     return;
   }
 
-  for (const win of state.windows) {
-    const summary = state.windowSummaries[win.id];
-    const live = Boolean(state.windowActivity[win.id]);
-    const config = {
-      active: win.id === state.windowId,
-      title: `${win.index}: ${win.name}`,
-      meta: summary || (state.summariesLoading ? "Summarizing..." : win.activeCommand || win.id),
-      badge: live ? "live" : `${win.panes} pane`,
-      badgeGreen: live,
-      onClick: () => selectWindow(win.id),
-      metaClassName: summary ? "summary" : "",
-      cwd: abbrevHome(win.cwd),
-    };
-    els.mobileWindows.append(itemButton(config));
+  for (const session of state.sessions) {
+    const wins = windowsForSession(session.id);
+    if (wins.length === 0) continue;
+
+    const header = document.createElement("div");
+    header.className = "window-group-header";
+    header.innerHTML = `
+      <span>${escapeHtml(session.name)}</span>
+      <span class="window-group-count">${wins.length} win${wins.length === 1 ? "" : "s"}${session.attached ? " · attached" : ""}</span>
+    `;
+    els.mobileWindows.append(header);
+
+    for (const win of wins) {
+      const summary = state.windowSummaries[win.id];
+      const live = Boolean(state.windowActivity[win.id]);
+      els.mobileWindows.append(
+        itemButton({
+          active: win.id === state.windowId,
+          title: `${win.index}: ${win.name}`,
+          meta: summary || (state.summariesLoading ? "Summarizing..." : win.activeCommand || win.id),
+          badge: live ? "live" : `${win.panes} pane`,
+          badgeGreen: live,
+          onClick: () => selectWindow(win.id),
+          metaClassName: summary ? "summary" : "",
+          cwd: abbrevHome(win.cwd),
+        }),
+      );
+    }
   }
 }
 
@@ -429,6 +422,7 @@ function openTargetPicker() {
   state.targetPickerOpen = true;
   els.targetSheet.hidden = false;
   syncSheetOpenClass();
+  startActivityPolling();
   loadWindowSummaries({ force: false });
 }
 
@@ -436,6 +430,7 @@ function closeTargetPicker() {
   state.targetPickerOpen = false;
   els.targetSheet.hidden = true;
   syncSheetOpenClass();
+  stopActivityPolling();
 }
 
 function openDirectoryPicker() {
@@ -1848,23 +1843,11 @@ async function refreshTree({
   syncUrl = false,
 } = {}) {
   try {
-    const sessions = await api("/api/sessions");
-    state.sessions = sessions;
-    const previousSessionId = state.sessionId;
-    const currentSessionExists = state.sessions.some((item) => item.id === state.sessionId);
-    if (forceUrlTarget || !currentSessionExists) {
-      const targetSession = urlTarget.session
-        ? state.sessions.find((item) => item.name === urlTarget.session)
-        : null;
-      state.sessionId = targetSession?.id || state.sessions[0]?.id || "";
-    }
-    if (state.sessionId !== previousSessionId) {
-      resetWindowSummaryState();
-      state.windowActivity = {};
+    state.sessions = await api("/api/sessions");
+    await loadWindows({ urlTarget, forceUrlTarget });
+    if (state.targetPickerOpen) {
       startActivityPolling();
     }
-    renderSessions();
-    await loadWindows({ urlTarget, forceUrlTarget });
     if (syncUrl) {
       updateTargetUrl();
     }
@@ -1872,21 +1855,6 @@ async function refreshTree({
     setStatus("localhost");
   } catch (error) {
     setStatus(error.message, false);
-  }
-}
-
-async function selectSession(sessionId) {
-  state.sessionId = sessionId;
-  state.windowId = "";
-  state.paneId = "";
-  resetWindowSummaryState();
-  state.windowActivity = {};
-  startActivityPolling();
-  renderSessions();
-  await loadWindows();
-  updateTargetUrl();
-  if (state.targetPickerOpen) {
-    await loadWindowSummaries({ force: true });
   }
 }
 
@@ -1909,12 +1877,8 @@ async function createTmuxSession() {
       method: "POST",
       body: JSON.stringify({ name }),
     });
-    state.sessionId = session.id;
-    state.windowId = "";
-    state.paneId = "";
-    resetWindowSummaryState();
+    els.sessionNameInput.value = "";
     await refreshTree();
-    updateTargetUrl();
     setStatus(`new session: ${session.name}`);
     if (state.targetPickerOpen) {
       loadWindowSummaries({ force: true });
@@ -1922,119 +1886,94 @@ async function createTmuxSession() {
   } catch (error) {
     setStatus(error.message, false);
   } finally {
-    renderSessions();
+    els.createSession.disabled = false;
   }
 }
 
-async function renameTmuxSession() {
-  const session = selectedSession();
-  const name = sessionNameInputValue();
-  if (!session) {
-    setStatus("Select a session first", false);
-    return;
-  }
-  if (!name) {
-    setStatus("Enter a session name", false);
-    els.sessionNameInput.focus();
-    return;
-  }
-  if (name === session.name) {
-    setStatus(`session: ${session.name}`);
-    return;
-  }
-
-  els.renameSession.disabled = true;
-  setStatus("renaming session...");
-  try {
-    const renamed = await api("/api/sessions", {
-      method: "PATCH",
-      body: JSON.stringify({ sessionId: session.id, name }),
-    });
-    state.sessionId = renamed.id;
-    resetWindowSummaryState();
-    await refreshTree();
-    updateTargetUrl();
-    setStatus(`renamed session: ${renamed.name}`);
-    if (state.targetPickerOpen) {
-      loadWindowSummaries({ force: true });
-    }
-  } catch (error) {
-    setStatus(error.message, false);
-  } finally {
-    renderSessions();
-  }
-}
-
+// Load windows for every session and flatten into one tagged list.
 async function loadWindows({ urlTarget = readUrlTarget(), forceUrlTarget = false } = {}) {
-  state.windows = [];
   state.panes = [];
-  if (!state.sessionId) {
+  if (state.sessions.length === 0) {
+    state.windows = [];
+    state.sessionId = "";
+    state.windowId = "";
     resetWindowSummaryState();
     renderWindows();
     renderTargetLabels();
     return;
   }
 
-  state.windows = await api(`/api/windows?sessionId=${encodeURIComponent(state.sessionId)}`);
+  const lists = await Promise.all(
+    state.sessions.map((session) =>
+      api(`/api/windows?sessionId=${encodeURIComponent(session.id)}`)
+        .then((wins) => wins.map((win) => ({ ...win, sessionId: session.id })))
+        .catch(() => []),
+    ),
+  );
+  state.windows = lists.flat();
   pruneWindowSummaries();
+
   const currentWindowExists = state.windows.some((item) => item.id === state.windowId);
   if (forceUrlTarget || !currentWindowExists) {
-    const targetWindow =
-      targetMatchesSession(urlTarget) && urlTarget.windowIndex
-        ? state.windows.find((item) => String(item.index) === urlTarget.windowIndex)
-        : null;
-    state.windowId =
-      targetWindow?.id ||
-      state.windows.find((item) => item.active)?.id ||
-      state.windows[0]?.id ||
-      "";
+    let target = null;
+    if (urlTarget.session && urlTarget.windowIndex) {
+      const session = state.sessions.find((item) => item.name === urlTarget.session);
+      if (session) {
+        target = state.windows.find(
+          (win) => win.sessionId === session.id && String(win.index) === urlTarget.windowIndex,
+        );
+      }
+    }
+    const chosen = target || state.windows.find((win) => win.active) || state.windows[0] || null;
+    state.windowId = chosen?.id || "";
+    state.sessionId = chosen?.sessionId || "";
+  } else {
+    state.sessionId =
+      state.windows.find((win) => win.id === state.windowId)?.sessionId || state.sessionId;
   }
+
   renderWindows();
+  renderTargetLabels();
   await loadPanes();
 }
 
+// Summaries for every session, merged by window id.
 async function loadWindowSummaries({ force = false } = {}) {
-  if (!state.sessionId || state.windows.length === 0) return;
-  const sessionId = state.sessionId;
+  if (state.windows.length === 0) return;
   state.summariesLoading = true;
   renderWindows();
-
   try {
-    const params = new URLSearchParams({
-      sessionId,
-      lines: "20",
-    });
-    if (force) {
-      params.set("refresh", "1");
-    }
-    const data = await api(`/api/window-summaries?${params}`);
-    if (state.sessionId !== sessionId) return;
-
-    state.windowSummaries = Object.fromEntries(
-      (data.summaries || []).map((item) => [item.windowId, item.summary]),
+    const lists = await Promise.all(
+      state.sessions.map((session) => {
+        const params = new URLSearchParams({ sessionId: session.id, lines: "20" });
+        if (force) params.set("refresh", "1");
+        return api(`/api/window-summaries?${params}`)
+          .then((data) => data.summaries || [])
+          .catch(() => []);
+      }),
     );
-    setStatus(`summaries: ${data.model}`);
+    const merged = {};
+    for (const summaries of lists) {
+      for (const item of summaries) merged[item.windowId] = item.summary;
+    }
+    state.windowSummaries = merged;
   } catch (error) {
-    if (state.sessionId === sessionId) {
-      setStatus(`summary: ${error.message}`, false);
-    }
+    setStatus(`summary: ${error.message}`, false);
   } finally {
-    if (state.sessionId === sessionId) {
-      state.summariesLoading = false;
-      renderWindows();
-    }
+    state.summariesLoading = false;
+    renderWindows();
   }
 }
 
 async function pollWindowActivity() {
-  if (!state.sessionId) return;
-  const sessionId = state.sessionId;
+  if (state.sessions.length === 0) return;
   try {
-    const data = await api(
-      `/api/window-activity?sessionId=${encodeURIComponent(sessionId)}`,
+    const results = await Promise.all(
+      state.sessions.map((session) =>
+        api(`/api/window-activity?sessionId=${encodeURIComponent(session.id)}`).catch(() => ({})),
+      ),
     );
-    if (state.sessionId !== sessionId) return;
-    state.windowActivity = data || {};
+    state.windowActivity = Object.assign({}, ...results);
     renderWindows();
   } catch {
     // ignore transient failures
@@ -2043,7 +1982,7 @@ async function pollWindowActivity() {
 
 function startActivityPolling() {
   stopActivityPolling();
-  if (!state.sessionId) return;
+  if (state.sessions.length === 0) return;
   pollWindowActivity();
   state.activityTimer = window.setInterval(pollWindowActivity, 3000);
 }
@@ -2056,7 +1995,9 @@ function stopActivityPolling() {
 }
 
 async function selectWindow(windowId) {
+  const win = state.windows.find((item) => item.id === windowId);
   state.windowId = windowId;
+  state.sessionId = win?.sessionId || state.sessionId;
   state.paneId = "";
   renderWindows();
   await loadPanes();
@@ -2100,7 +2041,7 @@ async function killSelectedWindow() {
     setStatus("Select a window first", false);
     return;
   }
-  if (state.windows.length <= 1) {
+  if (windowsForSession(win.sessionId).length <= 1) {
     setStatus("Cannot kill the last window", false);
     return;
   }
@@ -2328,20 +2269,12 @@ els.lineCount.addEventListener("change", () => {
   refreshSnapshot();
 });
 els.autoRefresh.addEventListener("change", () => setAutoRefresh(els.autoRefresh.checked));
-els.mobileSessionSelect.addEventListener("change", () => {
-  selectSession(els.mobileSessionSelect.value);
-});
 els.sessionNameInput.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
   event.preventDefault();
-  if (state.sessionId) {
-    renameTmuxSession();
-    return;
-  }
   createTmuxSession();
 });
 els.createSession.addEventListener("click", createTmuxSession);
-els.renameSession.addEventListener("click", renameTmuxSession);
 els.openTargetPicker.addEventListener("click", openTargetPicker);
 els.closeTargetPicker.addEventListener("click", closeTargetPicker);
 els.targetBackdrop.addEventListener("click", closeTargetPicker);

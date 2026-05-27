@@ -925,6 +925,32 @@ input {
   padding: 7px 8px;
 }
 
+.window-group-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 12px 2px 5px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.window-group-header:first-child {
+  margin-top: 2px;
+}
+
+.window-group-count {
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
 .mobile-target-groups {
   display: grid;
   min-height: 0;
