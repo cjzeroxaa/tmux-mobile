@@ -467,21 +467,21 @@ input {
 
 .voice-recording-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 6px;
+  align-items: center;
 }
 
 .voice-waveform {
   display: flex;
-  min-height: 42px;
-  grid-column: 1 / -1;
+  min-height: 36px;
   align-items: center;
   justify-content: center;
   gap: 3px;
   overflow: hidden;
   border-radius: 999px;
   background: #f8e9e9;
-  padding: 7px 12px;
+  padding: 6px 12px;
 }
 
 .voice-waveform span {
@@ -493,17 +493,18 @@ input {
   transition: height 100ms;
 }
 
-.voice-recording-actions .small-button {
-  min-height: 42px;
+.voice-action {
+  width: 36px;
+  height: 36px;
 }
 
-.voice-recording-actions .submit {
+.voice-action.submit {
   border-color: var(--accent);
   background: var(--accent);
   color: #fff;
 }
 
-.voice-recording-actions .cancel {
+.voice-action.cancel {
   border-color: rgba(167, 53, 53, 0.36);
   color: var(--danger);
 }

@@ -222,6 +222,13 @@ export class Hub {
       const out = await t(["new-window", "-P", "-F", formats.windows, "-t", sessionId]);
       return { body: windowFromRow(rows(out)[0]) };
     }
+    if (method === "PATCH" && p === "/api/windows") {
+      const body = await req.json();
+      const windowId = requireId(body.windowId, "window");
+      const name = requireSessionName(body.name);
+      await t(["rename-window", "-t", windowId, name]);
+      return { body: { ok: true } };
+    }
     if (method === "DELETE" && p === "/api/windows") {
       const body = await req.json();
       const windowId = requireId(body.windowId, "window");

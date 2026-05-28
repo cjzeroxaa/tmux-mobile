@@ -477,6 +477,13 @@ async function createWindow(sessionId) {
   return windowFromRow(row);
 }
 
+async function renameWindow(windowId, name) {
+  requireId(windowId, "window");
+  const windowName = requireSessionName(name);
+  await runTmux(["rename-window", "-t", windowId, windowName]);
+  return { ok: true };
+}
+
 async function killWindow(windowId) {
   requireId(windowId, "window");
   const windowInfo = await getWindowInfo(windowId);
@@ -1200,6 +1207,13 @@ async function handleApi(req, res, url) {
     const body = await readJsonBody(req);
     const sessionId = requireId(body.sessionId, "session");
     sendJson(res, 200, await createWindow(sessionId));
+    return;
+  }
+
+  if (req.method === "PATCH" && url.pathname === "/api/windows") {
+    const body = await readJsonBody(req);
+    const windowId = requireId(body.windowId, "window");
+    sendJson(res, 200, await renameWindow(windowId, body.name));
     return;
   }
 

@@ -135,6 +135,7 @@ const els = {
   fullscreenRead: document.querySelector("#fullscreenRead"),
   paneInput: document.querySelector("#paneInput"),
   newWindow: document.querySelector("#newWindow"),
+  renameWindow: document.querySelector("#renameWindow"),
   killWindow: document.querySelector("#killWindow"),
   lineCount: document.querySelector("#lineCount"),
   autoRefresh: document.querySelector("#autoRefresh"),
@@ -2069,6 +2070,32 @@ async function createTmuxWindow() {
   }
 }
 
+async function renameSelectedWindow() {
+  const win = selectedWindow();
+  if (!win) {
+    setStatus("Select a window first", false);
+    return;
+  }
+  const next = window.prompt("Rename window", win.name);
+  if (next === null) return;
+  const name = next.trim();
+  if (!name || name === win.name) return;
+  els.renameWindow.disabled = true;
+  setStatus("renaming window...");
+  try {
+    await api("/api/windows", {
+      method: "PATCH",
+      body: JSON.stringify({ windowId: win.id, name }),
+    });
+    await refreshTree();
+    setStatus(`renamed window: ${name}`);
+  } catch (error) {
+    setStatus(error.message, false);
+  } finally {
+    els.renameWindow.disabled = false;
+  }
+}
+
 async function killSelectedWindow() {
   const win = selectedWindow();
   if (!win) {
@@ -2298,6 +2325,7 @@ els.snapshot.addEventListener(
 );
 els.newWindow.addEventListener("click", createTmuxWindow);
 els.killWindow.addEventListener("click", killSelectedWindow);
+els.renameWindow.addEventListener("click", renameSelectedWindow);
 els.lineCount.addEventListener("change", () => {
   state.lines = Number(els.lineCount.value);
   refreshSnapshot();
