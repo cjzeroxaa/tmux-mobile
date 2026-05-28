@@ -855,7 +855,7 @@ async function finishVoiceRecording() {
   }
 
   rememberPendingVoiceAudio(blob);
-  await sendPendingVoiceRecording();
+  await sendPendingVoiceWithRetry();
 }
 
 async function sendPendingVoiceRecording() {
@@ -892,6 +892,40 @@ async function sendPendingVoiceRecording() {
   stopVoiceAnalysis({ clearWaveform: true });
 }
 
+const VOICE_SEND_MAX_ATTEMPTS = 10;
+const VOICE_SEND_RETRY_DELAY_MS = 1200;
+
+// These fail the same way on every attempt, so retrying is pointless.
+function isRetryableVoiceError(error) {
+  const message = (error?.message || "").toLowerCase();
+  return !(
+    message.includes("no speech") ||
+    message.includes("select a window") ||
+    message.includes("too large")
+  );
+}
+
+// Voice sends usually fail on transient network/agent hiccups, and the user has
+// to resend anyway — so auto-retry up to MAX times before surfacing failure.
+async function sendPendingVoiceWithRetry() {
+  for (let attempt = 1; attempt <= VOICE_SEND_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      await sendPendingVoiceRecording();
+      return;
+    } catch (error) {
+      if (!isRetryableVoiceError(error) || attempt >= VOICE_SEND_MAX_ATTEMPTS) {
+        throw error;
+      }
+      setVoiceStatus(
+        "sending",
+        "Retrying",
+        `Send failed, retry ${attempt + 1}/${VOICE_SEND_MAX_ATTEMPTS}`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, VOICE_SEND_RETRY_DELAY_MS));
+    }
+  }
+}
+
 function handleVoiceSendError(error) {
   const message = error.message || "Voice send failed";
   addChat("system", message, "voice error");
@@ -911,7 +945,7 @@ function handleVoiceSendError(error) {
 async function retryVoiceRecording() {
   if (state.voice.status !== "idle" || !state.voice.pendingAudio) return;
   try {
-    await sendPendingVoiceRecording();
+    await sendPendingVoiceWithRetry();
   } catch (error) {
     handleVoiceSendError(error);
   }
