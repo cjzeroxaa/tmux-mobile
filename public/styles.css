@@ -365,39 +365,68 @@ input {
   display: block;
 }
 
+/* Topbar voice status is a single icon; text only in the tooltip/aria-label. */
 .voice-status {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .topbar-status {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 1 auto;
-  max-width: 50%;
-  padding: 0 6px;
+  flex: 0 0 auto;
+  padding: 0 4px;
 }
 
-.voice-status.active {
-  color: var(--accent-dark);
+.voice-status[data-state="idle"] {
+  display: none;
 }
 
-.voice-status.error {
-  color: var(--danger);
+.voice-status::before {
+  content: "";
+  display: block;
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  border-radius: 50%;
 }
 
-.small-button.retry {
+.voice-status[data-state="recording"]::before {
+  background: var(--danger);
+  animation: voice-pulse 1s ease-in-out infinite;
+}
+
+.voice-status[data-state="transcribing"]::before,
+.voice-status[data-state="sending"]::before {
+  border: 2px solid var(--line);
+  border-top-color: var(--accent-dark);
+  animation: voice-spin 0.7s linear infinite;
+}
+
+.voice-status[data-state="failed"]::before {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px rgba(167, 53, 53, 0.2);
+}
+
+@keyframes voice-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes voice-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.voice-action.retry {
   border-color: var(--accent);
   background: var(--accent);
   color: #fff;
-  padding: 4px 10px;
-  flex: 0 0 auto;
 }
 
 .voice-button.busy {

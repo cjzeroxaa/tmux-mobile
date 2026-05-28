@@ -558,11 +558,8 @@ function renderVoiceRetry() {
   const canRetry = hasPendingAudio && state.voice.status === "idle";
   els.retryVoice.hidden = !canRetry;
   els.retryVoice.disabled = !canRetry;
-  els.voiceStatus.classList.toggle(
-    "error",
-    canRetry && Boolean(state.voice.pendingError),
-  );
-  els.voiceStatus.classList.toggle("active", state.voice.status !== "idle");
+  const failed = canRetry && Boolean(state.voice.pendingError);
+  els.voiceStatus.dataset.state = failed ? "failed" : state.voice.status;
 }
 
 function rememberPendingVoiceAudio(blob) {
@@ -640,7 +637,10 @@ function setVoiceStatus(status, title, subtitle) {
   syncScreenWakeLock();
   els.voiceTitle.textContent = title;
   els.voiceSubtitle.textContent = subtitle;
-  els.voiceStatus.textContent = visibleVoiceStatus(title, subtitle, status);
+  // Topbar status is a single icon (state via data-state + CSS); full text lives
+  // in the tooltip/aria-label only.
+  els.voiceStatus.title = visibleVoiceStatus(title, subtitle, status);
+  els.voiceStatus.setAttribute("aria-label", els.voiceStatus.title);
   const buttonLabel = status === "idle" ? "Record voice" : title;
   els.voiceButton.title = buttonLabel;
   els.voiceButton.setAttribute("aria-label", buttonLabel);
