@@ -40,6 +40,13 @@ const composerAtom = createPersistedAtom("tmux-mobile-composer", {
   textMode: false,
 });
 
+// "kami" = Japanese washi-paper light theme (default), "dark" = original.
+const themeAtom = createPersistedAtom("tmux-mobile-theme", { theme: "kami" });
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme === "dark" ? "" : "kami";
+}
+
 const state = {
   sessions: [],
   windows: [],
@@ -131,6 +138,7 @@ const els = {
   chat: document.querySelector("#chat"),
   mobileRefreshTree: document.querySelector("#mobileRefreshTree"),
   mobileRefresh: document.querySelector("#mobileRefresh"),
+  themeToggle: document.querySelector("#themeToggle"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
   fullscreenRead: document.querySelector("#fullscreenRead"),
@@ -472,6 +480,16 @@ async function initComposerEditor() {
     });
     editor.setRootElement(els.textInput);
     plainText.registerPlainText(editor);
+    editor.registerCommand(
+      lexical.KEY_ENTER_COMMAND,
+      (event) => {
+        if (event?.shiftKey) return false; // Shift+Enter inserts a newline
+        event?.preventDefault();
+        submitTextComposer();
+        return true;
+      },
+      lexical.COMMAND_PRIORITY_HIGH,
+    );
     editor.update(() => {
       const root = lexical.$getRoot();
       if (root.getFirstChild() === null) {
@@ -1680,16 +1698,39 @@ const ANSI_PALETTE = [
   "#1b1d1e", "#cc0000", "#4e9a06", "#c4a000", "#3465a4", "#75507b", "#06989a", "#d3d7cf",
   "#555753", "#ef2929", "#8ae234", "#fce94f", "#729fcf", "#ad7fa8", "#34e2e2", "#eeeeec",
 ];
+// Darker, saturated variants that stay readable on the Kami light terminal.
+const ANSI_PALETTE_LIGHT = [
+  "#26282a", "#b22222", "#2e7d32", "#9a6a00", "#1f5b8f", "#7b3fa0", "#0a7383", "#4a4f52",
+  "#3c4042", "#a8201a", "#256921", "#7a5300", "#1a4d7a", "#6a2f8c", "#0a6370", "#1b1d1e",
+];
+
+function ansiKami() {
+  return document.documentElement.dataset.theme === "kami";
+}
+
+function ansiPalette() {
+  return ansiKami() ? ANSI_PALETTE_LIGHT : ANSI_PALETTE;
+}
+
+// On the light terminal, darken raw RGB (cube / grayscale / truecolor) for contrast.
+function ansiRgb(r, g, b) {
+  if (ansiKami()) {
+    r = Math.round(r * 0.55);
+    g = Math.round(g * 0.55);
+    b = Math.round(b * 0.55);
+  }
+  return `rgb(${r},${g},${b})`;
+}
 
 function ansi256(n) {
-  if (n < 16) return ANSI_PALETTE[n];
+  if (n < 16) return ansiPalette()[n];
   if (n >= 232) {
     const v = 8 + (n - 232) * 10;
-    return `rgb(${v},${v},${v})`;
+    return ansiRgb(v, v, v);
   }
   const i = n - 16;
   const steps = [0, 95, 135, 175, 215, 255];
-  return `rgb(${steps[Math.floor(i / 36) % 6]},${steps[Math.floor(i / 6) % 6]},${steps[i % 6]})`;
+  return ansiRgb(steps[Math.floor(i / 36) % 6], steps[Math.floor(i / 6) % 6], steps[i % 6]);
 }
 
 function freshAnsiState() {
@@ -1712,16 +1753,16 @@ function applyAnsiSgr(state, paramStr) {
     else if (c === 24) state.underline = false;
     else if (c === 27) state.inverse = false;
     else if (c === 29) state.strike = false;
-    else if (c >= 30 && c <= 37) state.fg = ANSI_PALETTE[c - 30];
-    else if (c >= 40 && c <= 47) state.bg = ANSI_PALETTE[c - 40];
-    else if (c >= 90 && c <= 97) state.fg = ANSI_PALETTE[8 + c - 90];
-    else if (c >= 100 && c <= 107) state.bg = ANSI_PALETTE[8 + c - 100];
+    else if (c >= 30 && c <= 37) state.fg = ansiPalette()[c - 30];
+    else if (c >= 40 && c <= 47) state.bg = ansiPalette()[c - 40];
+    else if (c >= 90 && c <= 97) state.fg = ansiPalette()[8 + c - 90];
+    else if (c >= 100 && c <= 107) state.bg = ansiPalette()[8 + c - 100];
     else if (c === 39) state.fg = null;
     else if (c === 49) state.bg = null;
     else if (c === 38 || c === 48) {
       const target = c === 38 ? "fg" : "bg";
       if (codes[i + 1] === 5) { state[target] = ansi256(codes[i + 2] || 0); i += 2; }
-      else if (codes[i + 1] === 2) { state[target] = `rgb(${codes[i + 2] || 0},${codes[i + 3] || 0},${codes[i + 4] || 0})`; i += 4; }
+      else if (codes[i + 1] === 2) { state[target] = ansiRgb(codes[i + 2] || 0, codes[i + 3] || 0, codes[i + 4] || 0); i += 4; }
     }
   }
 }
@@ -2288,6 +2329,11 @@ els.mobileRefresh.addEventListener("click", async () => {
   await refreshTree();
   await refreshSnapshot();
 });
+els.themeToggle.addEventListener("click", () => {
+  const next = themeAtom.get().theme === "dark" ? "kami" : "dark";
+  themeAtom.set({ theme: next });
+  applyTheme(next);
+});
 els.refreshSnapshot.addEventListener("click", () => refreshSnapshot());
 els.fullscreenSnapshot.addEventListener("click", () => {
   setSnapshotFullscreen(!state.snapshotFullscreen);
@@ -2372,6 +2418,13 @@ els.cancelText.addEventListener("click", () => hideTextComposer({ persist: true 
 els.textInput.addEventListener("input", () => {
   if (!composerEditor) {
     els.textInput.classList.toggle("empty", els.textInput.innerText.trim().length === 0);
+  }
+});
+els.textInput.addEventListener("keydown", (event) => {
+  if (composerEditor) return; // Lexical handles Enter via KEY_ENTER_COMMAND
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    submitTextComposer();
   }
 });
 els.submitVoice.addEventListener("click", submitVoiceRecording);
