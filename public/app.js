@@ -56,6 +56,7 @@ const state = {
   chat: [],
   targetPickerOpen: false,
   directoryPickerOpen: false,
+  actionsOpen: false,
   snapshotFullscreen: false,
   snapshotPinnedToBottom: true,
   pendingUrlTarget: readUrlTarget(),
@@ -145,6 +146,8 @@ const els = {
   voiceSubtitle: document.querySelector("#voiceSubtitle"),
   voiceStatus: document.querySelector("#voiceStatus"),
   keyboardButton: document.querySelector("#keyboardButton"),
+  actionsToggle: document.querySelector("#actionsToggle"),
+  quickActions: document.querySelector("#quickActions"),
   textComposer: document.querySelector("#textComposer"),
   textInput: document.querySelector("#textInput"),
   submitText: document.querySelector("#submitText"),
@@ -521,6 +524,11 @@ function renderComposerMode() {
   els.voiceEntry.hidden = textMode || state.voice.status === "recording";
   els.textComposer.hidden = !textMode;
   els.keyboardButton.disabled = state.voice.status !== "idle";
+  els.actionsToggle.disabled = state.voice.status !== "idle";
+  const showActions = state.actionsOpen && state.voice.status === "idle" && !textMode;
+  els.quickActions.hidden = !showActions;
+  els.actionsToggle.classList.toggle("active", showActions);
+  els.actionsToggle.setAttribute("aria-expanded", String(showActions));
 }
 
 function showTextComposer() {
@@ -2355,6 +2363,10 @@ document.addEventListener("visibilitychange", () => {
 });
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
 els.keyboardButton.addEventListener("click", showTextComposer);
+els.actionsToggle.addEventListener("click", () => {
+  state.actionsOpen = !state.actionsOpen;
+  renderComposerMode();
+});
 els.textComposer.addEventListener("submit", submitTextComposer);
 els.cancelText.addEventListener("click", () => hideTextComposer({ persist: true }));
 els.textInput.addEventListener("input", () => {
