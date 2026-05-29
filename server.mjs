@@ -576,6 +576,22 @@ async function getSessionWindowActivity(sessionId) {
   return result;
 }
 
+async function getSessionWindowBranches(sessionId) {
+  const windows = await listWindows(sessionId);
+  const result = {};
+  await Promise.all(
+    windows.map(async (win) => {
+      if (!win.cwd) return;
+      try {
+        result[win.id] = await currentBackend().branch(win.cwd);
+      } catch {
+        result[win.id] = "";
+      }
+    }),
+  );
+  return result;
+}
+
 async function capturePane(paneId, mode, lineCount, { ansi = false } = {}) {
   requireId(paneId, "pane");
   const args = ["capture-pane", "-p", "-t", paneId];
@@ -1200,6 +1216,12 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/window-activity") {
     const sessionId = requireId(url.searchParams.get("sessionId"), "session");
     sendJson(res, 200, await getSessionWindowActivity(sessionId));
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/window-branches") {
+    const sessionId = requireId(url.searchParams.get("sessionId"), "session");
+    sendJson(res, 200, await getSessionWindowBranches(sessionId));
     return;
   }
 

@@ -172,6 +172,10 @@ export class Hub {
     const res = await this.rpc(machineId, OP.READDIR, { path: dirPath });
     return res.entries ?? [];
   }
+  async branch(machineId, dirPath) {
+    const res = await this.rpc(machineId, OP.BRANCH, { path: dirPath });
+    return res.branch ?? "";
+  }
 
   // ---- API ----
   async handleApi(req, url) {
@@ -237,6 +241,10 @@ export class Hub {
       if (windows.length <= 1) return { status: 400, body: { error: "Cannot kill the last window in a session" } };
       await t(["kill-window", "-t", windowId]);
       return { body: { ok: true, killed: { windowId, sessionId } } };
+    }
+    if (method === "GET" && p === "/api/window-branches") {
+      const sessionId = requireId(url.searchParams.get("sessionId"), "session");
+      return { body: await this.windowBranches(machineId, sessionId) };
     }
     if (method === "GET" && p === "/api/window-activity") {
       const sessionId = requireId(url.searchParams.get("sessionId"), "session");
@@ -392,6 +400,24 @@ export class Hub {
       } catch {}
       result[win.id] = active;
     }
+    return result;
+  }
+
+  async windowBranches(machineId, sessionId) {
+    const windows = rows(
+      await this.tmux(machineId, ["list-windows", "-t", sessionId, "-F", formats.windows]),
+    ).map(windowFromRow);
+    const result = {};
+    await Promise.all(
+      windows.map(async (win) => {
+        if (!win.cwd) return;
+        try {
+          result[win.id] = await this.branch(machineId, win.cwd);
+        } catch {
+          result[win.id] = "";
+        }
+      }),
+    );
     return result;
   }
 

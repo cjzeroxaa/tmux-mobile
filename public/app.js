@@ -52,6 +52,7 @@ const state = {
   windows: [],
   windowSummaries: {},
   windowActivity: {},
+  windowBranches: {},
   activityTimer: null,
   summariesLoading: false,
   panes: [],
@@ -274,6 +275,7 @@ function itemButton({
   className,
   metaClassName = "",
   cwd = "",
+  branch = "",
 }) {
   const button = document.createElement("button");
   button.type = "button";
@@ -283,6 +285,7 @@ function itemButton({
       <span>${escapeHtml(title)}</span>
       ${badge ? `<span class="badge ${badgeGreen ? "green" : ""}">${escapeHtml(badge)}</span>` : ""}
     </div>
+    ${branch ? `<div class="item-branch" title="${escapeHtml(branch)}">⎇ ${escapeHtml(branch)}</div>` : ""}
     ${cwd ? `<div class="item-cwd" title="${escapeHtml(cwd)}">${escapeHtml(cwd)}</div>` : ""}
     ${meta ? `<div class="item-meta ${escapeHtml(metaClassName)}">${escapeHtml(meta)}</div>` : ""}
   `;
@@ -332,6 +335,7 @@ function renderWindows() {
           onClick: () => selectWindow(win.id),
           metaClassName: summary ? "summary" : "",
           cwd: abbrevHome(win.cwd),
+          branch: state.windowBranches[win.id] || "",
         }),
       );
     }
@@ -341,8 +345,10 @@ function renderWindows() {
 function renderTargetLabels() {
   const session = selectedSession();
   const win = selectedWindow();
-  const label =
-    session && win ? `${session.name} / ${win.index}:${win.name}` : "No window selected";
+  const branch = win ? state.windowBranches[win.id] : "";
+  const label = session && win
+    ? `${session.name} / ${win.index}:${win.name}${branch ? ` ⎇ ${branch}` : ""}`
+    : "No window selected";
   els.mobileTargetLabel.textContent = label;
 }
 
@@ -436,6 +442,7 @@ function openTargetPicker() {
   syncSheetOpenClass();
   startActivityPolling();
   loadWindowSummaries({ force: false });
+  loadWindowBranches();
 }
 
 function closeTargetPicker() {
@@ -2046,6 +2053,22 @@ async function loadWindowSummaries({ force = false } = {}) {
   } finally {
     state.summariesLoading = false;
     renderWindows();
+  }
+}
+
+async function loadWindowBranches() {
+  if (state.windows.length === 0) return;
+  try {
+    const lists = await Promise.all(
+      state.sessions.map((session) =>
+        api(`/api/window-branches?sessionId=${encodeURIComponent(session.id)}`).catch(() => ({})),
+      ),
+    );
+    state.windowBranches = Object.assign({}, ...lists);
+    renderWindows();
+    renderTargetLabels();
+  } catch {
+    // ignore transient failures
   }
 }
 
