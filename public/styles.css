@@ -277,6 +277,7 @@ input {
 .control-panel {
   display: block;
   padding: 8px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
 }
 
 .voice-composer {
@@ -529,7 +530,7 @@ input {
 
 .voice-recording-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 6px;
   align-items: center;
 }
