@@ -409,7 +409,8 @@ input {
   padding: 0 4px;
 }
 
-.voice-status[data-state="idle"] {
+.voice-status[data-state="idle"],
+.voice-status[data-state="recording"] {
   display: none;
 }
 
