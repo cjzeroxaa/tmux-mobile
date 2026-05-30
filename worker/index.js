@@ -612,7 +612,7 @@ function isSeparatorLine(line) {
 // chars and de-noises blank/separator lines (tested on SGR-stripped text).
 function cleanTerminalTextKeepAnsi(text) {
   const lines = String(text || "")
-    .replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)/g, "")
+    .replace(/\x1B\][^\x07]*?(?:\x07|\x1B\\)/g, "")
     .replace(/\x1B[@-Z\\-_]/g, "")
     .replace(/\x1B\[[0-?]*[ -/]*[@-ln-~]/g, "")
     .replace(/\r/g, "\n")
@@ -633,7 +633,7 @@ function cleanTerminalTextKeepAnsi(text) {
 }
 function cleanTerminalText(text) {
   const lines = String(text || "")
-    .replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)/g, "")
+    .replace(/\x1B\][^\x07]*?(?:\x07|\x1B\\)/g, "")
     .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "")
     .replace(/\r/g, "\n")
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
