@@ -60,7 +60,16 @@ export default {
         { headers: { "content-type": "application/manifest+json; charset=utf-8" } },
       );
     }
-    return env.ASSETS.fetch(req);
+    // Single-user prototype: never let browsers cache the shell/assets so
+    // changes show up immediately on reload (no stale UI in the topbar etc.).
+    const assetResponse = await env.ASSETS.fetch(req);
+    const assetHeaders = new Headers(assetResponse.headers);
+    assetHeaders.set("cache-control", "no-store");
+    return new Response(assetResponse.body, {
+      status: assetResponse.status,
+      statusText: assetResponse.statusText,
+      headers: assetHeaders,
+    });
   },
 };
 
