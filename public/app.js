@@ -327,7 +327,7 @@ function renderWindows() {
           active: win.id === state.windowId,
           title: `${win.index}: ${win.name}`,
           meta: summary || (state.summariesLoading ? "Summarizing..." : win.activeCommand || win.id),
-          badge: live ? "live" : `${win.panes} pane`,
+          badge: live ? "live" : "",
           badgeGreen: live,
           onClick: () => selectWindow(win.id),
           metaClassName: summary ? "summary" : "",
