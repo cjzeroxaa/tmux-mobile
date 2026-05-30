@@ -762,10 +762,10 @@ async function summarizeWindows(sessionId, lineCount, { force = false } = {}) {
 
   const value = await createJsonModelResponse({
     instructions:
-      "You summarize tmux window state for a mobile dashboard. For each window, write one short present-tense sentence under 90 characters. Mention errors, running tests, idle prompts, build progress, or obvious current task. Do not invent details. If output is empty or only a prompt, say it is idle.",
+      "You summarize tmux window state for a mobile dashboard. For each window, write 2 short present-tense sentences, under 200 characters total. Mention errors, running tests, idle prompts, build progress, current files or commands, and the obvious current task. Do not invent details. If output is empty or only a prompt, say it is idle.",
     input: JSON.stringify({ lines, windows: samples }),
     schema,
-    maxOutputTokens: Math.max(300, windows.length * 45),
+    maxOutputTokens: Math.max(500, windows.length * 80),
   });
 
   const validWindowIds = new Set(windows.map((win) => win.id));
@@ -773,7 +773,7 @@ async function summarizeWindows(sessionId, lineCount, { force = false } = {}) {
     .filter((item) => validWindowIds.has(item.windowId))
     .map((item) => ({
       windowId: item.windowId,
-      summary: String(item.summary || "").replace(/\s+/g, " ").trim().slice(0, 140),
+      summary: String(item.summary || "").replace(/\s+/g, " ").trim().slice(0, 260),
     }))
     .filter((item) => item.summary);
 

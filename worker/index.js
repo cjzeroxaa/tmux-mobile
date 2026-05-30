@@ -521,14 +521,14 @@ export class Hub {
       required: ["summaries"],
     };
     const value = await createJsonModelResponse(this.env.OPENAI_API_KEY, {
-      instructions: "You summarize tmux window state for a mobile dashboard. For each window, write one short present-tense sentence under 90 characters. Mention errors, running tests, idle prompts, build progress, or obvious current task. Do not invent details. If output is empty or only a prompt, say it is idle.",
+      instructions: "You summarize tmux window state for a mobile dashboard. For each window, write 2 short present-tense sentences, under 200 characters total. Mention errors, running tests, idle prompts, build progress, current files or commands, and the obvious current task. Do not invent details. If output is empty or only a prompt, say it is idle.",
       input: JSON.stringify({ lines, windows: samples }),
-      schema, maxOutputTokens: Math.max(300, windows.length * 45),
+      schema, maxOutputTokens: Math.max(500, windows.length * 80),
     });
     const validIds = new Set(windows.map((w) => w.id));
     const summaries = (value.summaries || [])
       .filter((i) => validIds.has(i.windowId))
-      .map((i) => ({ windowId: i.windowId, summary: String(i.summary || "").replace(/\s+/g, " ").trim().slice(0, 140) }))
+      .map((i) => ({ windowId: i.windowId, summary: String(i.summary || "").replace(/\s+/g, " ").trim().slice(0, 260) }))
       .filter((i) => i.summary);
     const result = { model: SUMMARY_MODEL, lines, summaries };
     this.summaryCache.set(cacheKey, { createdAt: Date.now(), value: result });

@@ -905,8 +905,8 @@ input {
   position: absolute;
   inset: auto 0 0 0;
   display: grid;
-  height: min(92dvh, 720px);
-  max-height: 92dvh;
+  height: 96dvh;
+  max-height: 96dvh;
   min-height: 0;
   grid-template-rows: auto auto auto auto minmax(0, 1fr);
   gap: 12px;

@@ -156,16 +156,12 @@
       <button id="targetBackdrop" class="target-backdrop" type="button" aria-label="Close target picker"></button>
       <section class="target-panel" role="dialog" aria-modal="true" aria-labelledby="targetSheetTitle">
         <div class="target-panel-header">
-          <div>
-            <h2 id="targetSheetTitle">Switch Target</h2>
-            <p class="muted">Select a session, then choose a window.</p>
-          </div>
+          <h2 id="targetSheetTitle">Switch Target</h2>
           <button id="closeTargetPicker" class="icon-button" type="button" title="Close">X</button>
         </div>
 
         <div class="target-panel-actions">
           <button id="mobileRefreshTree" class="small-button" type="button">Refresh</button>
-          <span id="mobileConnectionStatus" class="muted">localhost</span>
         </div>
 
         <div class="session-management" aria-label="Create session">
@@ -180,13 +176,6 @@
 
         <div class="mobile-target-groups">
           <section class="target-group">
-            <div class="target-group-header">
-              <h3>Windows</h3>
-              <div class="window-actions" aria-label="Window actions">
-                <button id="newWindow" class="small-button" type="button">+ Win</button>
-                <button id="killWindow" class="small-button danger" type="button">Kill</button>
-              </div>
-            </div>
             <div id="mobileWindows" class="list mobile-list"></div>
           </section>
         </div>
