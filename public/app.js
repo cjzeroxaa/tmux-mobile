@@ -152,6 +152,7 @@ const els = {
   voiceTitle: document.querySelector("#voiceTitle"),
   voiceSubtitle: document.querySelector("#voiceSubtitle"),
   voiceStatus: document.querySelector("#voiceStatus"),
+  voiceStatusRow: document.querySelector("#voiceStatusRow"),
   keyboardButton: document.querySelector("#keyboardButton"),
   actionsToggle: document.querySelector("#actionsToggle"),
   quickActions: document.querySelector("#quickActions"),
@@ -589,6 +590,11 @@ function renderVoiceRetry() {
   els.retryVoice.disabled = !canRetry;
   const failed = canRetry && Boolean(state.voice.pendingError);
   els.voiceStatus.dataset.state = failed ? "failed" : state.voice.status;
+  // Toggle the whole row so its grid track collapses when there's nothing to show.
+  const statusVisible =
+    els.voiceStatus.dataset.state !== "idle" &&
+    els.voiceStatus.dataset.state !== "recording";
+  els.voiceStatusRow.hidden = !statusVisible && !canRetry;
 }
 
 function rememberPendingVoiceAudio(blob) {

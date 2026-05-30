@@ -409,6 +409,14 @@ input {
   padding: 0 4px;
 }
 
+.voice-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-height: 0;
+}
+
 .voice-status[data-state="idle"],
 .voice-status[data-state="recording"] {
   display: none;
