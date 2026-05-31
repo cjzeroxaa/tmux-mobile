@@ -183,6 +183,24 @@ h3 {
   padding: 8px;
 }
 
+/* Subtle warning shown in the toolbar when the auto-refresh poll fails. The
+ * snapshot keeps its last good content; this is the only feedback that it's
+ * stale. Gentle pulse so the eye catches it, not loud enough to nag. */
+.snapshot-stale-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  color: var(--danger);
+  animation: snapshot-stale-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes snapshot-stale-pulse {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1; }
+}
+
 .line-picker,
 .toggle,
 .target-select {

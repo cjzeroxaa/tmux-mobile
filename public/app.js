@@ -147,6 +147,7 @@ const els = {
   renameWindow: document.querySelector("#renameWindow"),
   lineCount: document.querySelector("#lineCount"),
   autoRefresh: document.querySelector("#autoRefresh"),
+  snapshotStaleIcon: document.querySelector("#snapshotStaleIcon"),
   voiceEntry: document.querySelector("#voiceEntry"),
   voiceButton: document.querySelector("#voiceButton"),
   voiceTitle: document.querySelector("#voiceTitle"),
@@ -2213,9 +2214,20 @@ async function changeDirectory(targetPath) {
   }, 650);
 }
 
+function setSnapshotStale(stale, error) {
+  if (!els.snapshotStaleIcon) return;
+  els.snapshotStaleIcon.hidden = !stale;
+  if (stale && error) {
+    els.snapshotStaleIcon.title = `Last refresh failed (${error.message || error}) — showing previous content`;
+  } else {
+    els.snapshotStaleIcon.title = "Last refresh failed — showing previous content";
+  }
+}
+
 async function refreshSnapshot(addToChat = false, { forceScrollBottom = false } = {}) {
   if (!state.paneId) {
     updateSnapshotText("Select a window.", { forceScrollBottom: true });
+    setSnapshotStale(false);
     return;
   }
   try {
@@ -2226,12 +2238,20 @@ async function refreshSnapshot(addToChat = false, { forceScrollBottom = false } 
     });
     const data = await api(`/api/capture?${params}`);
     updateSnapshotText(data.text || "[no visible output]", { forceScrollBottom });
+    setSnapshotStale(false);
     if (addToChat) {
       addChat("pane", excerptForChat(data.text), "tmux output");
     }
   } catch (error) {
-    updateSnapshotText(error.message, { forceScrollBottom });
-    addChat("system", error.message, "error");
+    // Keep the last good snapshot visible — wiping it on every transient
+    // network blip is the worst possible UX. The toolbar icon is the only
+    // signal that something's off; the user can hit Refresh to retry.
+    setSnapshotStale(true, error);
+    if (addToChat) {
+      // Only surface the error in the chat when the user actually pressed
+      // Refresh / sent something. Silent auto-poll failures stay silent.
+      addChat("system", error.message, "error");
+    }
   }
 }
 
