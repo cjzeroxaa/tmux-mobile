@@ -557,6 +557,9 @@ function showTextComposer() {
   if (state.voice.status !== "idle") return;
   state.voice.textMode = true;
   composerAtom.set({ textMode: true });
+  // Take over the screen so the editor is full-height (terminal snapshot is
+  // not useful while typing and just eats vertical space above the keyboard).
+  document.body.classList.add("text-composer-active");
   renderComposerMode();
   requestAnimationFrame(() => composerFocus());
 }
@@ -564,6 +567,7 @@ function showTextComposer() {
 function hideTextComposer({ clear = false, persist = false } = {}) {
   state.voice.textMode = false;
   if (persist) composerAtom.set({ textMode: false });
+  document.body.classList.remove("text-composer-active");
   if (clear) {
     composerClear();
   }
