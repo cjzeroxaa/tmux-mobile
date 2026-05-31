@@ -231,6 +231,12 @@ function sendWebManifest(res) {
     display: "standalone",
     background_color: "#f5f1e8",
     theme_color: "#202124",
+    icons: [
+      { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
+    ],
   });
   res.writeHead(200, {
     "content-type": "application/manifest+json; charset=utf-8",

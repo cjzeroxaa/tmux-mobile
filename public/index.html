@@ -8,6 +8,17 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- iOS uses apple-touch-icon for the home-screen icon, not the manifest's
+         icons[]. 180x180 is the modern default; iOS rounds it on the homescreen. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <!-- Status-bar tint matches the kami paper ground when installed; switches
+         to the dark surface when the dark theme is in use. -->
+    <meta name="theme-color" content="#efe8d7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1316" media="(prefers-color-scheme: dark)" />
+    <!-- Old iOS status bar tint (used inside the standalone shell). -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>__APP_TITLE__</title>
     <script>
       // Apply saved theme before first paint to avoid a flash. Default: kami.

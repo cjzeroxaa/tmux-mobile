@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="tmux Mobile icon">
+  <!-- Source icon for both Kami (light) and dark mode. iOS rounds it on the
+       homescreen; Android maskable safe area is the inner 80%, so all the
+       meaningful marks live well inside that. -->
+  <rect width="512" height="512" rx="0" ry="0" fill="#efe8d7"/>
+  <!-- Inner soft frame so the icon reads as a "terminal window" silhouette. -->
+  <rect x="64" y="96" width="384" height="320" rx="36" ry="36" fill="none" stroke="#2c2823" stroke-width="14"/>
+  <!-- "Window chrome" dots in the top-left of the inner frame. -->
+  <circle cx="108" cy="138" r="10" fill="#b5432f"/>
+  <circle cx="144" cy="138" r="10" fill="#d9a441"/>
+  <circle cx="180" cy="138" r="10" fill="#5a8a6b"/>
+  <!-- Prompt + cursor: the universal "this is a CLI" signal. -->
+  <text x="100" y="312"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="160" font-weight="900" fill="#2c2823">$</text>
+  <rect x="220" y="208" width="86" height="120" fill="#35597a"/>
+</svg>
