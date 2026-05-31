@@ -1205,7 +1205,7 @@ html:not([data-theme="kami"]) {
 select,
 input,
 .text-composer .lexical-editor {
-  background: #14110d;
+  background: var(--code-bg);
   color: var(--ink);
 }
 
