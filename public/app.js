@@ -40,8 +40,23 @@ const composerAtom = createPersistedAtom("tmux-mobile-composer", {
   textMode: false,
 });
 
-// "kami" = Japanese washi-paper light theme (default), "dark" = original.
+// "kami" = Japanese washi-paper light theme (default), "dark" = original,
+// "auto" = follow the OS prefers-color-scheme.
 const themeAtom = createPersistedAtom("tmux-mobile-theme", { theme: "kami" });
+const THEME_ORDER = ["kami", "dark", "auto"];
+
+function systemPrefersDark() {
+  return !!(
+    window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+  );
+}
+
+// Resolve a theme choice to the concrete light/dark applied to the document.
+function themeIsDark(theme) {
+  if (theme === "dark") return true;
+  if (theme === "auto") return systemPrefersDark();
+  return false; // kami / default
+}
 
 // Snapshot tail depth (lines shown in the terminal pane). Persisted so the
 // user's preferred depth carries across reloads. Validated against the
@@ -73,7 +88,7 @@ function readPersistedSnapshotFont() {
 }
 
 function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme === "dark" ? "" : "kami";
+  document.documentElement.dataset.theme = themeIsDark(theme) ? "" : "kami";
 }
 
 const state = {
@@ -1800,12 +1815,33 @@ function ansiPalette() {
   return ansiKami() ? ANSI_PALETTE_LIGHT : ANSI_PALETTE;
 }
 
+// Relative luminance (WCAG) of an sRGB 0-255 color.
+function srgbLin(c) {
+  c /= 255;
+  return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+function relLum(r, g, b) {
+  return 0.2126 * srgbLin(r) + 0.7152 * srgbLin(g) + 0.0722 * srgbLin(b);
+}
+
 // On the light terminal, darken raw RGB (cube / grayscale / truecolor) for contrast.
+// A flat multiply leaves pale colors (Claude Code's steel-blue, purple, etc.) too
+// light on the #faf6ec Kami terminal bg. Instead clamp any color whose luminance
+// exceeds a cap, scaling it toward black while preserving hue — this guarantees a
+// readable contrast ratio (>= ~4.5:1) regardless of how light the source color is.
+const KAMI_LUM_CAP = 0.14;
 function ansiRgb(r, g, b) {
   if (ansiKami()) {
-    r = Math.round(r * 0.55);
-    g = Math.round(g * 0.55);
-    b = Math.round(b * 0.55);
+    const lum = relLum(r, g, b);
+    if (lum > KAMI_LUM_CAP) {
+      const k = Math.pow(KAMI_LUM_CAP / lum, 1 / 2.4);
+      r *= k;
+      g *= k;
+      b *= k;
+    }
+    r = Math.round(r);
+    g = Math.round(g);
+    b = Math.round(b);
   }
   return `rgb(${r},${g},${b})`;
 }
@@ -2388,11 +2424,43 @@ els.mobileRefresh.addEventListener("click", async () => {
   await refreshTree();
   await refreshSnapshot();
 });
+const THEME_ICONS = {
+  // sun
+  kami: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
+  // moon
+  dark: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/>',
+  // monitor / auto
+  auto: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+};
+const THEME_LABELS = { kami: "Theme: Light", dark: "Theme: Dark", auto: "Theme: Auto" };
+
+function updateThemeToggle(theme) {
+  els.themeToggle.innerHTML =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    (THEME_ICONS[theme] || THEME_ICONS.kami) +
+    "</svg>";
+  const label = THEME_LABELS[theme] || THEME_LABELS.kami;
+  els.themeToggle.title = label;
+  els.themeToggle.setAttribute("aria-label", label);
+}
+
 els.themeToggle.addEventListener("click", () => {
-  const next = themeAtom.get().theme === "dark" ? "kami" : "dark";
+  const cur = themeAtom.get().theme;
+  const idx = THEME_ORDER.indexOf(cur);
+  const next = THEME_ORDER[(idx + 1) % THEME_ORDER.length];
   themeAtom.set({ theme: next });
   applyTheme(next);
+  updateThemeToggle(next);
 });
+
+// Reflect OS theme changes live while in auto mode.
+if (window.matchMedia) {
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (themeAtom.get().theme === "auto") applyTheme("auto");
+  });
+}
+
+updateThemeToggle(themeAtom.get().theme);
 
 // "More" overflow menu — folds rename/directories/refresh/theme behind one
 // button so the topbar has room for the full cwd path. Toggle on tap, close

@@ -22,9 +22,15 @@
     <title>__APP_TITLE__</title>
     <script>
       // Apply saved theme before first paint to avoid a flash. Default: kami.
+      // "auto" follows the OS prefers-color-scheme.
       try {
         var t = JSON.parse(localStorage.getItem("tmux-mobile-theme") || "{}").theme;
-        document.documentElement.dataset.theme = t === "dark" ? "" : "kami";
+        var dark =
+          t === "dark" ||
+          (t === "auto" &&
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "" : "kami";
       } catch (e) {
         document.documentElement.dataset.theme = "kami";
       }
