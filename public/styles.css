@@ -475,42 +475,6 @@ input {
   gap: 6px;
 }
 
-/* Full-screen text-input mode: when the keyboard is up, hide the topbar +
- * terminal snapshot and let the editor grow to fill the viewport. Mirrors
- * the .snapshot-fullscreen pattern above. */
-.text-composer-active .mobile-topbar,
-.text-composer-active .snapshot-panel {
-  display: none;
-}
-
-.text-composer-active .app-shell {
-  grid-template-rows: minmax(0, 1fr);
-}
-
-.text-composer-active .control-panel {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.text-composer-active .voice-composer,
-.text-composer-active .voice-actions {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-}
-
-.text-composer-active .text-composer {
-  flex: 1;
-  min-height: 0;
-}
-
-.text-composer-active .text-composer .lexical-editor {
-  max-height: none;
-  height: 100%;
-}
-
 .text-composer .lexical-editor {
   position: relative;
   width: 100%;
