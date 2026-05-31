@@ -1,18 +1,28 @@
+/* Kami at night: same washi-paper aesthetic as the light theme, just with the
+   palette inverted onto sumi-ink grounds. Warm dark browns instead of cool
+   greys, paper-cream text instead of grey-blue, the same ai-indigo accent
+   lifted brighter to keep contrast on dark, shu-vermillion for danger. */
 :root {
   color-scheme: dark;
-  --bg: #0f1316;
-  --surface: #1a1f23;
-  --surface-soft: #20262b;
-  --ink: #e6ecef;
-  --muted: #8d979e;
-  --line: #2d3439;
-  --accent: #1ea58f;
-  --accent-dark: #2bc1a8;
-  --accent-blue: #7da3da;
-  --danger: #e07474;
-  --code-bg: #15191d;
-  --code-ink: #d9f0e8;
-  --shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+  --bg: #1a1612;
+  --surface: #221d17;
+  --surface-soft: #2b2520;
+  --ink: #ede5d2;
+  --muted: #a89a82;
+  --line: #3a322a;
+  --accent: #8aa7c6;
+  --accent-dark: #adc4dd;
+  --accent-blue: #6c88a6;
+  --danger: #d96148;
+  --code-bg: #14110d;
+  --code-ink: #e8e0cd;
+  --shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
+}
+
+/* Same noise texture as kami but at lower opacity — keeps the "ink on paper"
+   feel without lightening the ground. */
+html:not([data-theme="kami"]) body {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)' opacity='0.04'/%3E%3C/svg%3E");
 }
 
 /* Kami: a Japanese washi-paper light theme. Shironeri/kinari paper grounds,
@@ -1183,148 +1193,151 @@ input {
 button:focus,
 select:focus,
 input:focus {
-  outline-color: rgba(43, 193, 168, 0.4);
+  outline-color: rgba(138, 167, 198, 0.40);
 }
 
 /* Dark theme component colors — gated so the Kami light theme falls back to the
-   light declarations defined earlier in this file. */
+   light declarations defined earlier in this file. All accents are indigo
+   (--accent / --accent-dark, lifted brighter for dark contrast), all warning
+   tints are shu-vermillion (--danger). No teal anywhere — that was the
+   pre-kami palette. */
 html:not([data-theme="kami"]) {
 select,
 input,
 .text-composer .lexical-editor {
-  background: #161a1d;
+  background: #14110d;
   color: var(--ink);
 }
 
 .activity-status {
-  background: #1c2226;
+  background: var(--surface);
   color: var(--muted);
 }
 
 .activity-status::before {
-  background: #5e6b73;
+  background: #6f6450;
 }
 
 .activity-status.active {
-  background: #17302a;
-  color: #4fd4b8;
+  background: #1f2638;
+  color: var(--accent-dark);
 }
 
 .activity-status.active::before {
-  background: #2bc1a8;
-  box-shadow: 0 0 0 3px rgba(43, 193, 168, 0.18);
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(138, 167, 198, 0.20);
 }
 
 .activity-status.background {
-  background: #1c2226;
-  color: #aab4bb;
+  background: var(--surface);
+  color: var(--muted);
 }
 
 .voice-button {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: linear-gradient(#2a3036, #1a1f23);
-  color: #e6ecef;
+  border-color: rgba(237, 229, 210, 0.12);
+  background: linear-gradient(var(--surface-soft), var(--surface));
+  color: var(--ink);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 1px 2px rgba(0, 0, 0, 0.5);
+    inset 0 1px 0 rgba(237, 229, 210, 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
 .voice-button:active {
-  background: linear-gradient(#1a1f23, #2a3036);
+  background: linear-gradient(var(--surface), var(--surface-soft));
 }
 
 .keyboard-button,
 .action-button.agent {
-  background: #1d2530;
-  color: #9fb8e0;
+  background: #1f2638;
+  color: var(--accent-dark);
 }
 
 .read-button {
-  background: #15241f;
-  color: #4fd4b8;
+  background: #1f2638;
+  color: var(--accent-dark);
 }
 
 .voice-button.busy {
-  background: #1a2435;
-  color: #9fb8e0;
+  background: #1f2638;
+  color: var(--accent-dark);
 }
 
 .text-composer-actions .cancel {
-  background: #1a1f23;
+  background: var(--surface);
 }
 
 .voice-waveform {
-  background: #2c1d1d;
+  background: #2e1814;
 }
 
 .action-button {
-  background: #1a1f23;
+  background: var(--surface);
 }
 
 .action-button.command {
-  background: #15241f;
-  color: #4fd4b8;
+  background: #1f2638;
+  color: var(--accent-dark);
 }
 
 .action-button.audio {
-  background: #1a2435;
-  color: #9fb8e0;
+  background: #1f2638;
+  color: var(--accent-dark);
 }
 
 .action-button.audio.reading {
-  background: #2c1d1d;
+  background: #2e1814;
   color: var(--danger);
 }
 
 .directory-navigator {
-  background: #1a1f23;
+  background: var(--surface);
 }
 
 .directory-button {
-  background: #15241f;
-  color: #4fd4b8;
+  background: #1f2638;
+  color: var(--accent-dark);
 }
 
 .directory-button.parent {
-  background: #1d2530;
-  color: #9fb8e0;
+  background: #1f2638;
+  color: var(--accent-dark);
 }
 
 .small-button,
 .icon-button {
-  background: #1a1f23;
+  background: var(--surface);
   color: var(--ink);
 }
 
 .message.user {
-  background: #1d2837;
+  background: #1f2638;
 }
 
 .message.pane {
-  background: #15241f;
+  background: var(--surface);
 }
 
 .message.system {
-  background: #28241c;
+  background: #2a2218;
   color: var(--muted);
 }
 
 .item.active {
-  background: #17302a;
+  background: #1f2638;
 }
 
 .item-meta.summary {
-  color: #aab4bb;
+  color: #c6b8a0;
 }
 
 .badge {
-  background: #262b30;
-  color: #b9c4d4;
+  background: var(--surface-soft);
+  color: var(--ink);
 }
 
 .badge.green {
-  background: #17302a;
-  color: #4fd4b8;
+  background: #1f2638;
+  color: var(--accent-dark);
 }
 }
 
