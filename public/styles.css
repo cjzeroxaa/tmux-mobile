@@ -122,24 +122,17 @@ h3 {
 }
 
 .target-pill {
-  display: grid;
+  display: flex;
   min-width: 0;
   flex: 1;
-  gap: 3px;
+  align-items: center;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
   color: var(--ink);
-  padding: 9px 10px;
+  padding: 0 10px;
   text-align: left;
   box-shadow: var(--shadow);
-}
-
-.target-pill span {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
 }
 
 .target-pill strong {
