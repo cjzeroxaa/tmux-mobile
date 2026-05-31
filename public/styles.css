@@ -511,6 +511,13 @@ input {
   height: 100%;
 }
 
+/* Don't let Submit stretch to fill the now-tall actions column. Pack both
+ * buttons at the bottom of the column so they sit right above the keyboard. */
+.text-composer-active .text-composer-actions {
+  grid-template-rows: auto auto;
+  align-content: end;
+}
+
 .text-composer .lexical-editor {
   position: relative;
   width: 100%;
