@@ -43,6 +43,17 @@ const composerAtom = createPersistedAtom("tmux-mobile-composer", {
 // "kami" = Japanese washi-paper light theme (default), "dark" = original.
 const themeAtom = createPersistedAtom("tmux-mobile-theme", { theme: "kami" });
 
+// Snapshot tail depth (lines shown in the terminal pane). Persisted so the
+// user's preferred depth carries across reloads. Validated against the
+// allowed set so a stale/bogus value can't bork the picker.
+const LINE_OPTIONS = [50, 120, 250, 500, 1000];
+const DEFAULT_LINES = 500;
+const linesAtom = createPersistedAtom("tmux-mobile-lines", { lines: DEFAULT_LINES });
+function readPersistedLines() {
+  const value = Number(linesAtom.get().lines);
+  return LINE_OPTIONS.includes(value) ? value : DEFAULT_LINES;
+}
+
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme === "dark" ? "" : "kami";
 }
@@ -59,7 +70,7 @@ const state = {
   sessionId: "",
   windowId: "",
   paneId: "",
-  lines: 500,
+  lines: readPersistedLines(),
   autoRefreshTimer: null,
   chat: [],
   targetPickerOpen: false,
@@ -2356,8 +2367,13 @@ els.snapshot.addEventListener(
   { passive: true },
 );
 els.renameWindow.addEventListener("click", renameSelectedWindow);
+// Reflect the persisted depth in the picker before the user sees it. The HTML
+// default is option value="500" but state.lines may already be something else
+// from localStorage; this keeps them in lockstep.
+els.lineCount.value = String(state.lines);
 els.lineCount.addEventListener("change", () => {
   state.lines = Number(els.lineCount.value);
+  linesAtom.set({ lines: state.lines });
   refreshSnapshot();
 });
 els.autoRefresh.addEventListener("change", () => setAutoRefresh(els.autoRefresh.checked));
