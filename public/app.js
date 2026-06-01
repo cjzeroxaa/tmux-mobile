@@ -288,16 +288,27 @@ function itemButton({
   metaClassName = "",
   cwd = "",
   branch = "",
+  worktree = false,
 }) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = `${className || "item"}${active ? " active" : ""}`;
+  // Combine branch + worktree on a single line. Show ↳ wt chip only when the
+  // window is actually in a linked git worktree (not the main checkout).
+  const worktreeChip = worktree
+    ? ` <span class="item-worktree-chip">↳ wt</span>`
+    : "";
+  const branchLine = branch
+    ? `<div class="item-branch" title="${escapeHtml(branch)}${worktree ? " (linked worktree)" : ""}">⎇ ${escapeHtml(branch)}${worktreeChip}</div>`
+    : worktree
+      ? `<div class="item-branch">${worktreeChip.trim()}</div>`
+      : "";
   button.innerHTML = `
     <div class="item-title">
       <span>${escapeHtml(title)}</span>
       ${badge ? `<span class="badge ${badgeGreen ? "green" : ""}">${escapeHtml(badge)}</span>` : ""}
     </div>
-    ${branch ? `<div class="item-branch" title="${escapeHtml(branch)}">⎇ ${escapeHtml(branch)}</div>` : ""}
+    ${branchLine}
     ${cwd ? `<div class="item-cwd" title="${escapeHtml(cwd)}">${escapeHtml(cwd)}</div>` : ""}
     ${meta ? `<div class="item-meta ${escapeHtml(metaClassName)}">${escapeHtml(meta)}</div>` : ""}
   `;
@@ -334,6 +345,15 @@ function renderWindows() {
     for (const win of wins) {
       const summary = state.windowSummaries[win.id];
       const live = Boolean(state.windowActivity[win.id]);
+      const info = state.windowBranches[win.id] || {};
+      const branch = info.branch || "";
+      const worktree = Boolean(info.worktree);
+      // Show the cwd's basename only when it carries new info — i.e. when it
+      // differs from the branch name. With `git worktree add ../foo foo` the
+      // dir and branch usually share a name, in which case the cwd row would
+      // just be visual noise.
+      const dirBasename = pathLabel(win.cwd) || "";
+      const cwdLabel = branch && dirBasename === branch ? "" : dirBasename;
       els.mobileWindows.append(
         itemButton({
           active: win.id === state.windowId,
@@ -343,8 +363,9 @@ function renderWindows() {
           badgeGreen: live,
           onClick: () => selectWindow(win.id),
           metaClassName: summary ? "summary" : "",
-          cwd: abbrevHome(win.cwd),
-          branch: state.windowBranches[win.id] || "",
+          cwd: cwdLabel,
+          branch,
+          worktree,
         }),
       );
     }
@@ -352,13 +373,20 @@ function renderWindows() {
 }
 
 function renderTargetLabels() {
-  const session = selectedSession();
   const win = selectedWindow();
-  const branch = win ? state.windowBranches[win.id] : "";
-  const label = session && win
-    ? `${session.name} / ${win.index}:${win.name}${branch ? ` ⎇ ${branch}` : ""}`
-    : "No window selected";
-  els.mobileTargetLabel.textContent = label;
+  if (!win) {
+    els.mobileTargetLabel.textContent = "No window selected";
+    return;
+  }
+  const info = state.windowBranches[win.id] || {};
+  const branch = info.branch || "";
+  const worktree = Boolean(info.worktree);
+  // The session name no longer prefixes the topbar — host (URL) + window
+  // index already disambiguate, and the session name was just noise.
+  const parts = [`${win.index}:${win.name}`];
+  if (branch) parts.push(`⎇ ${branch}`);
+  if (worktree) parts.push("↳ wt");
+  els.mobileTargetLabel.textContent = parts.join(" ");
 }
 
 function abbrevHome(value) {

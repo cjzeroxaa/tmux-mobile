@@ -189,7 +189,7 @@ export class Hub {
   }
   async branch(machineId, dirPath) {
     const res = await this.rpc(machineId, OP.BRANCH, { path: dirPath });
-    return res.branch ?? "";
+    return { branch: res.branch ?? "", worktree: Boolean(res.worktree) };
   }
 
   // ---- API ----
@@ -429,7 +429,7 @@ export class Hub {
         try {
           result[win.id] = await this.branch(machineId, win.cwd);
         } catch {
-          result[win.id] = "";
+          result[win.id] = { branch: "", worktree: false };
         }
       }),
     );
