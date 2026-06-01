@@ -389,8 +389,14 @@ function renderTargetLabels() {
   // index already disambiguate, and the session name was just noise.
   const label = escapeHtml(`${win.index}:${win.name}`);
   const branchPart = branch ? ` ⎇ ${escapeHtml(branch)}` : "";
+  // Mirror the selector-item logic: show the cwd basename only when it
+  // carries new info — i.e. when it differs from the branch name.
+  const dirBasename = pathLabel(win.cwd) || "";
+  const cwdPart = dirBasename && dirBasename !== branch
+    ? ` · ${escapeHtml(dirBasename)}`
+    : "";
   const wtChip = worktree ? `<span class="target-pill-wt-chip">WT</span> ` : "";
-  els.mobileTargetLabel.innerHTML = `${wtChip}${label}${branchPart}`;
+  els.mobileTargetLabel.innerHTML = `${wtChip}${label}${branchPart}${cwdPart}`;
 }
 
 function abbrevHome(value) {
