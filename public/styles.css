@@ -158,6 +158,59 @@ h3 {
   color: var(--accent-dark);
 }
 
+/* "More" overflow menu in the topbar. The trigger is just an icon-button;
+ * the dropdown is absolutely positioned below it, right-anchored so it stays
+ * on-screen on narrow phones. */
+.more-actions {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.more-actions-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 6px;
+  gap: 2px;
+}
+
+.more-actions-item {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  padding: 9px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.more-actions-item:hover,
+.more-actions-item:focus-visible {
+  background: var(--surface-soft);
+}
+
+.more-actions-item svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.more-actions-item.directory-trigger svg {
+  color: var(--accent-dark);
+}
+
 .snapshot-panel,
 .control-panel {
   min-width: 0;

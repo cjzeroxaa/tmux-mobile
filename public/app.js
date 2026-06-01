@@ -151,6 +151,8 @@ const els = {
   mobileRefreshTree: document.querySelector("#mobileRefreshTree"),
   mobileRefresh: document.querySelector("#mobileRefresh"),
   themeToggle: document.querySelector("#themeToggle"),
+  moreActionsToggle: document.querySelector("#moreActionsToggle"),
+  moreActionsMenu: document.querySelector("#moreActionsMenu"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
   fullscreenRead: document.querySelector("#fullscreenRead"),
@@ -389,14 +391,14 @@ function renderTargetLabels() {
   // index already disambiguate, and the session name was just noise.
   const label = escapeHtml(`${win.index}:${win.name}`);
   const branchPart = branch ? ` ⎇ ${escapeHtml(branch)}` : "";
-  // Mirror the selector-item logic: show the cwd basename only when it
-  // carries new info — i.e. when it differs from the branch name.
-  const dirBasename = pathLabel(win.cwd) || "";
-  const cwdPart = dirBasename && dirBasename !== branch
-    ? ` · ${escapeHtml(dirBasename)}`
-    : "";
+  // Show the FULL home-relative path. Path is the most useful "where am I"
+  // signal and the user explicitly wants it in the header. The strong tag
+  // truncates with ellipsis on overflow, which is fine — if it doesn't fit,
+  // the path tail gets the dots and we move on.
+  const cwdAbbr = abbrevHome(win.cwd) || "";
+  const cwdPart = cwdAbbr ? ` · ${escapeHtml(cwdAbbr)}` : "";
   const wtChip = worktree ? `<span class="target-pill-wt-chip">WT</span> ` : "";
-  els.mobileTargetLabel.innerHTML = `${wtChip}${label}${branchPart}${cwdPart}`;
+  els.mobileTargetLabel.innerHTML = `${wtChip}${label}${cwdPart}${branchPart}`;
 }
 
 function abbrevHome(value) {
@@ -2366,6 +2368,30 @@ els.themeToggle.addEventListener("click", () => {
   const next = themeAtom.get().theme === "dark" ? "kami" : "dark";
   themeAtom.set({ theme: next });
   applyTheme(next);
+});
+
+// "More" overflow menu — folds rename/directories/refresh/theme behind one
+// button so the topbar has room for the full cwd path. Toggle on tap, close
+// on Esc, outside-click, or after any item is activated.
+function setMoreActionsOpen(open) {
+  els.moreActionsMenu.hidden = !open;
+  els.moreActionsToggle.setAttribute("aria-expanded", String(open));
+}
+els.moreActionsToggle.addEventListener("click", (event) => {
+  event.stopPropagation();
+  setMoreActionsOpen(els.moreActionsMenu.hidden);
+});
+els.moreActionsMenu.addEventListener("click", (event) => {
+  if (event.target.closest(".more-actions-item")) setMoreActionsOpen(false);
+});
+document.addEventListener("click", (event) => {
+  if (els.moreActionsMenu.hidden) return;
+  if (els.moreActionsMenu.contains(event.target)) return;
+  if (els.moreActionsToggle.contains(event.target)) return;
+  setMoreActionsOpen(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !els.moreActionsMenu.hidden) setMoreActionsOpen(false);
 });
 els.refreshSnapshot.addEventListener("click", () => refreshSnapshot());
 els.fullscreenSnapshot.addEventListener("click", () => {
