@@ -381,12 +381,14 @@ function renderTargetLabels() {
   const info = state.windowBranches[win.id] || {};
   const branch = info.branch || "";
   const worktree = Boolean(info.worktree);
+  // Switch to innerHTML so the worktree indicator can be a styled chip
+  // instead of plain "↳ wt" text — that was too easy to miss in the header.
   // The session name no longer prefixes the topbar — host (URL) + window
   // index already disambiguate, and the session name was just noise.
-  const parts = [`${win.index}:${win.name}`];
-  if (branch) parts.push(`⎇ ${branch}`);
-  if (worktree) parts.push("↳ wt");
-  els.mobileTargetLabel.textContent = parts.join(" ");
+  const label = escapeHtml(`${win.index}:${win.name}`);
+  const branchPart = branch ? ` ⎇ ${escapeHtml(branch)}` : "";
+  const wtChip = worktree ? ` <span class="item-worktree-chip">WT</span>` : "";
+  els.mobileTargetLabel.innerHTML = `${label}${branchPart}${wtChip}`;
 }
 
 function abbrevHome(value) {
