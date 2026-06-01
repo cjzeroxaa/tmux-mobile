@@ -381,14 +381,16 @@ function renderTargetLabels() {
   const info = state.windowBranches[win.id] || {};
   const branch = info.branch || "";
   const worktree = Boolean(info.worktree);
-  // Switch to innerHTML so the worktree indicator can be a styled chip
-  // instead of plain "↳ wt" text — that was too easy to miss in the header.
+  // WT chip goes at the START of the label — the target-pill's strong has
+  // text-overflow: ellipsis, so anything tacked on at the end gets clipped
+  // first on long branch names. The chip needs to be unmissable, not the
+  // first thing the ellipsis eats.
   // The session name no longer prefixes the topbar — host (URL) + window
   // index already disambiguate, and the session name was just noise.
   const label = escapeHtml(`${win.index}:${win.name}`);
   const branchPart = branch ? ` ⎇ ${escapeHtml(branch)}` : "";
-  const wtChip = worktree ? ` <span class="item-worktree-chip">WT</span>` : "";
-  els.mobileTargetLabel.innerHTML = `${label}${branchPart}${wtChip}`;
+  const wtChip = worktree ? `<span class="target-pill-wt-chip">WT</span> ` : "";
+  els.mobileTargetLabel.innerHTML = `${wtChip}${label}${branchPart}`;
 }
 
 function abbrevHome(value) {

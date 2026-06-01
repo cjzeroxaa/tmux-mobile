@@ -1155,6 +1155,27 @@ input {
   text-overflow: ellipsis;
 }
 
+/* Solid indigo chip in the topbar — sits at the START of the label so it
+ * can't be truncated by text-overflow: ellipsis on long branch names. More
+ * prominent than the inline tinted chip in the window selector because
+ * it's the one persistent affordance saying "you're in a linked worktree
+ * right now." */
+.target-pill-wt-chip {
+  display: inline-block;
+  flex: 0 0 auto;
+  margin-right: 6px;
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: var(--accent);
+  color: var(--surface);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
 /* Tiny chip next to the branch to flag "this checkout is a linked git
  * worktree, not the main repo working tree." */
 .item-worktree-chip {
