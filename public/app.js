@@ -665,10 +665,13 @@ async function submitTextComposer(event) {
     return;
   }
 
+  // Optimistic UX: hide the composer and clear the box immediately. If the
+  // send actually fails the error lands in the chat panel; the user can
+  // retype rather than wait for a round-trip to know the tap registered.
+  hideTextComposer({ clear: true });
   els.submitText.disabled = true;
   try {
     await sendMessage(text, true);
-    hideTextComposer({ clear: true });
   } catch (error) {
     addChat("system", error.message, "send error");
   } finally {
@@ -2149,9 +2152,12 @@ async function selectWindow(windowId) {
   state.sessionId = win?.sessionId || state.sessionId;
   state.paneId = "";
   renderWindows();
-  await loadPanes();
   updateTargetUrl();
+  // Dismiss the picker instantly — don't make the user stare at a half-
+  // open sheet while panes load over a flaky link. The actual switch
+  // continues in the background and the snapshot updates when it lands.
   closeTargetPicker();
+  await loadPanes();
 }
 
 async function renameSelectedWindow() {
