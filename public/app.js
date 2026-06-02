@@ -677,10 +677,13 @@ async function submitTextComposer(event) {
     return;
   }
 
-  // Optimistic UX: hide the composer and clear the box immediately. If the
-  // send actually fails the error lands in the chat panel; the user can
-  // retype rather than wait for a round-trip to know the tap registered.
-  hideTextComposer({ clear: true });
+  // Optimistic UX: clear the box and keep the composer open in text mode.
+  // The user just pressed Enter — that's an explicit "I want to keep typing"
+  // signal; bouncing them back to voice mode after every send is wrong and
+  // also conflicts with composerAtom's persisted textMode preference. The
+  // Cancel button is the only path that flips back to voice (and persists).
+  composerClear();
+  composerFocus();
   els.submitText.disabled = true;
   try {
     await sendMessage(text, true);
