@@ -190,21 +190,29 @@ session).
 
 Claude Code's `AskUserQuestion` renders an interactive TUI (a tab bar, `❯`
 cursor, checkboxes for multi-select, a free-form "Type something" escape, and a
-review screen) that's awkward to drive key-by-key from a phone. The topbar
-**More → Answer question** opens an overlay that turns it into tappable cards.
+review screen) that's awkward to drive key-by-key from a phone. An overlay turns
+it into tappable cards. Open it two ways: the topbar **More → Answer question**,
+or **long-press the pane** (the gesture you reach for when you spot Claude
+waiting). The long-press fires after ~500ms held still and cancels on
+scroll/selection, so it never shadows tapping a link or selecting text.
 
 It is **user-triggered and on-demand** — nothing scans for prompts in the
-background. When you tap it, the server captures the active pane *once*, parses
-the prompt (`lib/ask-question.mjs`), and renders it: one chip per question
+background. When you trigger it, the server captures the active pane *once*,
+parses the prompt (`lib/ask-question.mjs`), and renders it: one chip per question
 (✓ = answered), the question text, and an option card each — radio-style for
-single-select, checkboxes for multi-select — plus a free-form input. Picking an
-answer is applied by **driving the real TUI with keystrokes**
-(`lib/ask-question-keys.mjs`): single-select moves the cursor and hits Enter
-(auto-advancing to the next question); multi-select toggles the chosen boxes then
-selects Submit; the review screen gets a final confirm; the free-form input
-declines the prompt and sends your text as a normal reply. After each step the
-server re-parses and returns the next state, so multi-question prompts walk
-forward in place and the overlay closes when the prompt is gone.
+single-select, checkboxes for multi-select — plus a free-form input.
+
+Choosing an answer always shows an **inline confirmation** ("Send this answer to
+Claude? …") with Confirm / Back before anything is sent — Back returns to the
+picker with your selections intact. Confirming applies the answer by **driving
+the real TUI with keystrokes** (`lib/ask-question-keys.mjs`): single-select moves
+the cursor and hits Enter (auto-advancing to the next question); multi-select
+toggles the chosen boxes then selects Submit; multi-select/multi-question prompts
+then reach Claude's own review screen, which the overlay surfaces as a final
+Submit; the free-form input declines the prompt and sends your text as a normal
+reply. After each step the server re-parses and returns the next state, so
+multi-question prompts walk forward in place and the overlay closes when the
+prompt is gone.
 
 Server side (both local and controller mode — everything routes through the
 backend seam, so a remote agent's pane is driven the same way):

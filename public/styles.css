@@ -1658,6 +1658,20 @@ input {
   padding: 6px 0;
 }
 
+/* Inline confirmation summary before the answer is sent. */
+.ask-confirm-label {
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+.ask-confirm-value {
+  margin-top: 4px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  opacity: 1;
+  line-height: 1.35;
+}
+
 .settings-panel-header {
   display: flex;
   align-items: center;

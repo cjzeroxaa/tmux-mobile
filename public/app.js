@@ -2871,6 +2871,17 @@ function renderAsk(q) {
     return;
   }
 
+  // The picker (option cards + free-form). Pulled out so the confirmation step's
+  // "Back" button can return to it with multi-select state preserved.
+  renderQuestionPicker(q);
+}
+
+// Render the option cards + free-form input for one question. `preChecked` is an
+// optional Set of option indices to start checked (used when returning from the
+// confirm step so the user's multi-select survives "Back").
+function renderQuestionPicker(q, preChecked) {
+  els.askBody.innerHTML = "";
+
   // Question text.
   const qt = document.createElement("div");
   qt.className = "ask-question";
@@ -2882,9 +2893,12 @@ function renderAsk(q) {
   const realOptions = q.options
     .map((o, i) => ({ ...o, index: i }))
     .filter((o) => !o.isSubmit && !o.isChat);
+  const titleOf = (index) => q.options[index]?.title || "";
 
   if (q.multiSelect) {
-    const checked = new Set(q.options.map((o, i) => (o.checked ? i : -1)).filter((i) => i >= 0));
+    const checked =
+      preChecked ||
+      new Set(q.options.map((o, i) => (o.checked ? i : -1)).filter((i) => i >= 0));
     for (const o of realOptions) {
       if (o.isFreeForm) continue;
       const card = optionCard(o, true, checked.has(o.index));
@@ -2895,14 +2909,31 @@ function renderAsk(q) {
       });
       els.askBody.append(card);
     }
-    els.askBody.append(button("Submit selected", "ask-submit", () =>
-      submitAsk({ action: "multi", checked: [...checked] }),
-    ));
+    // Confirm step before sending: summarize the picks, then Confirm/Back.
+    els.askBody.append(button("Submit selected", "ask-submit", () => {
+      const picks = [...checked];
+      const summary = picks.length
+        ? picks.map(titleOf).join(", ")
+        : "(nothing selected)";
+      renderConfirm(
+        { action: "multi", checked: picks },
+        summary,
+        () => renderQuestionPicker(q, checked),
+      );
+    }));
   } else {
     for (const o of realOptions) {
       if (o.isFreeForm) continue;
+      // Single-select: tap picks the option, then confirm before sending (no
+      // more tap-to-submit) so every answer gets a confirmation step.
       const card = optionCard(o, false, false);
-      card.addEventListener("click", () => submitAsk({ action: "single", optionIndex: o.index }));
+      card.addEventListener("click", () =>
+        renderConfirm(
+          { action: "single", optionIndex: o.index },
+          titleOf(o.index),
+          () => renderQuestionPicker(q),
+        ),
+      );
       els.askBody.append(card);
     }
   }
@@ -2916,13 +2947,36 @@ function renderAsk(q) {
   input.placeholder = "Or type your own answer…";
   const send = button("Send", "ask-free-send", () => {
     const text = input.value.trim();
-    if (text) submitAsk({ action: "free", text });
+    if (!text) return;
+    renderConfirm(
+      { action: "free", text },
+      `“${text}” (sent as your own reply)`,
+      () => renderQuestionPicker(q),
+    );
   });
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); send.click(); }
   });
   wrap.append(input, send);
   els.askBody.append(wrap);
+}
+
+// Inline confirmation before an answer is sent to Claude. Shows what will be
+// submitted, then Confirm (drives the TUI) / Back (returns to the picker).
+function renderConfirm(payload, summaryText, onBack) {
+  els.askBody.innerHTML = "";
+  const note = document.createElement("div");
+  note.className = "ask-review";
+  const label = document.createElement("div");
+  label.className = "ask-confirm-label";
+  label.textContent = "Send this answer to Claude?";
+  const val = document.createElement("div");
+  val.className = "ask-confirm-value";
+  val.textContent = summaryText;
+  note.append(label, val);
+  els.askBody.append(note);
+  els.askBody.append(button("Confirm & send", "ask-submit", () => submitAsk(payload)));
+  els.askBody.append(button("Back", "ask-cancel", onBack));
 }
 
 function optionCard(o, multi, checked) {
@@ -3604,6 +3658,107 @@ els.fileViewerBackdrop.addEventListener("click", closeFileViewer);
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !els.fileViewerSheet.hidden) closeFileViewer();
 });
+
+// Long-press the pane to open the "Answer question" overlay — the gesture the
+// user reaches for when they see Claude waiting on an AskUserQuestion. Like the
+// More-menu item, this is an explicit, user-triggered scan: the long-press just
+// calls openAskOverlay(), which fetches/parses on demand.
+//
+// It must not interfere with the pane's existing touch behaviour — tapping a
+// link/file, scrolling, or selecting text. So we only fire when the finger (or
+// mouse) is held still for LONG_PRESS_MS, cancel on any movement past a small
+// slop, on early release, on scroll, or when the user is selecting text; and we
+// suppress the synthetic click that follows a long press so it doesn't also
+// grab pane focus.
+function setupSnapshotLongPress() {
+  const LONG_PRESS_MS = 500;
+  const MOVE_SLOP_PX = 10; // movement beyond this = a scroll/select, not a press
+  let timer = null;
+  let startX = 0;
+  let startY = 0;
+  let fired = false; // a long-press fired for the current gesture
+
+  const clear = () => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  const start = (x, y, target) => {
+    fired = false;
+    // Don't hijack a press that starts on a link/file — those have their own tap
+    // actions and shouldn't be shadowed by the overlay.
+    if (target?.closest?.("a.pane-link, .pane-file")) return;
+    startX = x;
+    startY = y;
+    clear();
+    timer = setTimeout(() => {
+      timer = null;
+      // If the user has started selecting text, this is a selection gesture, not
+      // a long-press — leave it alone.
+      if (hasSnapshotSelection()) return;
+      fired = true;
+      if (navigator.vibrate) navigator.vibrate(15); // subtle haptic ack
+      openAskOverlay();
+    }, LONG_PRESS_MS);
+  };
+
+  const move = (x, y) => {
+    if (timer === null) return;
+    if (Math.abs(x - startX) > MOVE_SLOP_PX || Math.abs(y - startY) > MOVE_SLOP_PX) {
+      clear(); // finger moved — treat as scroll/select, cancel the long-press
+    }
+  };
+
+  els.snapshot.addEventListener(
+    "touchstart",
+    (e) => {
+      if (e.touches.length !== 1) {
+        clear();
+        return;
+      }
+      const t = e.touches[0];
+      start(t.clientX, t.clientY, e.target);
+    },
+    { passive: true },
+  );
+  els.snapshot.addEventListener(
+    "touchmove",
+    (e) => {
+      const t = e.touches[0];
+      if (t) move(t.clientX, t.clientY);
+    },
+    { passive: true },
+  );
+  els.snapshot.addEventListener("touchend", clear, { passive: true });
+  els.snapshot.addEventListener("touchcancel", clear, { passive: true });
+
+  // Mouse long-press (desktop): left button held still.
+  els.snapshot.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    start(e.clientX, e.clientY, e.target);
+  });
+  els.snapshot.addEventListener("mousemove", (e) => move(e.clientX, e.clientY));
+  els.snapshot.addEventListener("mouseup", clear);
+  els.snapshot.addEventListener("mouseleave", clear);
+
+  // Suppress the click synthesized after a long press so it doesn't also focus
+  // the pane input / follow a link. The capture-phase listener runs before the
+  // normal click handler below.
+  els.snapshot.addEventListener(
+    "click",
+    (e) => {
+      if (fired) {
+        fired = false;
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+    true,
+  );
+}
+setupSnapshotLongPress();
 
 els.snapshot.addEventListener("click", (event) => {
   // A click on a detected URL should just open the link — don't also grab focus
