@@ -75,7 +75,28 @@ try {
   }
   chmodSync(secret, 0o600); // restore so cleanup can remove it
 
-  console.log("readfile (os-permission boundary) tests passed");
+  // 11. denylist: a file matching a denied pattern is blocked even though the OS
+  //     would allow the read. Use TMUX_MOBILE_READFILE_DENY so the test is
+  //     independent of the default list.
+  process.env.TMUX_MOBILE_READFILE_DENY = "**/blocked.md:*.pem";
+  writeFileSync(path.join(base, "blocked.md"), "secret\n");
+  writeFileSync(path.join(base, "cert.pem"), "key\n");
+  writeFileSync(path.join(base, "allowed.md"), "ok\n");
+  await assert.rejects(() => read("blocked.md"), (e) => e.code === "EACCES" && e.denied, "11 denied by path");
+  await assert.rejects(() => read("cert.pem"), (e) => e.denied, "11 denied by *.pem");
+  assert.equal(text(await read("allowed.md")), "ok\n", "11 non-denied still served");
+
+  // 12. denylist can't be bypassed via a symlink pointing at a denied target:
+  //     the resolved real path is checked.
+  symlinkSync(path.join(base, "blocked.md"), path.join(base, "sneaky.md"));
+  await assert.rejects(() => read("sneaky.md"), (e) => e.denied, "12 symlink to denied blocked");
+
+  // 13. empty denylist disables blocking
+  process.env.TMUX_MOBILE_READFILE_DENY = "";
+  assert.equal(text(await read("blocked.md")), "secret\n", "13 empty denylist allows");
+  delete process.env.TMUX_MOBILE_READFILE_DENY;
+
+  console.log("readfile (os-permission boundary + denylist) tests passed");
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

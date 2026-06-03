@@ -187,6 +187,15 @@ external media/HTML) and limited to the viewable extensions. Browser access is
 gated by Google OAuth, so in practice this is "an authenticated user reading
 their own machine's files."
 
+On top of OS permissions, a **configurable denylist** blocks sensitive files
+even when the user could read them (SSH/cloud keys, `.env`, shell history, etc.).
+It's matched against the resolved real path (so a symlink can't slip past).
+Configure with `TMUX_MOBILE_READFILE_DENY` — a `:`-separated list of glob
+patterns (`*`, `**`, `?`); each pattern is tested against the full path and the
+basename. Setting it (even to empty) replaces the built-in defaults (empty
+disables the denylist); `TMUX_MOBILE_READFILE_DENY_EXTRA` appends to the
+defaults instead. Defaults live in `lib/readfile-deny.mjs` (`DEFAULT_DENY`).
+
 ### Agent reconnect and revision migration
 
 The agent keeps its WebSocket alive with a ping/pong liveness check and
