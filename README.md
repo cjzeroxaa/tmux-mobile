@@ -274,7 +274,11 @@ URLs in the pane are clickable. File paths ending in an image extension
 (`.md/.markdown/.mdown/.mkd`) are also clickable and open an in-app viewer:
 images render inline, markdown renders to formatted HTML, and video/HTML
 (`.webm/.mp4/.m4v/.mov/.html`) open in an external browser tab (fetched as a
-blob, so native playback/rendering applies). Markdown
+blob, so native playback/rendering applies). The markdown renderer
+(`public/markdown.js`, dependency-free and HTML-escape-first) covers headings,
+bold/italic/code, fenced code, links/images, lists, blockquotes, hr, and
+GitHub-flavored **tables** (with per-column `:--`/`:-:`/`--:` alignment; tables
+scroll horizontally on narrow screens). Markdown
 ` ```mermaid ` blocks render as diagrams — Mermaid is lazy-loaded from a CDN only
 when a file actually contains one (so plain markdown loads nothing extra) and
 runs with `securityLevel: 'strict'`; if it can't load, the diagram source stays

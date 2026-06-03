@@ -70,4 +70,42 @@ h = renderMarkdown("```mermaid\n<script>alert(1)</script>\n```");
 assert.ok(h.includes("&lt;script&gt;"), "12 mermaid source escaped");
 assert.ok(!h.includes("<script>"), "12 no raw script in mermaid block");
 
+// 13. GitHub-flavored table: header + delimiter + body rows
+h = renderMarkdown("| Name | Age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 25 |");
+assert.ok(h.includes('<table class="md-table">'), `13 table: ${h}`);
+assert.ok(h.includes("<thead>") && h.includes("<th>Name</th>") && h.includes("<th>Age</th>"), "13 header cells");
+assert.ok(h.includes("<tbody>") && h.includes("<td>Alice</td>") && h.includes("<td>30</td>"), "13 body cells");
+assert.ok(h.includes("<td>Bob</td>"), "13 second row");
+
+// 14. column alignment from delimiter colons
+h = renderMarkdown("| L | C | R |\n| :-- | :-: | --: |\n| a | b | c |");
+assert.ok(h.includes('<th style="text-align:left">L</th>'), `14 left: ${h}`);
+assert.ok(h.includes('<th style="text-align:center">C</th>'), "14 center");
+assert.ok(h.includes('<th style="text-align:right">R</th>'), "14 right");
+assert.ok(h.includes('<td style="text-align:center">b</td>'), "14 body cell aligned");
+
+// 15. inline formatting inside cells; leading/trailing pipes optional
+h = renderMarkdown("Name | Note\n--- | ---\n**bold** | `code`");
+assert.ok(h.includes("<strong>bold</strong>"), `15 inline bold in cell: ${h}`);
+assert.ok(h.includes("<code>code</code>"), "15 inline code in cell");
+
+// 16. ragged rows are padded to the header width (no missing <td>)
+h = renderMarkdown("| A | B | C |\n| - | - | - |\n| 1 |");
+const row16 = h.slice(h.indexOf("<tbody>"));
+assert.equal((row16.match(/<td/g) || []).length, 3, `16 ragged row padded to 3 tds: ${h}`);
+
+// 17. escaped pipe (\|) inside a cell is a literal, not a column separator
+h = renderMarkdown("| Expr | Val |\n| - | - |\n| a \\| b | 1 |");
+assert.ok(h.includes("<td>a | b</td>"), `17 escaped pipe literal: ${h}`);
+
+// 18. a normal pipe in prose (no delimiter row) is NOT a table
+h = renderMarkdown("this | that is just text");
+assert.ok(!h.includes("<table"), `18 not a table without delimiter: ${h}`);
+assert.ok(h.includes("<p>"), "18 stays a paragraph");
+
+// 19. cell content is escaped (no HTML injection through a table)
+h = renderMarkdown("| X |\n| - |\n| <img src=x onerror=alert(1)> |");
+assert.ok(!h.includes("<img src=x"), `19 no raw img in cell: ${h}`);
+assert.ok(h.includes("&lt;img"), "19 escaped in cell");
+
 console.log("markdown unit tests passed");

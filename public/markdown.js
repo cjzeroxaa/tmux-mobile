@@ -50,6 +50,53 @@ function unescapeAttr(value) {
   return String(value).replaceAll("&amp;", "&").replaceAll("&#039;", "'").replaceAll("&quot;", '"');
 }
 
+// Split a GitHub-flavored table row into cells. Leading/trailing pipes are
+// optional; a backslash-escaped pipe (\|) is a literal, not a separator.
+function splitTableRow(line) {
+  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  const cells = [];
+  let cur = "";
+  for (let j = 0; j < trimmed.length; j += 1) {
+    const ch = trimmed[j];
+    if (ch === "\\" && trimmed[j + 1] === "|") {
+      cur += "|"; // literal pipe
+      j += 1;
+    } else if (ch === "|") {
+      cells.push(cur.trim());
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
+// A delimiter row is the second line of a table: each cell is dashes with
+// optional leading/trailing alignment colons (e.g. ---, :--, --:, :-:). Returns
+// per-column alignment ("left" | "right" | "center" | null), or null if the line
+// isn't a valid delimiter row.
+function parseTableDelimiter(line) {
+  if (!/\|/.test(line) && !/^\s*:?-+:?\s*$/.test(line)) return null;
+  const cells = splitTableRow(line);
+  if (!cells.length || cells.some((c) => !/^:?-+:?$/.test(c))) return null;
+  return cells.map((c) => {
+    const left = c.startsWith(":");
+    const right = c.endsWith(":");
+    if (left && right) return "center";
+    if (right) return "right";
+    if (left) return "left";
+    return null;
+  });
+}
+
+// True if `line` could start a table (has a pipe and isn't a fenced block etc.)
+// and `next` is a delimiter row. Tables need both rows to be recognized.
+function isTableStart(line, next) {
+  if (next == null || !/\|/.test(line)) return false;
+  return parseTableDelimiter(next) !== null;
+}
+
 export function renderMarkdown(src) {
   const lines = String(src).replace(/\r\n?/g, "\n").split("\n");
   const html = [];
@@ -122,6 +169,37 @@ export function renderMarkdown(src) {
       continue;
     }
 
+    // Table (GitHub-flavored): a header row, a delimiter row, then body rows.
+    if (isTableStart(line, lines[i + 1])) {
+      closeList();
+      const aligns = parseTableDelimiter(lines[i + 1]);
+      const headers = splitTableRow(line);
+      const alignAttr = (n) =>
+        aligns[n] ? ` style="text-align:${aligns[n]}"` : "";
+      const rows = [];
+      i += 2; // consume header + delimiter
+      while (i < lines.length && /\|/.test(lines[i]) && !/^\s*$/.test(lines[i])) {
+        rows.push(splitTableRow(lines[i]));
+        i += 1;
+      }
+      const out = ['<table class="md-table">', "<thead>", "<tr>"];
+      headers.forEach((h, n) => {
+        out.push(`<th${alignAttr(n)}>${renderInline(h)}</th>`);
+      });
+      out.push("</tr>", "</thead>", "<tbody>");
+      for (const row of rows) {
+        out.push("<tr>");
+        // Pad/truncate to the header column count so ragged rows still render.
+        for (let n = 0; n < headers.length; n += 1) {
+          out.push(`<td${alignAttr(n)}>${renderInline(row[n] || "")}</td>`);
+        }
+        out.push("</tr>");
+      }
+      out.push("</tbody>", "</table>");
+      html.push(out.join(""));
+      continue;
+    }
+
     // List items
     const ul = line.match(/^\s*[-*+]\s+(.*)$/);
     const ol = line.match(/^\s*\d+\.\s+(.*)$/);
@@ -155,7 +233,8 @@ export function renderMarkdown(src) {
       !/^(#{1,6})\s/.test(lines[i]) &&
       !/^\s*[-*+]\s+/.test(lines[i]) &&
       !/^\s*\d+\.\s+/.test(lines[i]) &&
-      !/^\s*>\s?/.test(lines[i])
+      !/^\s*>\s?/.test(lines[i]) &&
+      !isTableStart(lines[i], lines[i + 1])
     ) {
       para.push(lines[i]);
       i += 1;
