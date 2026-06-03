@@ -3,23 +3,32 @@ import http from "node:http";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { currentBackend, localBackend, withBackend } from "./lib/backend.mjs";
+import {
+  describeVoiceConfig,
+  getVoiceConfig,
+  updateVoiceConfig,
+  withVoiceUser,
+} from "./lib/voice-config.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 
 loadLocalEnv(path.join(__dirname, ".env"));
 
-const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 3737);
 const APP_TITLE = process.env.TMUX_MOBILE_APP_TITLE || os.hostname() || "tmux Mobile";
+const APP_REVISION =
+  process.env.K_REVISION || process.env.TMUX_MOBILE_REVISION || "dev";
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const MAX_TEXT_BYTES = 64 * 1024;
 const MAX_CAPTURE_LINES = 5000;
-const TRANSCRIBE_MODEL =
-  process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
+// Voice models (transcription / realtime / TTS) are now runtime-configurable
+// via lib/voice-config.mjs and the web app's Settings panel; read them at call
+// time with getVoiceConfig() rather than freezing them at module load.
 const SUMMARY_MODEL = process.env.OPENAI_SUMMARY_MODEL || "gpt-5.4-mini";
 const WINDOW_BRIEFING_MODEL =
   process.env.OPENAI_WINDOW_BRIEFING_MODEL || "gpt-5.4-mini";
@@ -29,12 +38,6 @@ const AGENT_RESPONSE_EXTRACT_MAX_OUTPUT_TOKENS = parsePositiveInteger(
   process.env.OPENAI_AGENT_RESPONSE_EXTRACT_MAX_OUTPUT_TOKENS,
   4096,
 );
-const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime";
-const REALTIME_VOICE =
-  process.env.OPENAI_REALTIME_VOICE || process.env.OPENAI_SPEECH_VOICE || "cedar";
-const SPEECH_MODEL =
-  process.env.OPENAI_SPEECH_MODEL || "gpt-4o-mini-tts-2025-12-15";
-const SPEECH_VOICE = process.env.OPENAI_SPEECH_VOICE || "cedar";
 const configuredSubmitNudgeDelayMs = Number(
   process.env.TMUX_SUBMIT_NUDGE_DELAY_MS,
 );
@@ -972,14 +975,15 @@ async function createSpeechAudio(text) {
     throw error;
   }
 
+  const { speechModel, speechVoice } = getVoiceConfig();
   const body = {
-    model: SPEECH_MODEL,
-    voice: SPEECH_VOICE,
+    model: speechModel,
+    voice: speechVoice,
     input: text,
     response_format: "mp3",
   };
 
-  if (SPEECH_MODEL.startsWith("gpt-4o")) {
+  if (speechModel.startsWith("gpt-4o")) {
     body.instructions =
       "Voice Affect: Clear and composed. Tone: concise and useful. Pacing: steady. Delivery: read as an AI-generated status briefing.";
   }
@@ -1010,6 +1014,7 @@ async function createRealtimeClientSecret() {
     throw error;
   }
 
+  const { realtimeModel, realtimeVoice } = getVoiceConfig();
   const headers = {
     authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
     "content-type": "application/json",
@@ -1030,7 +1035,7 @@ async function createRealtimeClientSecret() {
         },
         session: {
           type: "realtime",
-          model: REALTIME_MODEL,
+          model: realtimeModel,
           instructions: REALTIME_WINDOW_BRIEFING_INSTRUCTIONS,
           max_output_tokens: REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS,
           output_modalities: ["audio"],
@@ -1039,7 +1044,7 @@ async function createRealtimeClientSecret() {
               turn_detection: null,
             },
             output: {
-              voice: REALTIME_VOICE,
+              voice: realtimeVoice,
             },
           },
         },
@@ -1114,7 +1119,7 @@ async function transcribeAudio(buffer, contentType) {
   }
 
   const form = new FormData();
-  form.append("model", TRANSCRIBE_MODEL);
+  form.append("model", getVoiceConfig().transcribeModel);
   form.append(
     "prompt",
     "Transcribe a short voice command intended for a tmux pane. Preserve shell commands, flags, paths, package names, and code identifiers.",
@@ -1152,6 +1157,434 @@ function sendJson(res, status, data) {
   res.end(JSON.stringify(data));
 }
 
+function safeEqual(actualValue, expectedValue) {
+  const actual = Buffer.from(String(actualValue || ""));
+  const expected = Buffer.from(String(expectedValue || ""));
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+const SESSION_COOKIE = "tmux_mobile_session";
+const OAUTH_SCOPE = "openid email profile";
+const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+const AGENT_TOKEN_TTL_SECONDS = 180 * 24 * 60 * 60;
+const oauthStates = new Map();
+const deviceSessions = new Map();
+
+function splitCsv(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function base64urlEncode(value) {
+  return Buffer.from(value).toString("base64url");
+}
+
+function base64urlJson(value) {
+  return base64urlEncode(JSON.stringify(value));
+}
+
+function signValue(value) {
+  return createHmac("sha256", process.env.SESSION_SECRET || "")
+    .update(value)
+    .digest("base64url");
+}
+
+function issueSignedToken(payload, ttlSeconds) {
+  const body = base64urlJson({
+    ...payload,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + ttlSeconds,
+  });
+  return `${body}.${signValue(body)}`;
+}
+
+function verifySignedToken(token, expectedType) {
+  const [body, signature] = String(token || "").split(".");
+  if (!body || !signature || !safeEqual(signature, signValue(body))) return null;
+
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+  if (payload.type !== expectedType) return null;
+  if (!payload.userId || !payload.email) return null;
+  if (!Number.isFinite(payload.exp) || payload.exp < Math.floor(Date.now() / 1000)) {
+    return null;
+  }
+  return payload;
+}
+
+function parseCookies(req) {
+  const result = {};
+  for (const part of String(req.headers.cookie || "").split(";")) {
+    const index = part.indexOf("=");
+    if (index === -1) continue;
+    const key = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    if (key) result[key] = value;
+  }
+  return result;
+}
+
+function originForRequest(req) {
+  const proto = req.headers["x-forwarded-proto"] || (req.socket.encrypted ? "https" : "http");
+  return `${proto}://${req.headers.host || `${HOST}:${PORT}`}`;
+}
+
+function cookieSecure(req) {
+  return originForRequest(req).startsWith("https://");
+}
+
+function setSessionCookie(req, res, user) {
+  const token = issueSignedToken(
+    { type: "session", userId: user.userId, email: user.email, sub: user.sub },
+    SESSION_TTL_SECONDS,
+  );
+  const parts = [
+    `${SESSION_COOKIE}=${token}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${SESSION_TTL_SECONDS}`,
+  ];
+  if (cookieSecure(req)) parts.push("Secure");
+  res.setHeader("set-cookie", parts.join("; "));
+}
+
+function clearSessionCookie(req, res) {
+  const parts = [
+    `${SESSION_COOKIE}=`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=0",
+  ];
+  if (cookieSecure(req)) parts.push("Secure");
+  res.setHeader("set-cookie", parts.join("; "));
+}
+
+function authenticateBrowser(req) {
+  return verifySignedToken(parseCookies(req)[SESSION_COOKIE], "session");
+}
+
+function bearerToken(req) {
+  const header = String(req.headers.authorization || "");
+  const [scheme, token] = header.split(" ");
+  return scheme?.toLowerCase() === "bearer" ? token : "";
+}
+
+function authenticateAgent(req) {
+  const tokenUser = verifySignedToken(bearerToken(req), "agent");
+  if (tokenUser) return tokenUser.userId;
+  if (process.env.TMUX_MOBILE_ENABLE_LEGACY_AUTH !== "1") return null;
+
+  const legacySecret = process.env.AGENT_SECRET || "";
+  if (legacySecret && safeEqual(req.headers["x-agent-secret"], legacySecret)) {
+    return String(process.env.TMUX_MOBILE_USER || "default");
+  }
+  return null;
+}
+
+function randomId(bytes = 24) {
+  return randomBytes(bytes).toString("base64url");
+}
+
+function sendRedirect(res, location) {
+  res.writeHead(302, {
+    location,
+    "cache-control": "no-store",
+  });
+  res.end();
+}
+
+function readAllowedGoogleConfig() {
+  return {
+    emails: new Set(splitCsv(process.env.ALLOWED_GOOGLE_EMAILS)),
+    domains: new Set(splitCsv(process.env.ALLOWED_GOOGLE_DOMAINS)),
+  };
+}
+
+function assertGoogleUserAllowed(user) {
+  const allowed = readAllowedGoogleConfig();
+  const email = String(user.email || "").toLowerCase();
+  const domain = email.includes("@") ? email.split("@").pop() : "";
+  if (allowed.emails.has(email) || allowed.domains.has(domain)) return;
+
+  const error = new Error("Google account is not allowed for this controller");
+  error.status = 403;
+  throw error;
+}
+
+function googleOAuthEndpoints() {
+  return {
+    auth: process.env.GOOGLE_AUTH_URL || "https://accounts.google.com/o/oauth2/v2/auth",
+    token: process.env.GOOGLE_TOKEN_URL || "https://oauth2.googleapis.com/token",
+    deviceCode:
+      process.env.GOOGLE_DEVICE_CODE_URL || "https://oauth2.googleapis.com/device/code",
+    tokenInfo:
+      process.env.GOOGLE_TOKENINFO_URL || "https://oauth2.googleapis.com/tokeninfo",
+  };
+}
+
+function oauthRedirectUri(req) {
+  return (
+    process.env.GOOGLE_OAUTH_REDIRECT_URI ||
+    `${originForRequest(req)}/auth/google/callback`
+  );
+}
+
+async function googleTokenInfo(idToken, expectedAudience) {
+  const endpoints = googleOAuthEndpoints();
+  const url = new URL(endpoints.tokenInfo);
+  url.searchParams.set("id_token", idToken);
+  const response = await fetch(url);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error_description || data.error || "Google token verification failed");
+    error.status = 401;
+    throw error;
+  }
+  if (String(data.aud || "") !== expectedAudience) {
+    const error = new Error("Google token audience did not match this controller");
+    error.status = 401;
+    throw error;
+  }
+  if (String(data.email_verified) !== "true" && data.email_verified !== true) {
+    const error = new Error("Google account email is not verified");
+    error.status = 403;
+    throw error;
+  }
+  const email = String(data.email || "").trim().toLowerCase();
+  if (!email) {
+    const error = new Error("Google token did not include an email");
+    error.status = 403;
+    throw error;
+  }
+  const user = { userId: email, email, sub: String(data.sub || "") };
+  assertGoogleUserAllowed(user);
+  return user;
+}
+
+async function exchangeAuthorizationCode(code, redirectUri) {
+  const response = await fetch(googleOAuthEndpoints().token, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: process.env.GOOGLE_OAUTH_CLIENT_ID || "",
+      client_secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET || "",
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: redirectUri,
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error_description || data.error || "Google OAuth code exchange failed");
+    error.status = 401;
+    throw error;
+  }
+  if (!data.id_token) {
+    const error = new Error("Google OAuth response did not include an ID token");
+    error.status = 401;
+    throw error;
+  }
+  return data;
+}
+
+async function exchangeDeviceCode(deviceCode) {
+  const response = await fetch(googleOAuthEndpoints().token, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: process.env.GOOGLE_DEVICE_CLIENT_ID || "",
+      client_secret: process.env.GOOGLE_DEVICE_CLIENT_SECRET || "",
+      device_code: deviceCode,
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (response.ok) return { done: true, data };
+  if (data.error === "authorization_pending" || data.error === "slow_down") {
+    return { done: false, slowDown: data.error === "slow_down" };
+  }
+  const error = new Error(data.error_description || data.error || "Google device login failed");
+  error.status = 401;
+  throw error;
+}
+
+async function handleAuthRoute(req, res, url) {
+  if (req.method === "GET" && url.pathname === "/auth/me") {
+    const user = authenticateBrowser(req);
+    if (!user) {
+      sendJson(res, 401, { error: "Authentication required" });
+      return true;
+    }
+    sendJson(res, 200, { email: user.email, userId: user.userId });
+    return true;
+  }
+
+  if (req.method === "GET" && url.pathname === "/auth/logout") {
+    clearSessionCookie(req, res);
+    sendRedirect(res, "/");
+    return true;
+  }
+
+  if (req.method === "GET" && url.pathname === "/auth/google/login") {
+    const state = randomId();
+    const returnTo = safeReturnPath(url.searchParams.get("returnTo") || "/");
+    const redirectUri = oauthRedirectUri(req);
+    oauthStates.set(state, {
+      createdAt: Date.now(),
+      redirectUri,
+      returnTo,
+    });
+    pruneAuthState();
+
+    const googleUrl = new URL(googleOAuthEndpoints().auth);
+    googleUrl.searchParams.set("client_id", process.env.GOOGLE_OAUTH_CLIENT_ID || "");
+    googleUrl.searchParams.set("redirect_uri", redirectUri);
+    googleUrl.searchParams.set("response_type", "code");
+    googleUrl.searchParams.set("scope", OAUTH_SCOPE);
+    googleUrl.searchParams.set("state", state);
+    googleUrl.searchParams.set("prompt", "select_account");
+    const loginHint = url.searchParams.get("loginHint");
+    if (loginHint) googleUrl.searchParams.set("login_hint", loginHint);
+    sendRedirect(res, googleUrl.toString());
+    return true;
+  }
+
+  if (req.method === "GET" && url.pathname === "/auth/google/callback") {
+    const state = String(url.searchParams.get("state") || "");
+    const code = String(url.searchParams.get("code") || "");
+    const pending = oauthStates.get(state);
+    oauthStates.delete(state);
+    if (!pending || !code) {
+      sendJson(res, 400, { error: "Invalid OAuth callback" });
+      return true;
+    }
+    const tokenData = await exchangeAuthorizationCode(code, pending.redirectUri);
+    const user = await googleTokenInfo(
+      tokenData.id_token,
+      process.env.GOOGLE_OAUTH_CLIENT_ID || "",
+    );
+    setSessionCookie(req, res, user);
+    sendRedirect(res, pending.returnTo || "/");
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/auth/device/start") {
+    const response = await fetch(googleOAuthEndpoints().deviceCode, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: process.env.GOOGLE_DEVICE_CLIENT_ID || "",
+        scope: OAUTH_SCOPE,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(data.error_description || data.error || "Google device login start failed");
+      error.status = 502;
+      throw error;
+    }
+    const id = randomId();
+    const interval = Math.max(Number(data.interval || 5), 1);
+    deviceSessions.set(id, {
+      deviceCode: data.device_code,
+      interval,
+      expiresAt: Date.now() + Math.max(Number(data.expires_in || 600), 60) * 1000,
+      lastPollAt: 0,
+    });
+    pruneDeviceSessions();
+    sendJson(res, 200, {
+      id,
+      userCode: data.user_code,
+      verificationUrl: data.verification_url || data.verification_uri,
+      verificationUrlComplete: data.verification_url_complete,
+      expiresIn: Number(data.expires_in || 600),
+      interval,
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/auth/device/poll") {
+    const body = await readJsonBody(req);
+    const id = String(body.id || "");
+    const pending = deviceSessions.get(id);
+    if (!pending || pending.expiresAt < Date.now()) {
+      deviceSessions.delete(id);
+      sendJson(res, 410, { error: "Device login expired" });
+      return true;
+    }
+    const elapsedMs = Date.now() - pending.lastPollAt;
+    if (pending.lastPollAt && elapsedMs < Math.max(pending.interval - 1, 1) * 1000) {
+      sendJson(res, 202, { pending: true, interval: pending.interval });
+      return true;
+    }
+    pending.lastPollAt = Date.now();
+    const result = await exchangeDeviceCode(pending.deviceCode);
+    if (!result.done) {
+      if (result.slowDown) pending.interval += 5;
+      sendJson(res, 202, { pending: true, interval: pending.interval });
+      return true;
+    }
+    if (!result.data.id_token) {
+      const error = new Error("Google device response did not include an ID token");
+      error.status = 401;
+      throw error;
+    }
+    const user = await googleTokenInfo(
+      result.data.id_token,
+      process.env.GOOGLE_DEVICE_CLIENT_ID || "",
+    );
+    deviceSessions.delete(id);
+    sendJson(res, 200, {
+      token: issueSignedToken(
+        { type: "agent", userId: user.userId, email: user.email, sub: user.sub },
+        AGENT_TOKEN_TTL_SECONDS,
+      ),
+      user: { email: user.email, userId: user.userId },
+      expiresIn: AGENT_TOKEN_TTL_SECONDS,
+    });
+    return true;
+  }
+
+  return false;
+}
+
+function safeReturnPath(value) {
+  const pathValue = String(value || "/");
+  if (!pathValue.startsWith("/") || pathValue.startsWith("//")) return "/";
+  return pathValue;
+}
+
+function pruneAuthState() {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [state, pending] of oauthStates) {
+    if (pending.createdAt < cutoff) oauthStates.delete(state);
+  }
+}
+
+function pruneDeviceSessions() {
+  const now = Date.now();
+  for (const [id, pending] of deviceSessions) {
+    if (pending.expiresAt < now) deviceSessions.delete(id);
+  }
+}
+
+function sendAuthChallenge(res) {
+  res.writeHead(401, {
+    "content-type": "text/plain; charset=utf-8",
+    "cache-control": "no-store",
+    "www-authenticate": 'Basic realm="tmux-mobile", charset="UTF-8"',
+  });
+  res.end("Authentication required");
+}
+
 function logServerEvent(event, details = {}) {
   console.log(
     JSON.stringify({
@@ -1178,7 +1611,7 @@ function logRequestError(req, url, status, error) {
 
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
-    sendJson(res, 200, { ok: true });
+    sendJson(res, 200, { ok: true, revision: APP_REVISION });
     return;
   }
 
@@ -1350,7 +1783,7 @@ async function handleApi(req, res, url) {
       return;
     }
 
-    sendJson(res, 200, { text, model: TRANSCRIBE_MODEL });
+    sendJson(res, 200, { text, model: getVoiceConfig().transcribeModel });
     return;
   }
 
@@ -1386,7 +1819,7 @@ async function handleApi(req, res, url) {
     sendJson(res, 200, {
       ok: true,
       text,
-      model: TRANSCRIBE_MODEL,
+      model: getVoiceConfig().transcribeModel,
       sendMode: sendResult.mode,
       submitNudgeDelayMs:
         submitNudge && sendEnter && text.length > 0 ? SUBMIT_NUDGE_DELAY_MS : 0,
@@ -1403,14 +1836,15 @@ async function handleApi(req, res, url) {
       return;
     }
     const lines = Math.min(parseLines(body.lines || WINDOW_BRIEFING_LINES), 100);
+    const { speechModel, speechVoice } = getVoiceConfig();
     const startedAt = Date.now();
     logServerEvent("window_audio_summary_started", {
       paneId,
       windowId,
       lines,
       summaryModel: WINDOW_BRIEFING_MODEL,
-      speechModel: SPEECH_MODEL,
-      voice: SPEECH_VOICE,
+      speechModel,
+      voice: speechVoice,
     });
     const briefing = paneId
       ? await summarizePaneForSpeech(paneId, lines)
@@ -1429,7 +1863,7 @@ async function handleApi(req, res, url) {
       windowId: briefing.windowId || windowId,
       lines,
       summaryModel: WINDOW_BRIEFING_MODEL,
-      speechModel: SPEECH_MODEL,
+      speechModel,
       audioBase64Chars: audioBase64.length,
       elapsedMs: Date.now() - startedAt,
     });
@@ -1441,8 +1875,8 @@ async function handleApi(req, res, url) {
       windowId: briefing.windowId || windowId,
       lines,
       summaryModel: WINDOW_BRIEFING_MODEL,
-      speechModel: SPEECH_MODEL,
-      voice: SPEECH_VOICE,
+      speechModel,
+      voice: speechVoice,
     });
     return;
   }
@@ -1460,13 +1894,14 @@ async function handleApi(req, res, url) {
       parseLines(body.lines || WINDOW_BRIEFING_LINES),
       REALTIME_WINDOW_BRIEFING_MAX_CAPTURE_LINES,
     );
+    const { realtimeModel, realtimeVoice } = getVoiceConfig();
     const startedAt = Date.now();
     logServerEvent("window_realtime_session_started", {
       windowId,
       paneId,
       lines,
-      realtimeModel: REALTIME_MODEL,
-      voice: REALTIME_VOICE,
+      realtimeModel,
+      voice: realtimeVoice,
       clientSecretTtlSeconds: REALTIME_CLIENT_SECRET_TTL_SECONDS,
     });
     const briefing = paneId
@@ -1477,8 +1912,8 @@ async function handleApi(req, res, url) {
       windowId: briefing.windowId || windowId,
       paneId: briefing.paneId || paneId,
       lines: briefing.lines,
-      realtimeModel: REALTIME_MODEL,
-      voice: REALTIME_VOICE,
+      realtimeModel,
+      voice: realtimeVoice,
       inputChars: briefing.input.length,
       rawChars: briefing.rawChars,
       extractedChars: briefing.extractedChars,
@@ -1499,8 +1934,8 @@ async function handleApi(req, res, url) {
       lines: briefing.lines,
       windowId: briefing.windowId || windowId,
       paneId: briefing.paneId || paneId,
-      model: REALTIME_MODEL,
-      voice: REALTIME_VOICE,
+      model: realtimeModel,
+      voice: realtimeVoice,
       extractionModel: briefing.extractionModel,
       extractedChars: briefing.extractedChars,
       maxOutputTokens: REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS,
@@ -1576,25 +2011,82 @@ async function serveStatic(req, res, url) {
 }
 
 // Mode: `--register <hubUrl>` runs as an agent for the cloud; `--hub` serves the
-// app and brokers to registered agents; default is today's local server.
+// app and brokers to registered agents; `--controller` is the public Cloud Run
+// hub variant with app auth; default is today's local server.
 function parseMode(args) {
   const registerIndex = args.indexOf("--register");
   if (registerIndex !== -1) {
-    return { kind: "register", hubUrl: args[registerIndex + 1] || process.env.HUB_URL };
+    return {
+      kind: "register",
+      hubUrl: args[registerIndex + 1] || process.env.HUB_URL,
+      login: args.includes("--login"),
+    };
   }
+  if (args.includes("--controller")) return { kind: "controller" };
   if (args.includes("--hub")) return { kind: "hub" };
   return { kind: "local" };
 }
 
 const MODE = parseMode(process.argv.slice(2));
+const HOST = process.env.HOST || (MODE.kind === "controller" ? "0.0.0.0" : "127.0.0.1");
+const IS_HUB_MODE = MODE.kind === "hub" || MODE.kind === "controller";
+const REQUIRE_BROWSER_AUTH =
+  MODE.kind === "controller" || process.env.TMUX_MOBILE_REQUIRE_AUTH === "1";
+
+function validateStartupConfig() {
+  if (MODE.kind !== "controller") return;
+
+  const missing = [];
+  for (const key of [
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "GOOGLE_DEVICE_CLIENT_ID",
+    "GOOGLE_DEVICE_CLIENT_SECRET",
+    "OPENAI_API_KEY",
+    "SESSION_SECRET",
+  ]) {
+    if (!process.env[key]) missing.push(key);
+  }
+  if (!process.env.ALLOWED_GOOGLE_EMAILS && !process.env.ALLOWED_GOOGLE_DOMAINS) {
+    missing.push("ALLOWED_GOOGLE_EMAILS or ALLOWED_GOOGLE_DOMAINS");
+  }
+  if (missing.length > 0) {
+    console.error(
+      `controller mode requires ${missing.join(", ")} to be set`,
+    );
+    process.exit(2);
+  }
+}
+
+validateStartupConfig();
 
 if (MODE.kind === "register") {
   if (!MODE.hubUrl) {
     console.error("usage: node server.mjs --register <hubUrl>");
     process.exit(2);
   }
-  const { runAgent } = await import("./lib/agent.mjs");
-  logServerEvent("agent_starting", { hub: MODE.hubUrl, machine: os.hostname() });
+  const { agentAuthState, loginAgent, runAgent } = await import("./lib/agent.mjs");
+  let authState = agentAuthState(MODE.hubUrl);
+  const shouldLogin = MODE.login || !authState.hasAuth;
+  logServerEvent("agent_starting", {
+    controller: new URL(MODE.hubUrl).origin,
+    machine: process.env.AGENT_MACHINE || os.hostname(),
+    login: shouldLogin,
+    authSource: authState.source,
+    message: shouldLogin
+      ? "No agent token is available, or re-login was requested; starting Google device login before registration."
+      : "Starting agent with existing credentials; this machine will register with the controller.",
+  });
+  if (shouldLogin) {
+    await loginAgent(MODE.hubUrl);
+    authState = agentAuthState(MODE.hubUrl);
+    logServerEvent("agent_login_ready", {
+      controller: new URL(MODE.hubUrl).origin,
+      machine: process.env.AGENT_MACHINE || os.hostname(),
+      authSource: authState.source,
+      message: "Agent login is ready; connecting to the controller.",
+    });
+  }
   runAgent(MODE.hubUrl, localBackend, { logEvent: logServerEvent });
 } else {
   let hub = null;
@@ -1604,41 +2096,99 @@ if (MODE.kind === "register") {
     try {
       url = new URL(req.url || "/", `http://${req.headers.host || HOST}`);
 
+      if (await handleAuthRoute(req, res, url)) {
+        return;
+      }
+
+      if (
+        REQUIRE_BROWSER_AUTH &&
+        url.pathname !== "/api/health" &&
+        !authenticateBrowser(req)
+      ) {
+        if (url.pathname.startsWith("/api/")) {
+          sendJson(res, 401, { error: "Authentication required" });
+        } else {
+          sendRedirect(
+            res,
+            `/auth/google/login?returnTo=${encodeURIComponent(url.pathname + url.search)}`,
+          );
+        }
+        return;
+      }
+      const authenticatedUser = REQUIRE_BROWSER_AUTH ? authenticateBrowser(req) : null;
+      const userId = REQUIRE_BROWSER_AUTH
+        ? authenticatedUser?.userId
+        : String(process.env.TMUX_MOBILE_USER || "default");
+
       if (req.method === "GET" && url.pathname === "/api/runtime") {
-        sendJson(res, 200, { mode: MODE.kind });
+        sendJson(res, 200, { mode: IS_HUB_MODE ? "hub" : MODE.kind, revision: APP_REVISION });
+        return;
+      }
+
+      // Voice model settings are per-user (each authenticated user has their own
+      // transcription / TTS / realtime models), so they're keyed by userId and
+      // live above the hub/machine routing rather than per-pane.
+      if (url.pathname === "/api/voice-config") {
+        if (req.method === "GET") {
+          sendJson(res, 200, describeVoiceConfig(userId));
+          return;
+        }
+        if (req.method === "PUT" || req.method === "POST") {
+          const body = await readJsonBody(req);
+          try {
+            updateVoiceConfig(body, userId);
+          } catch (error) {
+            // updateVoiceConfig throws status 400 on a bad value; a persistence
+            // failure (read-only home dir) carries persisted:false but the
+            // in-memory override still took effect, so report success with a note.
+            if (error.persisted === false) {
+              sendJson(res, 200, {
+                ...describeVoiceConfig(userId),
+                persisted: false,
+                note: error.message,
+              });
+              return;
+            }
+            sendJson(res, error.status || 400, { error: error.message });
+            return;
+          }
+          sendJson(res, 200, { ...describeVoiceConfig(userId), persisted: true });
+          return;
+        }
+        sendJson(res, 405, { error: "Method not allowed" });
         return;
       }
 
       if (url.pathname.startsWith("/api/")) {
         if (hub) {
           if (req.method === "GET" && url.pathname === "/api/machines") {
-            sendJson(res, 200, hub.listMachines());
+            sendJson(res, 200, hub.listMachines(userId));
             return;
           }
           if (url.pathname === "/api/health") {
-            sendJson(res, 200, { ok: true });
+            sendJson(res, 200, { ok: true, revision: APP_REVISION });
             return;
           }
           const machineId =
             req.headers["x-machine-id"] ||
             url.searchParams.get("machineId") ||
-            hub.soleMachineId();
+            hub.soleMachineId(userId);
           if (!machineId) {
             sendJson(res, 400, {
               error: "machineId is required (multiple machines online)",
             });
             return;
           }
-          if (!hub.hasMachine(machineId)) {
+          if (!hub.hasMachine(userId, machineId)) {
             sendJson(res, 503, { error: `Machine ${machineId} is offline` });
             return;
           }
-          await withBackend(hub.backendFor(machineId), () =>
-            handleApi(req, res, url),
+          await withBackend(hub.backendFor(userId, machineId), () =>
+            withVoiceUser(userId, () => handleApi(req, res, url)),
           );
           return;
         }
-        await handleApi(req, res, url);
+        await withVoiceUser(userId, () => handleApi(req, res, url));
         return;
       }
 
@@ -1656,9 +2206,14 @@ if (MODE.kind === "register") {
     }
   });
 
-  if (MODE.kind === "hub") {
+  if (IS_HUB_MODE) {
     const { createHub } = await import("./lib/hub.mjs");
-    hub = createHub(server, { logEvent: logServerEvent });
+    hub = createHub(server, {
+      logEvent: logServerEvent,
+      authenticateAgent: MODE.kind === "controller"
+        ? authenticateAgent
+        : () => String(process.env.TMUX_MOBILE_USER || "default"),
+    });
   }
 
   server.listen(PORT, HOST, () => {

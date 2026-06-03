@@ -35,6 +35,10 @@ const targetAtom = createPersistedAtom("tmux-mobile-target", {
   windowIndex: "1",
 });
 
+const machineAtom = createPersistedAtom("tmux-mobile-machine", {
+  machineId: "",
+});
+
 // Remembers whether the user last used voice or the text composer. Default voice.
 const composerAtom = createPersistedAtom("tmux-mobile-composer", {
   textMode: false,
@@ -59,6 +63,10 @@ function applyTheme(theme) {
 }
 
 const state = {
+  runtimeMode: "local",
+  serverRevision: "",
+  machines: [],
+  machineId: machineAtom.get().machineId || "",
   sessions: [],
   windows: [],
   windowSummaries: {},
@@ -150,9 +158,22 @@ const els = {
   chat: document.querySelector("#chat"),
   mobileRefreshTree: document.querySelector("#mobileRefreshTree"),
   mobileRefresh: document.querySelector("#mobileRefresh"),
+  machinePicker: document.querySelector("#machinePicker"),
+  machineSelect: document.querySelector("#machineSelect"),
   themeToggle: document.querySelector("#themeToggle"),
   moreActionsToggle: document.querySelector("#moreActionsToggle"),
   moreActionsMenu: document.querySelector("#moreActionsMenu"),
+  openVoiceSettings: document.querySelector("#openVoiceSettings"),
+  voiceSettingsSheet: document.querySelector("#voiceSettingsSheet"),
+  voiceSettingsBackdrop: document.querySelector("#voiceSettingsBackdrop"),
+  closeVoiceSettings: document.querySelector("#closeVoiceSettings"),
+  saveVoiceSettings: document.querySelector("#saveVoiceSettings"),
+  voiceSettingsStatus: document.querySelector("#voiceSettingsStatus"),
+  voiceTranscribeModel: document.querySelector("#voiceTranscribeModel"),
+  voiceSpeechModel: document.querySelector("#voiceSpeechModel"),
+  voiceSpeechVoice: document.querySelector("#voiceSpeechVoice"),
+  voiceRealtimeModel: document.querySelector("#voiceRealtimeModel"),
+  voiceRealtimeVoice: document.querySelector("#voiceRealtimeVoice"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
   fullscreenRead: document.querySelector("#fullscreenRead"),
@@ -202,6 +223,9 @@ async function api(path, options = {}) {
   if (hasBody && !isRawBody && !headers["content-type"]) {
     headers["content-type"] = "application/json";
   }
+  if (state.machineId && shouldAttachMachineHeader(path)) {
+    headers["x-machine-id"] = state.machineId;
+  }
 
   const response = await fetch(path, {
     cache: "no-store",
@@ -215,10 +239,23 @@ async function api(path, options = {}) {
   return json;
 }
 
+function shouldAttachMachineHeader(path) {
+  const pathname = new URL(path, window.location.origin).pathname;
+  return (
+    pathname.startsWith("/api/") &&
+    pathname !== "/api/runtime" &&
+    pathname !== "/api/machines" &&
+    pathname !== "/api/health" &&
+    pathname !== "/api/voice-config"
+  );
+}
+
 function logClientEvent(event, details = {}) {
+  const headers = { "content-type": "application/json" };
+  if (state.machineId) headers["x-machine-id"] = state.machineId;
   fetch("/api/client-log", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers,
     body: JSON.stringify({ event, details }),
   }).catch(() => {});
 }
@@ -231,8 +268,16 @@ function selectedWindow() {
   return state.windows.find((item) => item.id === state.windowId);
 }
 
+function selectedMachine() {
+  return state.machines.find((item) => item.id === state.machineId);
+}
+
+function selectedMachineOnline() {
+  return Boolean(selectedMachine());
+}
+
 function paneChatKey() {
-  return state.paneId ? `tmux-chat-web:${state.paneId}` : "";
+  return state.paneId ? `tmux-chat-web:${state.machineId || "local"}:${state.paneId}` : "";
 }
 
 function loadChat() {
@@ -264,6 +309,97 @@ function setStatus(text, ok = true) {
   if (!els.mobileConnectionStatus) return;
   els.mobileConnectionStatus.textContent = text;
   els.mobileConnectionStatus.style.color = ok ? "" : "#a73535";
+}
+
+function resetTmuxState(message = "Select a window.") {
+  state.sessions = [];
+  state.windows = [];
+  state.windowSummaries = {};
+  state.windowActivity = {};
+  state.windowBranches = {};
+  state.panes = [];
+  state.sessionId = "";
+  state.windowId = "";
+  state.paneId = "";
+  renderMachinePicker();
+  renderWindows();
+  renderTargetLabels();
+  resetDirectoryNavigator();
+  updateSnapshotText(message, { forceScrollBottom: true });
+}
+
+async function loadRuntimeAndMachines() {
+  const runtime = await api("/api/runtime");
+  if (runtime.revision && state.serverRevision && runtime.revision !== state.serverRevision) {
+    window.location.reload();
+    const error = new Error("Reloading after server update");
+    error.silent = true;
+    throw error;
+  }
+  state.serverRevision = runtime.revision || state.serverRevision;
+  state.runtimeMode = runtime.mode || "local";
+  if (state.runtimeMode !== "hub") {
+    state.machines = [];
+    state.machineId = "";
+    machineAtom.set({ machineId: "" });
+    renderMachinePicker();
+    return;
+  }
+
+  state.machines = await api("/api/machines");
+  const stillAvailable = state.machines.some((machine) => machine.id === state.machineId);
+  if (!state.machineId || (state.machineId && !stillAvailable && !machineAtom.get().machineId)) {
+    state.machineId = state.machines.length === 1 ? state.machines[0].id : "";
+    machineAtom.set({ machineId: state.machineId });
+  }
+  renderMachinePicker();
+}
+
+function renderMachinePicker() {
+  if (!els.machinePicker || !els.machineSelect) return;
+  const show = state.runtimeMode === "hub";
+  els.machinePicker.hidden = !show;
+  if (!show) return;
+
+  els.machineSelect.replaceChildren();
+  const selectedOnline = selectedMachineOnline();
+  if (state.machines.length !== 1 || (state.machineId && !selectedOnline)) {
+    const option = document.createElement("option");
+    option.value = state.machineId && !selectedOnline ? state.machineId : "";
+    option.textContent =
+      state.machineId && !selectedOnline
+        ? `Waiting for ${state.machineId}`
+        : state.machines.length === 0
+          ? "No machines online"
+          : "Select a machine";
+    els.machineSelect.append(option);
+  }
+  for (const machine of state.machines) {
+    const option = document.createElement("option");
+    option.value = machine.id;
+    option.textContent = machineLabel(machine);
+    els.machineSelect.append(option);
+  }
+  els.machineSelect.value = state.machineId;
+  els.machineSelect.disabled = state.machines.length === 0 && !state.machineId;
+}
+
+function machineLabel(machine) {
+  const parts = [machine.hostname || machine.id];
+  if (machine.os || machine.arch) parts.push([machine.os, machine.arch].filter(Boolean).join("/"));
+  return parts.filter(Boolean).join(" · ");
+}
+
+async function selectMachine(machineId) {
+  if (machineId === state.machineId) return;
+  state.machineId = machineId;
+  machineAtom.set({ machineId });
+  resetTmuxState(machineId ? "Loading machine..." : "Select a machine.");
+  if (!machineId) {
+    setStatus("Select a machine", false);
+    return;
+  }
+  await refreshTree({ forceUrlTarget: true, syncUrl: true });
 }
 
 function empty(container, text) {
@@ -375,9 +511,16 @@ function renderWindows() {
 }
 
 function renderTargetLabels() {
+  renderMachinePicker();
   const win = selectedWindow();
   if (!win) {
-    els.mobileTargetLabel.textContent = "No window selected";
+    if (state.runtimeMode === "hub" && !state.machineId) {
+      els.mobileTargetLabel.textContent = "Select a machine";
+    } else {
+      els.mobileTargetLabel.textContent = state.runtimeMode === "hub"
+        ? `${selectedMachine()?.hostname || state.machineId || "Machine"} · No window selected`
+        : "No window selected";
+    }
     return;
   }
   const info = state.windowBranches[win.id] || {};
@@ -397,8 +540,12 @@ function renderTargetLabels() {
   // the path tail gets the dots and we move on.
   const cwdAbbr = abbrevHome(win.cwd) || "";
   const cwdPart = cwdAbbr ? ` · ${escapeHtml(cwdAbbr)}` : "";
+  const machinePart =
+    state.runtimeMode === "hub"
+      ? `${escapeHtml(selectedMachine()?.hostname || state.machineId || "Machine")} · `
+      : "";
   const wtChip = worktree ? `<span class="target-pill-wt-chip">WT</span> ` : "";
-  els.mobileTargetLabel.innerHTML = `${wtChip}${label}${cwdPart}${branchPart}`;
+  els.mobileTargetLabel.innerHTML = `${wtChip}${machinePart}${label}${cwdPart}${branchPart}`;
 }
 
 function abbrevHome(value) {
@@ -484,14 +631,20 @@ function syncSheetOpenClass() {
   );
 }
 
-function openTargetPicker() {
+function showTargetPicker() {
   closeDirectoryPicker();
   state.targetPickerOpen = true;
   els.targetSheet.hidden = false;
   syncSheetOpenClass();
-  startActivityPolling();
-  loadWindowSummaries({ force: false });
-  loadWindowBranches();
+}
+
+function openTargetPicker() {
+  showTargetPicker();
+  refreshTree().then(() => {
+    startActivityPolling();
+    loadWindowSummaries({ force: false });
+    loadWindowBranches();
+  });
 }
 
 function closeTargetPicker() {
@@ -1994,6 +2147,20 @@ async function refreshTree({
   syncUrl = false,
 } = {}) {
   try {
+    await loadRuntimeAndMachines();
+    if (state.runtimeMode === "hub" && (!state.machineId || !selectedMachineOnline())) {
+      const message = !state.machineId
+        ? state.machines.length === 0
+          ? "No machines online."
+          : "Select a machine."
+        : `Waiting for ${state.machineId} to reconnect.`;
+      resetTmuxState(
+        message,
+      );
+      setStatus(message.replace(/\.$/, ""), false);
+      if (!state.machineId && state.machines.length > 1) showTargetPicker();
+      return;
+    }
     state.sessions = await api("/api/sessions");
     await loadWindows({ urlTarget, forceUrlTarget });
     if (state.targetPickerOpen) {
@@ -2003,8 +2170,13 @@ async function refreshTree({
       updateTargetUrl();
     }
     state.pendingUrlTarget = null;
-    setStatus("localhost");
+    setStatus(
+      state.runtimeMode === "hub"
+        ? selectedMachine()?.hostname || state.machineId || "machine"
+        : "localhost",
+    );
   } catch (error) {
+    if (error.silent) return;
     setStatus(error.message, false);
   }
 }
@@ -2373,6 +2545,88 @@ els.themeToggle.addEventListener("click", () => {
   applyTheme(next);
 });
 
+// Voice settings sheet — lets the user pick the OpenAI voice models
+// (transcription / read-aloud / realtime) the server uses. Config is
+// server-global via /api/voice-config; the dropdowns are populated from the
+// option lists the server returns so the client never invents a model name.
+const VOICE_FIELD_SELECTS = {
+  transcribeModel: "voiceTranscribeModel",
+  speechModel: "voiceSpeechModel",
+  speechVoice: "voiceSpeechVoice",
+  realtimeModel: "voiceRealtimeModel",
+  realtimeVoice: "voiceRealtimeVoice",
+};
+
+function setVoiceSettingsStatus(message, isError = false) {
+  els.voiceSettingsStatus.textContent = message || "";
+  els.voiceSettingsStatus.classList.toggle("error", Boolean(isError));
+}
+
+function populateVoiceSelect(select, options, current, defaultValue) {
+  select.textContent = "";
+  for (const option of options) {
+    const el = document.createElement("option");
+    el.value = option;
+    el.textContent = option === defaultValue ? `${option} (default)` : option;
+    if (option === current) el.selected = true;
+    select.appendChild(el);
+  }
+}
+
+async function openVoiceSettings() {
+  els.voiceSettingsSheet.hidden = false;
+  setVoiceSettingsStatus("Loading…");
+  try {
+    const config = await api("/api/voice-config");
+    for (const [field, elKey] of Object.entries(VOICE_FIELD_SELECTS)) {
+      populateVoiceSelect(
+        els[elKey],
+        config.options[field] || [],
+        config.current[field],
+        config.defaults[field],
+      );
+    }
+    setVoiceSettingsStatus("");
+  } catch (error) {
+    setVoiceSettingsStatus(error.message || "Failed to load voice settings", true);
+  }
+}
+
+function closeVoiceSettings() {
+  els.voiceSettingsSheet.hidden = true;
+}
+
+async function saveVoiceSettings() {
+  const patch = {};
+  for (const [field, elKey] of Object.entries(VOICE_FIELD_SELECTS)) {
+    patch[field] = els[elKey].value;
+  }
+  els.saveVoiceSettings.disabled = true;
+  setVoiceSettingsStatus("Saving…");
+  try {
+    const result = await api("/api/voice-config", {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    });
+    setVoiceSettingsStatus(
+      result.persisted === false ? "Saved (in memory only)" : "Saved",
+    );
+    setTimeout(() => closeVoiceSettings(), 700);
+  } catch (error) {
+    setVoiceSettingsStatus(error.message || "Failed to save", true);
+  } finally {
+    els.saveVoiceSettings.disabled = false;
+  }
+}
+
+els.openVoiceSettings.addEventListener("click", openVoiceSettings);
+els.closeVoiceSettings.addEventListener("click", closeVoiceSettings);
+els.voiceSettingsBackdrop.addEventListener("click", closeVoiceSettings);
+els.saveVoiceSettings.addEventListener("click", saveVoiceSettings);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !els.voiceSettingsSheet.hidden) closeVoiceSettings();
+});
+
 // "More" overflow menu — folds rename/directories/refresh/theme behind one
 // button so the topbar has room for the full cwd path. Toggle on tap, close
 // on Esc, outside-click, or after any item is activated.
@@ -2456,6 +2710,11 @@ els.sessionNameInput.addEventListener("keydown", (event) => {
   createTmuxSession();
 });
 els.createSession.addEventListener("click", createTmuxSession);
+els.machineSelect?.addEventListener("change", () => {
+  selectMachine(els.machineSelect.value).catch((error) => {
+    setStatus(error.message, false);
+  });
+});
 els.openTargetPicker.addEventListener("click", openTargetPicker);
 els.closeTargetPicker.addEventListener("click", closeTargetPicker);
 els.targetBackdrop.addEventListener("click", closeTargetPicker);

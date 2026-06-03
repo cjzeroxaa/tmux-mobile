@@ -3,9 +3,9 @@
 A mobile browser UI for selecting tmux sessions and windows, then reading snapshots or sending voice commands without a terminal emulator.
 
 It runs in two modes that share the exact same browser UI: **local mode**
-(controls this machine's tmux directly, the original behavior) and **cloud
-mode** (a hub serves the UI and brokers commands to lightweight agents running
-on each of your machines). See [Cloud mode](#cloud-mode-hub--agents).
+(controls this machine's tmux directly, the original behavior) and **controller
+mode** (a Cloud Run service serves the UI and brokers commands to a lightweight
+agent running on this machine). See [Cloud Run controller](#cloud-run-controller).
 
 ## Run (local mode)
 
@@ -19,74 +19,141 @@ tmux directly — nothing about the single-machine app changed.
 
 ## Network access
 
-This app is meant to be used through a private Tailscale tailnet. It controls local tmux panes, so do not expose it directly to the public internet.
-
-The server binds to `127.0.0.1` by default. To use it from a phone or another device, keep the app local and publish it through Tailscale Serve:
+The local server binds to `127.0.0.1` by default because it controls local tmux
+panes. For the existing Tailscale setup, keep the app local and publish it
+through Tailscale Serve:
 
 ```bash
 tailscale serve --bg 3737
 ```
 
-Only devices that are signed in to the same tailnet should be able to reach that Tailscale HTTPS URL. Without Tailscale or another private network proxy, other devices cannot access the default localhost server.
+Only devices that are signed in to the same tailnet should be able to reach that
+Tailscale HTTPS URL.
 
-## Cloud mode (hub + agents)
+## Cloud Run controller
 
-The same `server.mjs` runs in three roles, chosen by flags. The browser UI is
-identical in every case — it just talks to whichever server it connects to.
+Controller mode removes the Tailscale requirement for browser access. The same
+`server.mjs` runs in three roles, chosen by flags:
 
-Cloud mode splits the server into a **hub** (serves the UI, calls OpenAI, brokers
-commands) and one **agent** per machine (`--register`, runs locally, executes
-tmux). The browser reaches the hub; the hub reaches each machine over an outbound
-WebSocket the agent opens, so no machine needs an inbound port.
+- local: `npm start`, the original single-machine app.
+- controller: `node server.mjs --controller`, a public Cloud Run service that
+  serves the UI, calls OpenAI, and brokers tmux commands.
+- agent: `node server.mjs --register <controller-url>`, the local process that
+  opens an outbound WebSocket to the controller and executes tmux.
+
+The browser reaches the Cloud Run controller over HTTPS; the controller reaches
+this machine over the outbound WebSocket opened by the agent, so this machine
+does not need an inbound port or Tailscale.
 
 ```
-browser ──HTTPS──► hub (--hub) ──WebSocket──► agent (--register) ──► local tmux
+browser ──HTTPS──► Cloud Run controller ──WebSocket──► agent ──► local tmux
 ```
 
-Run a hub anywhere on your tailnet (it does not need tmux itself):
+Controller mode supports multiple Google users. Browser access uses the web
+Google OAuth client. Agent registration uses a controller-mediated Google
+device-login flow, then the controller issues a local agent token scoped to that
+Google user.
 
 ```bash
-PORT=4000 node server.mjs --hub
+export GOOGLE_OAUTH_CLIENT_ID='...apps.googleusercontent.com'
+export GOOGLE_OAUTH_CLIENT_SECRET='...'
+export GOOGLE_DEVICE_CLIENT_ID='...apps.googleusercontent.com'
+export GOOGLE_DEVICE_CLIENT_SECRET='...'
+export GOOGLE_OAUTH_REDIRECT_URI='https://YOUR-CLOUD-RUN-URL/auth/google/callback'
+export ALLOWED_GOOGLE_DOMAINS='sycamore.so'
+export OPENAI_API_KEY='sk-...'
+export OPENAI_SECRET_NAME='tmux-mobile-openai-api-key'
+export SESSION_SECRET="$(openssl rand -hex 32)"
 ```
 
-On every machine you want to control, run an agent pointing at the hub:
+You can use `ALLOWED_GOOGLE_EMAILS` instead of, or in addition to,
+`ALLOWED_GOOGLE_DOMAINS`. Browsers only see machines registered by the same
+verified Google email, and API requests cannot route to another user's machine
+id.
+
+Controller mode requires `OPENAI_API_KEY` because voice transcription, target
+summaries, and realtime audio reads all call OpenAI from the controller. Store
+the key in Secret Manager and grant the Cloud Run runtime service account access:
 
 ```bash
-node server.mjs --register http://HUB_HOST:4000
-# or, over Tailscale:
-node server.mjs --register https://hub.your-tailnet.ts.net:8449
+gcloud secrets describe "${OPENAI_SECRET_NAME}" >/dev/null 2>&1 || \
+  gcloud secrets create "${OPENAI_SECRET_NAME}" --replication-policy=automatic
+printf '%s' "${OPENAI_API_KEY}" | \
+  gcloud secrets versions add "${OPENAI_SECRET_NAME}" --data-file=-
+
+PROJECT_NUMBER="$(gcloud projects describe "$(gcloud config get-value project)" --format='value(projectNumber)')"
+gcloud secrets add-iam-policy-binding "${OPENAI_SECRET_NAME}" \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role='roles/secretmanager.secretAccessor'
 ```
 
-The agent identifies the machine by hostname and reconnects automatically with
-backoff.
-
-Expose the hub on your tailnet with a **dedicated** HTTPS port — pick one not
-already listed by `tailscale serve status` so you do not clobber existing
-proxies:
+Deploy the controller:
 
 ```bash
-tailscale serve --bg --https=8449 http://127.0.0.1:4000
+gcloud run deploy tmux-mobile-controller \
+  --source . \
+  --region us-central1 \
+  --no-invoker-iam-check \
+  --max-instances=1 \
+  --timeout=3600 \
+  --set-env-vars "\
+GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID},\
+GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET},\
+GOOGLE_DEVICE_CLIENT_ID=${GOOGLE_DEVICE_CLIENT_ID},\
+GOOGLE_DEVICE_CLIENT_SECRET=${GOOGLE_DEVICE_CLIENT_SECRET},\
+GOOGLE_OAUTH_REDIRECT_URI=${GOOGLE_OAUTH_REDIRECT_URI},\
+ALLOWED_GOOGLE_DOMAINS=${ALLOWED_GOOGLE_DOMAINS},\
+SESSION_SECRET=${SESSION_SECRET}" \
+  --set-secrets "OPENAI_API_KEY=${OPENAI_SECRET_NAME}:latest"
 ```
 
-Then open `https://<your-machine>.<tailnet>.ts.net:8449`.
+Cloud Run must allow HTTP to reach the app so normal browsers and the local
+agent can connect. App-owned Google OAuth is the browser security boundary, and
+controller-issued agent tokens are required for agent WebSocket registration.
+The controller keeps agent connections in memory, so keep `--max-instances=1`.
 
-### Trust model
+If source deploy is blocked by Cloud Build permissions, build and push the
+Dockerfile locally, then rerun the same `gcloud run deploy` command with
+`--image <artifact-registry-image>` instead of `--source .`.
 
-There is no application-level auth: anyone who can reach the hub on the tailnet
-can control every registered machine. This is intentional — the Tailscale
-tailnet is the security boundary. As defense in depth, agents only run a fixed
-allowlist of tmux subcommands, so even a misbehaving hub cannot make an agent
-run arbitrary tmux (e.g. `kill-server`).
+After deploy, copy the service URL and start the local agent:
 
-### Hub endpoints
+```bash
+node server.mjs --register https://YOUR-CLOUD-RUN-URL
+```
 
-- `GET /api/runtime` → `{ "mode": "local" | "hub" }` (lets the UI know whether to
-  offer a machine picker).
+If no token is stored yet, the agent prints a Google device-login URL and user
+code, then stores the controller-issued token in
+`~/.config/tmux-mobile/agent.json`. Future starts reuse the stored token. Add
+`--login` only when you want to force a fresh login.
+
+Set `AGENT_MACHINE` only if you need to override the machine id shown in the UI;
+otherwise the agent uses the host name. To register multiple machines for the
+same user, run the device login on each machine with the same Google account.
+
+Open the Cloud Run URL in a browser and sign in with an allowed Google account.
+
+### Local controller test
+
+Run the local end-to-end test:
+
+```bash
+npm test
+```
+
+It starts a controller with a fake Google OAuth server, signs in two browser
+users, performs device login for multiple agents, verifies each user sees only
+their own machines, checks cross-user machine access is rejected, creates real
+tmux sessions through the controller API, sends text into panes, and verifies
+captured pane output comes back through the correct user route.
+
+### Controller endpoints
+
+- `GET /api/runtime` → `{ "mode": "local" | "hub" }`.
 - `GET /api/machines` → registered machines and online status.
 - Every other `/api/*` call routes to the machine named in the `x-machine-id`
   header (or `?machineId=`). With exactly one machine online the hub auto-selects
-  it, so the current frontend works unchanged; a browser machine picker for the
-  multi-machine case is still TODO.
+  it, so the current frontend works unchanged.
 
 ### Code layout
 
@@ -97,6 +164,7 @@ run arbitrary tmux (e.g. `kill-server`).
 - `lib/protocol.mjs` — the hub↔agent wire protocol and tmux allowlist.
 - `lib/hub.mjs` — agent registry, command broker, per-machine remote backend.
 - `lib/agent.mjs` — outbound connection, request serving, reconnect.
+- `Dockerfile` — Cloud Run controller image.
 
 ## Scope
 
@@ -133,6 +201,19 @@ The default transcription model is `gpt-4o-mini-transcribe`. Override it with:
 ```bash
 OPENAI_TRANSCRIBE_MODEL=gpt-4o-transcribe npm start
 ```
+
+The voice models (transcription, read-aloud TTS, and realtime) can also be
+changed at runtime from the web app: open the topbar **More → Voice settings**
+sheet and pick a model/voice per field. Configuration is **per-user** — on the
+multi-user controller each Google-authenticated user has their own voice
+settings, and one user's choice never affects another's. The `OPENAI_*` env vars
+above act as the per-field defaults; a choice made in the UI takes precedence
+until cleared back to the default. Overrides are saved (keyed by user id) to
+`~/.config/tmux-mobile/voice.json` (override the path with
+`TMUX_MOBILE_VOICE_CONFIG`). Selections are validated against a curated
+allowlist, so the API can't be used to inject an arbitrary model name. On
+Cloud Run the home dir is ephemeral, so overrides live in memory for the
+instance's lifetime and reset to defaults when the single instance recycles.
 
 Voice sends include one delayed extra Enter as a submit nudge for terminal UIs that sometimes keep pasted text in the prompt. The default delay is 700 ms. Override it with:
 
