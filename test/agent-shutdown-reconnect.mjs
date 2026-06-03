@@ -14,6 +14,7 @@ import http from "node:http";
 import net from "node:net";
 
 // Fast reconnect for the test; set before importing the agent (module-load consts).
+process.env.AGENT_REVISION_POLL_MS = "0"; // testing the SIGTERM-close path, not revision poll
 process.env.AGENT_PING_INTERVAL_MS = "200";
 process.env.AGENT_PONG_TIMEOUT_MS = "600";
 process.env.AGENT_MAX_BACKOFF_MS = "300";

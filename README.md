@@ -166,6 +166,20 @@ captured pane output comes back through the correct user route.
 - `lib/agent.mjs` — outbound connection, request serving, reconnect.
 - `Dockerfile` — Cloud Run controller image.
 
+### Agent reconnect and revision migration
+
+The agent keeps its WebSocket alive with a ping/pong liveness check and
+terminates a dead socket to force a reconnect (env: `AGENT_PING_INTERVAL_MS`,
+`AGENT_PONG_TIMEOUT_MS`, `AGENT_MAX_BACKOFF_MS`).
+
+A Cloud Run deploy is a special case: the agent's live socket keeps the *old*
+instance alive, so the controller never gets SIGTERM and never closes the agent,
+which would otherwise leave it pinned to stale code. To handle this the agent
+polls the controller's public `/api/health` revision and re-dials when it
+changes, migrating itself onto the new revision (env: `AGENT_REVISION_POLL_MS`,
+default 15000; set `0` to disable). The controller also closes agent sockets on
+SIGTERM as a secondary path, for the cases where the old instance is torn down.
+
 ## Scope
 
 - Uses a mobile-only attached-window layout.
