@@ -1786,8 +1786,9 @@ async function handleApi(req, res, url) {
   }
 
   // Smart content viewer: read a file referenced in a pane, resolving a relative
-  // path against the pane's cwd. The agent confines the read to that cwd subtree
-  // (see backend.readfile), so this can't be used to read arbitrary files.
+  // path against the pane's cwd (absolute/~ paths resolve as given). The only
+  // boundary is the OS file permissions of the user the agent runs as — a file
+  // that user can read is served; one they can't yields EACCES.
   if (req.method === "GET" && url.pathname === "/api/file") {
     const paneId = requireId(url.searchParams.get("paneId"), "pane");
     const requestedPath = String(url.searchParams.get("path") || "");
@@ -1812,7 +1813,10 @@ async function handleApi(req, res, url) {
       return;
     }
     const cwd = await getPaneCwd(paneId);
-    if (!cwd) {
+    // cwd is only needed to resolve a relative path; absolute and ~ paths don't
+    // need it.
+    const isAbsoluteOrHome = path.isAbsolute(requestedPath) || requestedPath.startsWith("~");
+    if (!cwd && !isAbsoluteOrHome) {
       sendJson(res, 404, { error: "Pane has no working directory" });
       return;
     }

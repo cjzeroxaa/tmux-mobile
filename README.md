@@ -178,11 +178,14 @@ blob, so native playback/rendering applies). Markdown
 when a file actually contains one (so plain markdown loads nothing extra) and
 runs with `securityLevel: 'strict'`; if it can't load, the diagram source stays
 visible. The file is read on the agent's machine via a new `readfile` protocol
-op and `GET /api/file`, with the path resolved against the pane's working
-directory. Reads are **confined to
-that cwd subtree** (symlink- and `../`-safe via `realpath`), capped at 5 MB, and
-limited to the viewable extensions — so the viewer can't be used to read
-arbitrary files on the machine.
+op and `GET /api/file`. A relative path resolves against the pane's working
+directory; absolute and `~` paths resolve as given. There is **no directory
+confinement** — the boundary is the OS file permissions of the user the agent
+runs as, so the viewer can open any file that user can read (and gets EACCES for
+ones it can't). Reads are capped (5 MB for inline image/markdown, 50 MB for
+external media/HTML) and limited to the viewable extensions. Browser access is
+gated by Google OAuth, so in practice this is "an authenticated user reading
+their own machine's files."
 
 ### Agent reconnect and revision migration
 
