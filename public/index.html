@@ -348,6 +348,31 @@
       </section>
     </div>
 
+    <!-- Duplicate window: review/adjust the new window's title and start command
+         before creating. Pre-filled from the source window by app.js. -->
+    <div id="duplicateSheet" class="settings-sheet" hidden>
+      <button id="duplicateBackdrop" class="settings-backdrop" type="button" aria-label="Cancel duplicate"></button>
+      <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="duplicateTitle">
+        <div class="settings-panel-header">
+          <h2 id="duplicateTitle">Duplicate window</h2>
+          <button id="closeDuplicate" class="icon-button" type="button" title="Cancel">X</button>
+        </div>
+        <p class="settings-hint">A new window opens in the same directory (<span id="duplicateCwd" class="duplicate-cwd"></span>). Adjust the title and start command if you like — leave the command empty for a plain shell.</p>
+        <label class="settings-field">
+          <span>Window title</span>
+          <input id="duplicateName" type="text" autocomplete="off" placeholder="window title" />
+        </label>
+        <label class="settings-field">
+          <span>Start command</span>
+          <input id="duplicateCommand" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="(none — plain shell)" />
+        </label>
+        <div class="settings-actions">
+          <span id="duplicateStatus" class="settings-status" role="status" aria-live="polite"></span>
+          <button id="confirmDuplicate" class="small-button submit" type="button">Create</button>
+        </div>
+      </section>
+    </div>
+
     <script src="/app.js" type="module"></script>
   </body>
 </html>

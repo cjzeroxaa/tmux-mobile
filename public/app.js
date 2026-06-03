@@ -253,6 +253,14 @@ const els = {
   newWindow: document.querySelector("#newWindow"),
   duplicateWindow: document.querySelector("#duplicateWindow"),
   closeWindow: document.querySelector("#closeWindow"),
+  duplicateSheet: document.querySelector("#duplicateSheet"),
+  duplicateBackdrop: document.querySelector("#duplicateBackdrop"),
+  closeDuplicate: document.querySelector("#closeDuplicate"),
+  duplicateName: document.querySelector("#duplicateName"),
+  duplicateCommand: document.querySelector("#duplicateCommand"),
+  duplicateCwd: document.querySelector("#duplicateCwd"),
+  duplicateStatus: document.querySelector("#duplicateStatus"),
+  confirmDuplicate: document.querySelector("#confirmDuplicate"),
   lineCount: document.querySelector("#lineCount"),
   autoRefresh: document.querySelector("#autoRefresh"),
   snapshotStaleIcon: document.querySelector("#snapshotStaleIcon"),
@@ -2601,31 +2609,69 @@ async function createNewWindow() {
   }
 }
 
-// Duplicate the current window (same cwd + command) and switch to it.
+// Duplicate the current window: open a confirmation pre-filled with the source
+// window's title + start command (and cwd) so the user can adjust before the new
+// window is created. Creation happens in confirmDuplicate().
+let duplicateSourceId = null;
 async function duplicateCurrentWindow() {
   const win = selectedWindow();
   if (!win) {
     setStatus("Select a window first", false);
     return;
   }
-  els.duplicateWindow.disabled = true;
-  setStatus("duplicating window...");
+  duplicateSourceId = win.id;
+  els.duplicateName.value = "";
+  els.duplicateCommand.value = "";
+  els.duplicateCwd.textContent = "";
+  els.duplicateStatus.textContent = "Loading…";
+  els.duplicateStatus.classList.remove("error");
+  els.duplicateSheet.hidden = false;
+  try {
+    const info = await api(`/api/window-duplicate-info?windowId=${encodeURIComponent(win.id)}`);
+    els.duplicateName.value = info.name || "";
+    els.duplicateCommand.value = info.command || "";
+    els.duplicateCwd.textContent = info.cwd || "";
+    els.duplicateStatus.textContent = "";
+    els.duplicateName.focus();
+    els.duplicateName.select();
+  } catch (error) {
+    els.duplicateStatus.textContent = error.message || "Could not load window info";
+    els.duplicateStatus.classList.add("error");
+  }
+}
+
+function closeDuplicateSheet() {
+  els.duplicateSheet.hidden = true;
+  duplicateSourceId = null;
+}
+
+async function confirmDuplicate() {
+  if (!duplicateSourceId) return;
+  els.confirmDuplicate.disabled = true;
+  els.duplicateStatus.classList.remove("error");
+  els.duplicateStatus.textContent = "Creating…";
   try {
     const created = await api("/api/windows", {
       method: "POST",
-      body: JSON.stringify({ duplicateFrom: win.id }),
+      body: JSON.stringify({
+        duplicateFrom: duplicateSourceId,
+        name: els.duplicateName.value,
+        command: els.duplicateCommand.value,
+      }),
     });
+    closeDuplicateSheet();
     await refreshTree();
-    if (created?.id) await selectWindow(created.id);
+    if (created?.id) await selectWindow(created.id); // switch to the new window
     setStatus(
       created?.command
-        ? `duplicated window (re-ran: ${created.command})`
+        ? `duplicated window (running: ${created.command})`
         : "duplicated window",
     );
   } catch (error) {
-    setStatus(error.message, false);
+    els.duplicateStatus.textContent = error.message || "Could not create window";
+    els.duplicateStatus.classList.add("error");
   } finally {
-    els.duplicateWindow.disabled = false;
+    els.confirmDuplicate.disabled = false;
   }
 }
 
@@ -3353,6 +3399,18 @@ els.renameWindow.addEventListener("click", renameSelectedWindow);
 els.newWindow.addEventListener("click", createNewWindow);
 els.duplicateWindow.addEventListener("click", duplicateCurrentWindow);
 els.closeWindow.addEventListener("click", closeCurrentWindow);
+els.confirmDuplicate.addEventListener("click", confirmDuplicate);
+els.closeDuplicate.addEventListener("click", closeDuplicateSheet);
+els.duplicateBackdrop.addEventListener("click", closeDuplicateSheet);
+els.duplicateCommand.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    confirmDuplicate();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !els.duplicateSheet.hidden) closeDuplicateSheet();
+});
 // Reflect the persisted depth in the picker before the user sees it. The HTML
 // default is option value="500" but state.lines may already be something else
 // from localStorage; this keeps them in lockstep.

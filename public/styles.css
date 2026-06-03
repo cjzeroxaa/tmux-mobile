@@ -724,6 +724,23 @@ input {
   flex: 0 0 auto;
 }
 
+/* Duplicate-window confirmation: the cwd shown inline in the hint. */
+.duplicate-cwd {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.85em;
+  word-break: break-all;
+}
+
+.settings-field input[type="text"] {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.4));
+  background: var(--surface);
+  color: inherit;
+  font-size: 0.95rem;
+}
+
 /* Snippet manager rows. */
 .snippet-list {
   display: flex;

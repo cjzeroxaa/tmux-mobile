@@ -169,10 +169,12 @@ captured pane output comes back through the correct user route.
 ### Window operations
 
 The topbar **More** menu has window management: **New window** (fresh window in
-the current session), **Duplicate window** (a new window in the same session
-with the same working directory, re-running the command the source used —
-`pane_start_command` if the window was launched with one, else the running
-program name, falling back to a plain shell), and **Close window** (kills the
+the current session), **Duplicate window** (opens a
+confirmation pre-filled with the source window's title and start command — and
+its working directory — so you can adjust before creating; the new window opens
+in the same cwd and switches to it. The suggested command is `pane_start_command`
+if the window was launched with one, else the running program name, else a plain
+shell), and **Close window** (kills the
 window after a confirmation). Server side: `POST /api/windows {sessionId}` to
 create, `POST /api/windows {duplicateFrom: windowId}` to duplicate, and
 `DELETE /api/windows {windowId}` to close (refuses to kill the last window in a

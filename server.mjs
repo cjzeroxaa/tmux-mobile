@@ -580,11 +580,15 @@ const DUP_SHELLS = new Set(["bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh", 
 // active pane; the command prefers pane_start_command (the literal launch
 // command, e.g. "sleep 300"), falling back to the running program name
 // (pane_current_command) when it's an interactive app rather than a bare shell.
-async function duplicateWindow(windowId) {
+// Suggested values for duplicating a window: the source window's session, name,
+// cwd, and the command to re-run. The UI fetches these to pre-fill an editable
+// confirmation before the duplicate is actually created. Command prefers
+// pane_start_command (the literal launch command, e.g. "sleep 300"), falling
+// back to the running program name when it's an interactive app (not a bare
+// shell).
+async function getDuplicateDefaults(windowId) {
   requireId(windowId, "window");
   const info = await getWindowInfo(windowId);
-  // Read the active pane's cwd + commands. #{?} chooses active pane via -F on
-  // the window target; display-message -p -t <window> reports the active pane.
   const stdout = await runTmux([
     "display-message",
     "-p",
@@ -603,18 +607,38 @@ async function duplicateWindow(windowId) {
   if (startCommand.length >= 2 && startCommand.startsWith('"') && startCommand.endsWith('"')) {
     startCommand = startCommand.slice(1, -1);
   }
-
   const command =
     startCommand ||
     (currentCommand && !DUP_SHELLS.has(currentCommand) ? currentCommand : "");
 
-  // new-window -P -F <fmt> [-c cwd] -t <session> -n <name> [-- command]
-  const args = ["new-window", "-P", "-F", formats.windows, "-t", info.sessionId];
-  if (cwd) args.push("-c", cwd);
-  if (info.windowName) args.push("-n", info.windowName);
+  return {
+    sessionId: info.sessionId,
+    name: info.windowName || "",
+    command,
+    cwd,
+  };
+}
+
+// Create a new window in the source window's session, same cwd, using the given
+// name and command (the UI passes the user-confirmed/adjusted values; both fall
+// back to the source defaults when omitted). Empty command -> a plain shell.
+async function duplicateWindow(windowId, overrides = {}) {
+  requireId(windowId, "window");
+  const defaults = await getDuplicateDefaults(windowId);
+  const name =
+    overrides.name !== undefined ? String(overrides.name).trim() : defaults.name;
+  const command =
+    overrides.command !== undefined
+      ? String(overrides.command).trim()
+      : defaults.command;
+
+  // new-window -P -F <fmt> [-c cwd] -t <session> [-n name] [command]
+  const args = ["new-window", "-P", "-F", formats.windows, "-t", defaults.sessionId];
+  if (defaults.cwd) args.push("-c", defaults.cwd);
+  if (name) args.push("-n", name);
   if (command) args.push(command); // shell-command run in the new window
   const created = await runTmux(args);
-  clearSessionSummaryCache(info.sessionId);
+  clearSessionSummaryCache(defaults.sessionId);
   const [row] = rows(created);
   if (!row) {
     const error = new Error("tmux did not return the duplicated window");
@@ -1825,13 +1849,25 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  // Suggested name/command/cwd for duplicating a window — the UI fetches this to
+  // pre-fill the editable confirmation before actually creating the duplicate.
+  if (req.method === "GET" && url.pathname === "/api/window-duplicate-info") {
+    const windowId = requireId(url.searchParams.get("windowId"), "window");
+    sendJson(res, 200, await getDuplicateDefaults(windowId));
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/windows") {
     const body = await readJsonBody(req);
-    // `duplicateFrom` present -> clone that window (same cwd + command);
-    // otherwise create a fresh window in the given session.
+    // `duplicateFrom` present -> clone that window (same cwd, with the
+    // user-confirmed name/command); otherwise create a fresh window.
     if (Object.prototype.hasOwnProperty.call(body, "duplicateFrom")) {
       const windowId = requireId(body.duplicateFrom, "window");
-      sendJson(res, 200, await duplicateWindow(windowId));
+      sendJson(
+        res,
+        200,
+        await duplicateWindow(windowId, { name: body.name, command: body.command }),
+      );
     } else {
       const sessionId = requireId(body.sessionId, "session");
       sendJson(res, 200, await createWindow(sessionId));

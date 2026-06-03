@@ -318,12 +318,21 @@ async function exerciseTmux(baseUrl, cookie, email, machineId) {
     body: { sessionId: session.id },
   });
   assert.ok(newWin.id, "new window created");
+  // Duplicate-info endpoint returns suggested name/command/cwd.
+  const dupInfo = await requestJson(
+    baseUrl,
+    `/api/window-duplicate-info?windowId=${encodeURIComponent(newWin.id)}`,
+    { cookie, machineId },
+  );
+  assert.ok(dupInfo.sessionId === session.id && "command" in dupInfo, "duplicate info");
+  // Duplicate with an adjusted name; the override is honored.
   const dupWin = await requestJson(baseUrl, "/api/windows", {
     cookie,
     machineId,
-    body: { duplicateFrom: newWin.id },
+    body: { duplicateFrom: newWin.id, name: "dup-edited", command: "" },
   });
   assert.ok(dupWin.id && dupWin.id !== newWin.id, "duplicate window created");
+  assert.equal(dupWin.name, "dup-edited", "duplicate honored adjusted name");
   const afterCreate = await requestJson(baseUrl, `/api/windows?sessionId=${encodeURIComponent(session.id)}`, { cookie, machineId });
   assert.equal(afterCreate.length, baseCount + 2, "two windows added");
   // Close both extras.
