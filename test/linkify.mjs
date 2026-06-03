@@ -117,4 +117,25 @@ assert.ok(!out.includes("<a "), `21 no repo -> no link: ${out}`);
 out = linkifyEscaped(escapeHtml("PR #5"), { repo: { host: "git.example.com", owner: "o", name: "r" } });
 assert.ok(out.includes('href="https://git.example.com/o/r/issues/5"'), `22 custom host: ${out}`);
 
+// 23. a path wrapped across lines (newline + indent after a "/") -> the
+//     data-file-path joins to the full path, while the display keeps the wrap.
+out = render("see docs/design/\n  runtimeclass-tool-capability-validation.md ok");
+let dp = (out.match(/data-file-path="([^"]+)"/) || [])[1];
+assert.equal(dp, "docs/design/runtimeclass-tool-capability-validation.md", `23 wrapped joins: ${dp}`);
+assert.ok(out.includes("docs/design/\n"), "23 display keeps the wrap");
+
+// 24. multi-segment wrap
+out = render("a/very/\n   deep/\n   path/file.png x");
+dp = (out.match(/data-file-path="([^"]+)"/) || [])[1];
+assert.equal(dp, "a/very/deep/path/file.png", `24 multi-wrap: ${dp}`);
+
+// 25. ~ wrapped
+out = render("~/worktrees/kernel/\n  main/AGENTS.md");
+dp = (out.match(/data-file-path="([^"]+)"/) || [])[1];
+assert.equal(dp, "~/worktrees/kernel/main/AGENTS.md", `25 ~ wrapped: ${dp}`);
+
+// 26. a "/" at end of a line followed by unrelated text must NOT glue
+out = render("cd some/dir/\nsome random words here");
+assert.ok(!out.includes("pane-file"), `26 no false glue: ${out}`);
+
 console.log("linkify unit tests passed");

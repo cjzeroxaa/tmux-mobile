@@ -2273,10 +2273,14 @@ function ansiToHtml(text) {
   let html = "";
   let last = 0;
   let m;
+  // Emit escaped, styled chunks WITHOUT linkifying — linkification runs once over
+  // the whole assembled string below, so a path/URL that spans an SGR chunk
+  // boundary (e.g. a file path the agent printed across a line wrap) is still
+  // detected as one. (Per-chunk linkify would only see fragments.)
   const emit = (chunk) => {
     if (!chunk) return;
     const style = ansiStyle(state);
-    const body = linkifyEscaped(escapeHtml(chunk), { repo });
+    const body = escapeHtml(chunk);
     html += style ? `<span style="${style}">${body}</span>` : body;
   };
   while ((m = sgr.exec(input)) !== null) {
@@ -2285,7 +2289,10 @@ function ansiToHtml(text) {
     last = sgr.lastIndex;
   }
   emit(input.slice(last));
-  return html;
+  // Single linkify pass over the whole styled HTML so URLs/file-paths that span
+  // SGR chunk boundaries are detected as one. The matchers exclude '<' so they
+  // can't run into or corrupt the <span style> tags.
+  return linkifyEscaped(html, { repo });
 }
 
 function stripAnsi(text) {

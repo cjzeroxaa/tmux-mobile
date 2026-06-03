@@ -35,9 +35,18 @@ const VIEWABLE_FILE_EXTS =
 // Matches file paths ending in a viewable extension, in already-escaped text.
 // Requires either a path separator or a leading ./ ../ ~/ so a bare word like
 // "image" isn't matched, but "screenshot.png", "./out.png", "docs/guide.md",
-// "/abs/path.md", and "~/notes.md" are. Stops at whitespace/quotes/brackets.
+// "/abs/path.md", and "~/notes.md" are.
+//
+// Wrapped paths: a long path the terminal wrapped onto the next line appears as
+// `dir/<newline><indent>rest.md`. We allow a single newline + indentation to
+// appear right AFTER a "/" (the only place a path realistically wraps), so the
+// whole path is captured across the wrap; linkifyFiles strips the wrap from the
+// stored data-path while keeping the visible text wrapped. A path segment is
+// otherwise `[^\s...]` (stops at whitespace/quotes/brackets).
+const SEG = String.raw`[^\s<>"'(){}\[\]:/]`;
+const WRAP = String.raw`(?:\n[ \t]*)?`; // optional line-wrap continuation
 const FILE_IN_ESCAPED = new RegExp(
-  String.raw`(?:\.{0,2}\/|~\/)?(?:[^\s<>"'(){}\[\]:]+\/)*[^\s<>"'(){}\[\]:/]+\.(?:${VIEWABLE_FILE_EXTS})\b`,
+  String.raw`(?:\.{0,2}\/|~\/)?(?:${SEG}+\/${WRAP})*${SEG}+\.(?:${VIEWABLE_FILE_EXTS})\b`,
   "gi",
 );
 
@@ -107,7 +116,11 @@ function linkifyFiles(html) {
     .map((part, i) => {
       if (i % 2 === 1) return part; // an <a>...</a> segment — leave it
       return part.replace(FILE_IN_ESCAPED, (match) => {
-        const rawPath = unescapeHtmlEntities(match);
+        // The match may span a terminal line-wrap (a newline + indentation right
+        // after a "/"). Strip that from the actual path used for the fetch, but
+        // keep `match` (the visible text) intact so the pane still shows the wrap.
+        const joined = match.replace(/\/\n[ \t]*/g, "/");
+        const rawPath = unescapeHtmlEntities(joined);
         const dataPath = escapeHtml(rawPath).replaceAll('"', "&quot;");
         return `<span class="pane-file" role="link" tabindex="0" data-file-path="${dataPath}">${match}</span>`;
       });
