@@ -273,35 +273,39 @@ async function exerciseTmux(baseUrl, cookie, email, machineId) {
   const sessions = await requestJson(baseUrl, "/api/sessions", { cookie, machineId });
   assert.ok(sessions.some((item) => item.name === sessionName));
 
-  // Session annotation: set a follow-up note, confirm it round-trips through
-  // /api/sessions, then clear it.
-  const noteText = `follow up: deploy ${process.pid}`;
-  const annotated = await requestJson(baseUrl, "/api/sessions", {
-    cookie,
-    machineId,
-    method: "PATCH",
-    body: { sessionId: session.id, annotation: noteText },
-  });
-  assert.equal(annotated.annotation, noteText, "annotation set");
-  const withNote = await requestJson(baseUrl, "/api/sessions", { cookie, machineId });
-  assert.ok(
-    withNote.some((s) => s.id === session.id && s.annotation === noteText),
-    "annotation visible in session list",
-  );
-  const cleared = await requestJson(baseUrl, "/api/sessions", {
-    cookie,
-    machineId,
-    method: "PATCH",
-    body: { sessionId: session.id, annotation: "" },
-  });
-  assert.equal(cleared.annotation, "", "annotation cleared");
-
   const windows = await requestJson(
     baseUrl,
     `/api/windows?sessionId=${encodeURIComponent(session.id)}`,
     { cookie, machineId },
   );
   assert.ok(windows.length > 0);
+
+  // Window annotation: set a follow-up note, confirm it round-trips through
+  // /api/windows (per-window), then clear it.
+  const noteText = `follow up: deploy ${process.pid}`;
+  const annotated = await requestJson(baseUrl, "/api/windows", {
+    cookie,
+    machineId,
+    method: "PATCH",
+    body: { windowId: windows[0].id, annotation: noteText },
+  });
+  assert.equal(annotated.annotation, noteText, "window annotation set");
+  const refetched = await requestJson(
+    baseUrl,
+    `/api/windows?sessionId=${encodeURIComponent(session.id)}`,
+    { cookie, machineId },
+  );
+  assert.ok(
+    refetched.some((w) => w.id === windows[0].id && w.annotation === noteText),
+    "annotation visible in window list",
+  );
+  const cleared = await requestJson(baseUrl, "/api/windows", {
+    cookie,
+    machineId,
+    method: "PATCH",
+    body: { windowId: windows[0].id, annotation: "" },
+  });
+  assert.equal(cleared.annotation, "", "window annotation cleared");
 
   const panes = await requestJson(
     baseUrl,

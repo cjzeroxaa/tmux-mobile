@@ -1614,15 +1614,15 @@ input {
   color: var(--muted);
 }
 
-/* Per-session follow-up note shown under the session header. Full-width button;
-   reads as a sticky note when set, a subtle "+ add note" when empty. */
-.session-annotation {
+/* Per-window follow-up note, shown indented under its window button. Reads as a
+   sticky note when set, a subtle "+ add note" when empty. */
+.window-annotation {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  width: 100%;
-  margin: 0 0 6px;
-  padding: 6px 8px;
+  width: calc(100% - 14px);
+  margin: -2px 0 8px 14px;
+  padding: 5px 8px;
   border: 1px dashed var(--line);
   border-radius: 7px;
   background: transparent;
@@ -1634,23 +1634,28 @@ input {
   word-break: break-word;
 }
 
-.session-annotation.has-note {
+.window-annotation:not(.has-note) {
+  opacity: 0.6; /* keep the empty "+ add note" affordance quiet */
+}
+
+.window-annotation.has-note {
   border-style: solid;
   background: var(--surface-soft);
   color: var(--ink);
+  opacity: 1;
 }
 
-.session-annotation-icon {
+.window-annotation-icon {
   flex: 0 0 auto;
   font-size: 12px;
 }
 
-.session-annotation-text {
+.window-annotation-text {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.session-annotation:hover {
+.window-annotation:hover {
   border-color: var(--accent, #6c88a6);
 }
 

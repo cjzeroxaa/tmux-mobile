@@ -166,16 +166,16 @@ captured pane output comes back through the correct user route.
 - `lib/agent.mjs` — outbound connection, request serving, reconnect.
 - `Dockerfile` — Cloud Run controller image.
 
-### Session annotations
+### Window annotations
 
-Each session in the target picker has a free-text **follow-up note** (e.g.
-"waiting on CI #4567, check ~3pm") — handy after kicking off a long-running task.
-Tap the note row under a session header to edit it. The note is stored on the
-tmux session itself as the `@tm_annotation` user option (`set-option` /
-`show-options`), so it travels with the session across devices and controller
-restarts, is returned inline by `GET /api/sessions`, set via
-`PATCH /api/sessions {sessionId, annotation}` (empty clears it), and disappears
-when the session is killed.
+Each window in the target picker has a free-text **follow-up note** (e.g.
+"waiting on CI #4567, check ~3pm") — handy after kicking off a long-running task
+in that window. Tap the note row under a window to edit it. The note is stored
+on the tmux window itself as the window-scoped `@tm_annotation` user option
+(`set-option -w`), so it travels with the window across devices and controller
+restarts, is returned inline by `GET /api/windows`, set via
+`PATCH /api/windows {windowId, annotation}` (empty clears it), and disappears
+when the window is closed.
 
 ### Smart content viewer
 

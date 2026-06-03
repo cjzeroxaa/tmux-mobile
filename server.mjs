@@ -193,9 +193,11 @@ function loadLocalEnv(filePath) {
 
 const formats = {
   sessions:
-    "#{session_id}\t#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created_string}\t#{@tm_annotation}",
+    "#{session_id}\t#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created_string}",
+  // The annotation (free-text follow-up note) is the LAST field and may contain
+  // tabs, so windowFromRow takes everything from its index onward.
   windows:
-    "#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{window_flags}\t#{pane_current_command}\t#{pane_current_path}",
+    "#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{window_flags}\t#{pane_current_command}\t#{pane_current_path}\t#{@tm_annotation}",
   panes:
     "#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_title}",
   paneInfo:
@@ -455,22 +457,21 @@ function sendSubmitNudge(paneId) {
   }, SUBMIT_NUDGE_DELAY_MS);
 }
 
-function sessionFromRow(fields) {
-  const [id, name, windows, attached, created] = fields;
-  // The annotation is the last format field and is free text (may contain tabs),
-  // so take everything from index 5 onward and rejoin rather than positionally.
-  const annotation = fields.slice(5).join("\t");
+function sessionFromRow([id, name, windows, attached, created]) {
   return {
     id,
     name,
     windows: Number(windows || 0),
     attached: attached === "1",
     created,
-    annotation: annotation || "",
   };
 }
 
-function windowFromRow([id, index, name, active, panes, flags, activeCommand, cwd]) {
+function windowFromRow(fields) {
+  const [id, index, name, active, panes, flags, activeCommand, cwd] = fields;
+  // The annotation is the last format field and is free text (may contain tabs),
+  // so take everything from index 8 onward and rejoin rather than positionally.
+  const annotation = fields.slice(8).join("\t");
   return {
     id,
     index: Number(index),
@@ -480,6 +481,7 @@ function windowFromRow([id, index, name, active, panes, flags, activeCommand, cw
     flags,
     activeCommand,
     cwd: cwd || "",
+    annotation: annotation || "",
   };
 }
 
@@ -517,24 +519,6 @@ async function renameSession(sessionId, name) {
   await runTmux(["rename-session", "-t", sessionId, sessionName]);
   clearSessionSummaryCache(sessionId);
   return readSessionRow(sessionId, "renamed");
-}
-
-// Store a free-text follow-up note on the session as the @tm_annotation user
-// option. Empty/whitespace clears it (unset-option). Returns the updated session.
-async function setSessionAnnotation(sessionId, annotation) {
-  requireId(sessionId, "session");
-  const text = String(annotation ?? "");
-  if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
-    const error = new Error("Annotation is too large");
-    error.status = 413;
-    throw error;
-  }
-  if (text.trim() === "") {
-    await runTmux(["set-option", "-t", sessionId, "-u", "@tm_annotation"]);
-  } else {
-    await runTmux(["set-option", "-t", sessionId, "@tm_annotation", text]);
-  }
-  return readSessionRow(sessionId, "annotated");
 }
 
 async function readSessionRow(sessionId, what) {
@@ -585,6 +569,32 @@ async function renameWindow(windowId, name) {
   const windowName = requireSessionName(name);
   await runTmux(["rename-window", "-t", windowId, windowName]);
   return { ok: true };
+}
+
+// Store a free-text follow-up note on the WINDOW as the @tm_annotation
+// window-scoped user option (set-option -w). Empty/whitespace clears it. Useful
+// for tracking the follow-up of a long-running task in a specific window.
+async function setWindowAnnotation(windowId, annotation) {
+  requireId(windowId, "window");
+  const text = String(annotation ?? "");
+  if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
+    const error = new Error("Annotation is too large");
+    error.status = 413;
+    throw error;
+  }
+  if (text.trim() === "") {
+    await runTmux(["set-option", "-w", "-t", windowId, "-u", "@tm_annotation"]);
+  } else {
+    await runTmux(["set-option", "-w", "-t", windowId, "@tm_annotation", text]);
+  }
+  const stdout = await runTmux(["display-message", "-p", "-t", windowId, formats.windows]);
+  const [row] = rows(stdout);
+  if (!row) {
+    const error = new Error("tmux did not return the annotated window");
+    error.status = 500;
+    throw error;
+  }
+  return windowFromRow(row);
 }
 
 async function killWindow(windowId) {
@@ -1740,12 +1750,7 @@ async function handleApi(req, res, url) {
   if (req.method === "PATCH" && url.pathname === "/api/sessions") {
     const body = await readJsonBody(req);
     const sessionId = requireId(body.sessionId, "session");
-    // `annotation` present -> set the follow-up note; otherwise rename.
-    if (Object.prototype.hasOwnProperty.call(body, "annotation")) {
-      sendJson(res, 200, await setSessionAnnotation(sessionId, body.annotation));
-    } else {
-      sendJson(res, 200, await renameSession(sessionId, body.name));
-    }
+    sendJson(res, 200, await renameSession(sessionId, body.name));
     return;
   }
 
@@ -1777,7 +1782,12 @@ async function handleApi(req, res, url) {
   if (req.method === "PATCH" && url.pathname === "/api/windows") {
     const body = await readJsonBody(req);
     const windowId = requireId(body.windowId, "window");
-    sendJson(res, 200, await renameWindow(windowId, body.name));
+    // `annotation` present -> set the follow-up note; otherwise rename.
+    if (Object.prototype.hasOwnProperty.call(body, "annotation")) {
+      sendJson(res, 200, await setWindowAnnotation(windowId, body.annotation));
+    } else {
+      sendJson(res, 200, await renameWindow(windowId, body.name));
+    }
     return;
   }
 

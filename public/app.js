@@ -568,48 +568,48 @@ function recentWindowButton(win) {
   });
 }
 
-// A per-session annotation row under the session header: a free-text follow-up
-// note (e.g. "waiting on CI #4567") useful for tracking long-running tasks.
-// Click to edit; stored server-side on the tmux session so it follows the
-// session across devices and restarts.
-function sessionAnnotationRow(session) {
+// A per-window annotation row, shown right under a window's button in the list:
+// a free-text follow-up note (e.g. "waiting on CI #4567") useful for tracking a
+// long-running task in that window. Click to edit; stored server-side on the
+// tmux window so it follows the window across devices/restarts.
+function windowAnnotationRow(win) {
   const row = document.createElement("button");
   row.type = "button";
-  row.className = "session-annotation";
-  const note = (session.annotation || "").trim();
+  row.className = "window-annotation";
+  const note = (win.annotation || "").trim();
   if (note) {
     row.classList.add("has-note");
     const icon = document.createElement("span");
-    icon.className = "session-annotation-icon";
+    icon.className = "window-annotation-icon";
     icon.setAttribute("aria-hidden", "true");
     icon.textContent = "📝";
     const text = document.createElement("span");
-    text.className = "session-annotation-text";
+    text.className = "window-annotation-text";
     text.textContent = note;
     row.append(icon, text);
     row.title = "Edit note";
-    row.setAttribute("aria-label", `Session note: ${note}. Tap to edit.`);
+    row.setAttribute("aria-label", `Window note: ${note}. Tap to edit.`);
   } else {
     row.textContent = "+ add note";
     row.title = "Add a follow-up note";
-    row.setAttribute("aria-label", "Add a session note");
+    row.setAttribute("aria-label", "Add a window note");
   }
-  row.addEventListener("click", () => editSessionAnnotation(session));
+  row.addEventListener("click", () => editWindowAnnotation(win));
   return row;
 }
 
-async function editSessionAnnotation(session) {
-  const current = session.annotation || "";
-  const next = window.prompt(`Note for session "${session.name}":`, current);
+async function editWindowAnnotation(win) {
+  const current = win.annotation || "";
+  const next = window.prompt(`Note for window "${win.index}: ${win.name}":`, current);
   if (next === null) return; // cancelled
   try {
-    const updated = await api("/api/sessions", {
+    const updated = await api("/api/windows", {
       method: "PATCH",
-      body: JSON.stringify({ sessionId: session.id, annotation: next }),
+      body: JSON.stringify({ windowId: win.id, annotation: next }),
     });
     // Reflect the new value locally and re-render so it shows immediately.
-    const s = state.sessions.find((item) => item.id === session.id);
-    if (s) s.annotation = updated.annotation || "";
+    const w = state.windows.find((item) => item.id === win.id);
+    if (w) w.annotation = updated.annotation || "";
     renderWindows();
   } catch (error) {
     setStatus(error.message || "Could not save note", false);
@@ -655,7 +655,6 @@ function renderWindows() {
       <span class="window-group-count">${wins.length} win${wins.length === 1 ? "" : "s"}${session.attached ? " · attached" : ""}</span>
     `;
     els.mobileWindows.append(header);
-    els.mobileWindows.append(sessionAnnotationRow(session));
 
     for (const win of wins) {
       const summary = state.windowSummaries[win.id];
@@ -683,6 +682,7 @@ function renderWindows() {
           worktree,
         }),
       );
+      els.mobileWindows.append(windowAnnotationRow(win));
     }
   }
 }
