@@ -1,3 +1,5 @@
+import { escapeHtml, linkifyEscaped } from "./linkify.js";
+
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
 const WAVEFORM_SAMPLE_INTERVAL_MS = 200;
@@ -429,15 +431,6 @@ async function selectMachine(machineId) {
 
 function empty(container, text) {
   container.innerHTML = `<div class="empty">${escapeHtml(text)}</div>`;
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }
 
 function itemButton({
@@ -2043,7 +2036,8 @@ function ansiToHtml(text) {
   const emit = (chunk) => {
     if (!chunk) return;
     const style = ansiStyle(state);
-    html += style ? `<span style="${style}">${escapeHtml(chunk)}</span>` : escapeHtml(chunk);
+    const body = linkifyEscaped(escapeHtml(chunk));
+    html += style ? `<span style="${style}">${body}</span>` : body;
   };
   while ((m = sgr.exec(input)) !== null) {
     emit(input.slice(last, m.index));
@@ -2752,7 +2746,10 @@ els.fullscreenSnapshot.addEventListener("click", () => {
   setSnapshotFullscreen(!state.snapshotFullscreen);
 });
 
-els.snapshot.addEventListener("click", () => {
+els.snapshot.addEventListener("click", (event) => {
+  // A click on a detected URL should just open the link — don't also grab focus
+  // for the pane input (which would pop the mobile keyboard).
+  if (event.target.closest("a.pane-link")) return;
   if (state.snapshotFullscreen && isWideViewport()) focusPaneInput();
 });
 

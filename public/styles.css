@@ -348,6 +348,20 @@ input {
   word-break: break-word;
 }
 
+/* URLs auto-detected in the tmux pane. Inherit the terminal text color (so an
+   ANSI-colored URL keeps its color) but underline + tint so they read as links
+   and are comfortable tap targets on mobile. */
+.snapshot .pane-link {
+  color: var(--accent-dark);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.snapshot .pane-link:hover {
+  text-decoration-thickness: 2px;
+}
+
 /* "No machine connected" connector instructions. Overlays the snapshot area so
    it reads as the primary content when there's nothing to show yet. */
 .snapshot-panel {
