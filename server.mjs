@@ -867,6 +867,40 @@ async function readAskQuestion(paneId) {
   return parseAskQuestion(screen);
 }
 
+// A compact signature of the current prompt state, so we can tell when applying
+// an answer has actually changed the screen (advanced to the next question /
+// reached the review screen / the prompt is gone) vs. still showing the same
+// prompt mid-transition. Null parse (no prompt) -> "gone".
+function askQuestionSignature(parsed) {
+  if (!parsed) return "gone";
+  if (parsed.review) return "review";
+  // question text + which tabs are answered + checkbox state — enough to detect
+  // an advance to the next question or a toggle landing.
+  const tabs = (parsed.tabs || []).map((t) => (t.answered ? "1" : "0")).join("");
+  const checks = (parsed.options || []).map((o) => (o.checked ? "1" : "0")).join("");
+  return `q:${parsed.questionText || ""}|${tabs}|${checks}`;
+}
+
+// After sending answer keystrokes the TUI takes a beat to tear down / advance the
+// prompt — and over the controller->agent WebSocket each capture round-trips, so
+// a single fixed delay races the redraw (the re-parse can still see the OLD
+// prompt, making the overlay look stuck). Instead, poll until the prompt state
+// SETTLES to something different from `before`, or a timeout. Returns the final
+// parsed state (possibly null = prompt gone).
+async function settleAskQuestion(paneId, beforeSig, { timeoutMs = 2500 } = {}) {
+  const stepMs = ASK_KEY_DELAY_MS; // ~140ms between polls
+  const deadline = Date.now() + timeoutMs;
+  let parsed = await readAskQuestion(paneId);
+  // Keep polling while the state still matches the pre-answer signature (i.e.
+  // the redraw hasn't landed yet). As soon as it differs (next question, review,
+  // or gone), we're settled.
+  while (askQuestionSignature(parsed) === beforeSig && Date.now() < deadline) {
+    await delay(stepMs);
+    parsed = await readAskQuestion(paneId);
+  }
+  return parsed;
+}
+
 // Send a computed key list to the pane, one key at a time with a small delay so
 // the TUI keeps up (same rationale as the paste->Enter delay). A list item that
 // is { text } is sent as literal text rather than a key name.
@@ -2000,10 +2034,13 @@ async function handleApi(req, res, url) {
         sendJson(res, 400, { error: `Unknown action: ${body.action}` });
         return;
     }
+    const beforeSig = askQuestionSignature(parsed);
     await sendAskKeys(paneId, keys);
-    // Let the TUI settle, then report the new state (next question / review / gone).
-    await delay(ASK_KEY_DELAY_MS * 2);
-    const next = await readAskQuestion(paneId);
+    // Poll until the prompt actually changes (advances / review / gone) rather
+    // than guessing a fixed delay — robust to a slow redraw and to the extra
+    // round-trip latency in controller mode. cancel/free decline the prompt, so
+    // their expected end state is "gone".
+    const next = await settleAskQuestion(paneId, beforeSig);
     sendJson(res, 200, { paneId, active: Boolean(next), question: next });
     return;
   }

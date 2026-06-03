@@ -403,7 +403,9 @@ async function api(path, options = {}) {
   });
   const json = await response.json();
   if (!response.ok) {
-    throw new Error(json.error || `HTTP ${response.status}`);
+    const error = new Error(json.error || `HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
   }
   return json;
 }
@@ -3198,8 +3200,17 @@ function button(label, cls, onClick) {
 }
 
 // Apply an action via the server (drives the TUI), then re-render with the
-// returned next state (next question / review / done).
+// returned next state (next question / review / done). Guarded against
+// double-submit: a second click while a request is in flight is a no-op, and the
+// action buttons are disabled for the duration (a stray double-tap used to fire a
+// second keystroke into a pane whose prompt had already closed, which read as
+// "stuck" with a spurious error).
+let askSubmitInFlight = false;
+
 async function submitAsk(payload) {
+  if (askSubmitInFlight) return;
+  askSubmitInFlight = true;
+  setAskButtonsDisabled(true);
   els.askStatus.classList.remove("error");
   els.askStatus.textContent = "Applying…";
   try {
@@ -3217,9 +3228,26 @@ async function submitAsk(payload) {
     }
     renderAsk(data.question); // next question or the review screen
   } catch (error) {
+    // A 409 "no active question" means the prompt is already gone — i.e. the
+    // answer landed (or someone else dismissed it). That's success, not an
+    // error: close the overlay instead of leaving it stuck on an error message.
+    if (error.status === 409) {
+      closeAskOverlay();
+      setStatus("answer sent");
+      window.setTimeout(() => refreshSnapshot(true), 400);
+      return;
+    }
     els.askStatus.textContent = error.message || "Could not apply";
     els.askStatus.classList.add("error");
+  } finally {
+    askSubmitInFlight = false;
+    setAskButtonsDisabled(false);
   }
+}
+
+// Disable/enable every button in the overlay body while a submit is in flight.
+function setAskButtonsDisabled(disabled) {
+  for (const b of els.askBody.querySelectorAll("button")) b.disabled = disabled;
 }
 
 async function loadPanes() {
