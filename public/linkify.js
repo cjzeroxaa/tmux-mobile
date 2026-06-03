@@ -26,11 +26,31 @@ export function unescapeHtmlEntities(value) {
 // punctuation/entities are trimmed in linkifyEscaped.
 export const URL_IN_ESCAPED = /(\bhttps?:\/\/|\bwww\.)[^\s<>"']+/gi;
 
+// File extensions the smart content viewer can render. Keep in sync with the
+// server's fileKind()/IMAGE_EXTS/MARKDOWN_EXTS.
+const VIEWABLE_FILE_EXTS =
+  "png|jpe?g|gif|svg|webp|bmp|ico|md|markdown|mdown|mkd";
+
+// Matches file paths ending in a viewable extension, in already-escaped text.
+// Requires either a path separator or a leading ./ ../ ~/ so a bare word like
+// "image" isn't matched, but "screenshot.png", "./out.png", "docs/guide.md",
+// "/abs/path.md", and "~/notes.md" are. Stops at whitespace/quotes/brackets.
+const FILE_IN_ESCAPED = new RegExp(
+  String.raw`(?:\.{0,2}\/|~\/)?(?:[^\s<>"'(){}\[\]:]+\/)*[^\s<>"'(){}\[\]:/]+\.(?:${VIEWABLE_FILE_EXTS})\b`,
+  "gi",
+);
+
 // Wrap URLs found in an already-escaped chunk with anchor tags. The href is
 // un-escaped back to raw characters (e.g. &amp; -> &) so the link points where
 // the terminal shows; the displayed text keeps its escaping.
 export function linkifyEscaped(escaped) {
-  return String(escaped).replace(URL_IN_ESCAPED, (match) => {
+  let out = linkifyUrls(String(escaped));
+  out = linkifyFiles(out);
+  return out;
+}
+
+function linkifyUrls(escaped) {
+  return escaped.replace(URL_IN_ESCAPED, (match) => {
     let url = match;
     let trailing = "";
     // Trailing chars almost never part of a URL: sentence punctuation, a closing
@@ -48,4 +68,24 @@ export function linkifyEscaped(escaped) {
     const safeHref = href.replaceAll('"', "%22");
     return `<a href="${safeHref}" class="pane-link" target="_blank" rel="noopener noreferrer">${url}</a>${trailing}`;
   });
+}
+
+// Wrap viewable file paths in a span that the client turns into an in-app
+// viewer trigger. Runs AFTER linkifyUrls and skips text already inside an <a>
+// (so it never re-wraps a URL that happens to end in .png). The raw path is
+// stored in a data attribute (un-escaped) for the fetch; the visible text keeps
+// its escaping.
+function linkifyFiles(html) {
+  // Split on existing anchor tags so we don't touch their contents.
+  const parts = html.split(/(<a\b[^>]*>.*?<\/a>)/gs);
+  return parts
+    .map((part, i) => {
+      if (i % 2 === 1) return part; // an <a>...</a> segment — leave it
+      return part.replace(FILE_IN_ESCAPED, (match) => {
+        const rawPath = unescapeHtmlEntities(match);
+        const dataPath = escapeHtml(rawPath).replaceAll('"', "&quot;");
+        return `<span class="pane-file" role="link" tabindex="0" data-file-path="${dataPath}">${match}</span>`;
+      });
+    })
+    .join("");
 }

@@ -31,6 +31,33 @@ const MAX_CAPTURE_LINES = 5000;
 // via lib/voice-config.mjs and the web app's Settings panel; read them at call
 // time with getVoiceConfig() rather than freezing them at module load.
 const SUMMARY_MODEL = process.env.OPENAI_SUMMARY_MODEL || "gpt-5.4-mini";
+// Max bytes the smart content viewer will read from a pane-referenced file.
+const FILE_VIEWER_MAX_BYTES = 5 * 1024 * 1024;
+// Extensions the viewer recognizes, mapped to a kind + content type.
+const IMAGE_EXTS = new Map([
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".gif", "image/gif"],
+  [".svg", "image/svg+xml"],
+  [".webp", "image/webp"],
+  [".bmp", "image/bmp"],
+  [".ico", "image/x-icon"],
+]);
+const MARKDOWN_EXTS = new Set([".md", ".markdown", ".mdown", ".mkd"]);
+function fileExt(filePath) {
+  return path.extname(String(filePath)).toLowerCase();
+}
+function fileKind(filePath) {
+  const ext = fileExt(filePath);
+  if (IMAGE_EXTS.has(ext)) return "image";
+  if (MARKDOWN_EXTS.has(ext)) return "markdown";
+  return "other";
+}
+function fileContentType(filePath) {
+  const ext = fileExt(filePath);
+  return IMAGE_EXTS.get(ext) || "text/markdown; charset=utf-8";
+}
 // Git repo a user clones to run the connector (agent). Shown in the
 // "no machine connected" UI; override for forks/mirrors.
 const CONNECTOR_CLONE_URL =
@@ -1721,6 +1748,49 @@ async function handleApi(req, res, url) {
     const lines = parseLines(url.searchParams.get("lines"));
     const text = cleanTerminalTextKeepAnsi(await capturePane(paneId, mode, lines, { ansi: true }));
     sendJson(res, 200, { paneId, mode, lines, text });
+    return;
+  }
+
+  // Smart content viewer: read a file referenced in a pane, resolving a relative
+  // path against the pane's cwd. The agent confines the read to that cwd subtree
+  // (see backend.readfile), so this can't be used to read arbitrary files.
+  if (req.method === "GET" && url.pathname === "/api/file") {
+    const paneId = requireId(url.searchParams.get("paneId"), "pane");
+    const requestedPath = String(url.searchParams.get("path") || "");
+    if (!requestedPath) {
+      sendJson(res, 400, { error: "path is required" });
+      return;
+    }
+    const kind = fileKind(requestedPath);
+    if (kind === "other") {
+      sendJson(res, 415, { error: "Unsupported file type" });
+      return;
+    }
+    const cwd = await getPaneCwd(paneId);
+    if (!cwd) {
+      sendJson(res, 404, { error: "Pane has no working directory" });
+      return;
+    }
+    let result;
+    try {
+      result = await currentBackend().readfile(requestedPath, {
+        baseDir: cwd,
+        maxBytes: FILE_VIEWER_MAX_BYTES,
+      });
+    } catch (error) {
+      const status = error.code === "EACCES" ? 403 : 404;
+      sendJson(res, status, { error: error.message || "Could not read file" });
+      return;
+    }
+    sendJson(res, 200, {
+      path: requestedPath,
+      name: path.basename(requestedPath),
+      kind,
+      contentType: fileContentType(requestedPath),
+      base64: result.base64,
+      size: result.size,
+      truncated: result.truncated,
+    });
     return;
   }
 

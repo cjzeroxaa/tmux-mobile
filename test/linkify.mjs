@@ -49,4 +49,38 @@ out = render("https://example.com");
 assert.ok(out.includes('rel="noopener noreferrer"'), "9 rel");
 assert.ok(out.includes('target="_blank"'), "9 target");
 
+// --- file path detection (smart content viewer) ---
+
+// 10. a relative image path becomes a pane-file span with the raw path
+out = render("saved screenshot to ./out/shot.png done");
+assert.ok(out.includes('class="pane-file"'), `10 file span: ${out}`);
+assert.ok(out.includes('data-file-path="./out/shot.png"'), `10 data path: ${out}`);
+assert.ok(out.includes(">./out/shot.png</span>"), "10 display");
+
+// 11. a markdown path with a subdir
+out = render("see docs/guide.md for details");
+assert.ok(out.includes('data-file-path="docs/guide.md"'), `11 md path: ${out}`);
+
+// 12. a bare word ending in .png with no separator is NOT matched (too noisy)
+out = render("the value is image then more");
+assert.ok(!out.includes("pane-file"), "12 no false positive on plain word");
+
+// 13. a non-viewable extension is not matched
+out = render("edit config/app.json now");
+assert.ok(!out.includes("pane-file"), `13 json not viewable: ${out}`);
+
+// 14. a URL ending in .png stays a URL, not a file span (no double-wrap)
+out = render("open https://example.com/a.png now");
+assert.ok(out.includes('href="https://example.com/a.png"'), "14 url href");
+assert.ok(!out.includes("pane-file"), `14 url not re-wrapped as file: ${out}`);
+
+// 15. absolute and ~/ paths
+out = render("wrote /tmp/diagram.svg and ~/notes.md");
+assert.ok(out.includes('data-file-path="/tmp/diagram.svg"'), `15 abs path: ${out}`);
+assert.ok(out.includes('data-file-path="~/notes.md"'), `15 home path: ${out}`);
+
+// 16. file-span path attribute is not injectable
+out = render('x"><img src=x onerror=alert(1)>.png');
+assert.ok(!out.includes("<img src=x"), `16 no html injection: ${out}`);
+
 console.log("linkify unit tests passed");

@@ -1,4 +1,5 @@
 import { escapeHtml, linkifyEscaped } from "./linkify.js";
+import { renderMarkdown } from "./markdown.js";
 
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
@@ -158,6 +159,11 @@ const els = {
   mobileWindows: document.querySelector("#mobileWindows"),
   mobileTargetLabel: document.querySelector("#mobileTargetLabel"),
   snapshot: document.querySelector("#snapshot"),
+  fileViewerSheet: document.querySelector("#fileViewerSheet"),
+  fileViewerBackdrop: document.querySelector("#fileViewerBackdrop"),
+  fileViewerTitle: document.querySelector("#fileViewerTitle"),
+  fileViewerBody: document.querySelector("#fileViewerBody"),
+  closeFileViewer: document.querySelector("#closeFileViewer"),
   connectorHelp: document.querySelector("#connectorHelp"),
   connectorClone: document.querySelector("#connectorClone"),
   connectorRun: document.querySelector("#connectorRun"),
@@ -2746,11 +2752,95 @@ els.fullscreenSnapshot.addEventListener("click", () => {
   setSnapshotFullscreen(!state.snapshotFullscreen);
 });
 
+// Smart content viewer: fetch a pane-referenced file and show it inline. The
+// path is resolved against the pane's cwd server-side (and confined to it).
+async function openFileViewer(filePath) {
+  if (!filePath) return;
+  if (!state.paneId) {
+    setStatus("Select a pane first", false);
+    return;
+  }
+  els.fileViewerTitle.textContent = filePath;
+  els.fileViewerBody.innerHTML = '<div class="viewer-loading">Loading…</div>';
+  els.fileViewerSheet.hidden = false;
+  try {
+    const params = new URLSearchParams({ paneId: state.paneId, path: filePath });
+    const data = await api(`/api/file?${params}`);
+    renderFileViewer(data);
+  } catch (error) {
+    els.fileViewerBody.innerHTML = `<div class="viewer-error"></div>`;
+    els.fileViewerBody.firstChild.textContent = error.message || "Could not open file";
+  }
+}
+
+function renderFileViewer(data) {
+  els.fileViewerTitle.textContent = data.name || data.path || "File";
+  if (data.kind === "image") {
+    const img = document.createElement("img");
+    img.className = "viewer-image";
+    img.alt = data.name || "image";
+    img.src = `data:${data.contentType};base64,${data.base64}`;
+    els.fileViewerBody.replaceChildren(img);
+    return;
+  }
+  if (data.kind === "markdown") {
+    const text = decodeBase64Utf8(data.base64);
+    const wrap = document.createElement("div");
+    wrap.className = "viewer-markdown";
+    wrap.innerHTML = renderMarkdown(text);
+    const container = document.createElement("div");
+    container.replaceChildren(wrap);
+    if (data.truncated) {
+      const note = document.createElement("div");
+      note.className = "viewer-truncated";
+      note.textContent = "Showing the first part of a large file.";
+      container.appendChild(note);
+    }
+    els.fileViewerBody.replaceChildren(container);
+    return;
+  }
+  els.fileViewerBody.innerHTML = '<div class="viewer-error">Unsupported file type.</div>';
+}
+
+function decodeBase64Utf8(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
+function closeFileViewer() {
+  els.fileViewerSheet.hidden = true;
+  els.fileViewerBody.replaceChildren();
+}
+
+els.closeFileViewer.addEventListener("click", closeFileViewer);
+els.fileViewerBackdrop.addEventListener("click", closeFileViewer);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !els.fileViewerSheet.hidden) closeFileViewer();
+});
+
 els.snapshot.addEventListener("click", (event) => {
   // A click on a detected URL should just open the link — don't also grab focus
   // for the pane input (which would pop the mobile keyboard).
   if (event.target.closest("a.pane-link")) return;
+  // A click on a detected file path opens the in-app content viewer.
+  const fileSpan = event.target.closest(".pane-file");
+  if (fileSpan) {
+    event.preventDefault();
+    openFileViewer(fileSpan.dataset.filePath);
+    return;
+  }
   if (state.snapshotFullscreen && isWideViewport()) focusPaneInput();
+});
+
+// Keyboard activation for the file-path spans (they're role="link" tabindex=0).
+els.snapshot.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const fileSpan = event.target.closest?.(".pane-file");
+  if (!fileSpan) return;
+  event.preventDefault();
+  openFileViewer(fileSpan.dataset.filePath);
 });
 
 els.paneInput.addEventListener("beforeinput", (event) => {

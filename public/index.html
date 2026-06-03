@@ -293,6 +293,19 @@
       </section>
     </div>
 
+    <!-- Smart content viewer: shows an image or rendered markdown for a file
+         path detected in the pane. Populated by app.js. -->
+    <div id="fileViewerSheet" class="viewer-sheet" hidden>
+      <button id="fileViewerBackdrop" class="viewer-backdrop" type="button" aria-label="Close file viewer"></button>
+      <section class="viewer-panel" role="dialog" aria-modal="true" aria-labelledby="fileViewerTitle">
+        <div class="viewer-header">
+          <strong id="fileViewerTitle" class="viewer-title">File</strong>
+          <button id="closeFileViewer" class="icon-button" type="button" title="Close">X</button>
+        </div>
+        <div id="fileViewerBody" class="viewer-body"></div>
+      </section>
+    </div>
+
     <script src="/app.js" type="module"></script>
   </body>
 </html>
