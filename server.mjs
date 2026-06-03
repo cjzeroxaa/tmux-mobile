@@ -6,6 +6,7 @@ import path from "node:path";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { currentBackend, localBackend, withBackend } from "./lib/backend.mjs";
+import { OP } from "./lib/protocol.mjs";
 import {
   VOICE_OPTIONS,
   describeVoiceConfig,
@@ -1766,6 +1767,17 @@ async function handleApi(req, res, url) {
       sendJson(res, 415, { error: "Unsupported file type" });
       return;
     }
+    const backend = currentBackend();
+    // The connected agent may predate the readfile op (connector not restarted
+    // onto current code). Detect that up front and tell the user plainly instead
+    // of leaking a raw "unknown op: readfile" from the agent.
+    if (typeof backend.supportsOp === "function" && !backend.supportsOp(OP.READFILE)) {
+      sendJson(res, 501, {
+        error:
+          "This machine's connector is out of date — restart it (node server.mjs --register …) to view files.",
+      });
+      return;
+    }
     const cwd = await getPaneCwd(paneId);
     if (!cwd) {
       sendJson(res, 404, { error: "Pane has no working directory" });
@@ -1773,11 +1785,20 @@ async function handleApi(req, res, url) {
     }
     let result;
     try {
-      result = await currentBackend().readfile(requestedPath, {
+      result = await backend.readfile(requestedPath, {
         baseDir: cwd,
         maxBytes: FILE_VIEWER_MAX_BYTES,
       });
     } catch (error) {
+      // Safety net: an agent that slipped past the capability check (or any
+      // backend missing the method) still gets a clear message.
+      if (/unknown op/i.test(error.message) || error instanceof TypeError) {
+        sendJson(res, 501, {
+          error:
+            "This machine's connector is out of date — restart it to view files.",
+        });
+        return;
+      }
       const status = error.code === "EACCES" ? 403 : 404;
       sendJson(res, status, { error: error.message || "Could not read file" });
       return;
