@@ -310,6 +310,12 @@ The default transcription model is `gpt-4o-mini-transcribe`. Override it with:
 OPENAI_TRANSCRIBE_MODEL=gpt-4o-transcribe npm start
 ```
 
+The **`/btw` toggle** next to the mic turns on "side-note" mode: while on, voice
+dictation is sent prefixed with `/btw ` (a Claude slash-command for dropping a
+note into the session). Implemented via an optional `prefix` param on
+`/api/voice-send` (sanitized to a `/command`-style token, so it can't inject
+arbitrary input); the mode is persisted.
+
 The voice models (transcription, read-aloud TTS, and realtime) can also be
 changed at runtime from the web app: open the topbar **More → Voice settings**
 sheet and pick a model/voice per field. Configuration is **per-user** — on the

@@ -81,6 +81,16 @@ function fileContentType(filePath) {
     "text/markdown; charset=utf-8"
   );
 }
+
+// Sanitize a voice-send prefix (e.g. "/btw "). Allow a leading-slash command
+// word plus an optional trailing space — letters/digits/-/_ only — and cap the
+// length, so it can't smuggle control sequences or shell into the pasted text.
+function sanitizeVoicePrefix(raw) {
+  const s = String(raw || "").slice(0, 32);
+  const m = s.match(/^(\/[A-Za-z][A-Za-z0-9_-]{0,20})(\s?)$/);
+  if (!m) return "";
+  return `${m[1]} `; // normalize to exactly one trailing space
+}
 // Git repo a user clones to run the connector (agent). Shown in the
 // "no machine connected" UI; override for forks/mirrors.
 const CONNECTOR_CLONE_URL =
@@ -2115,6 +2125,11 @@ async function handleApi(req, res, url) {
     const paneId = requireId(url.searchParams.get("paneId"), "pane");
     const sendEnter = url.searchParams.get("enter") !== "0";
     const submitNudge = url.searchParams.get("submitNudge") !== "0";
+    // Optional prefix prepended to the transcript before sending — e.g. "/btw "
+    // so a voice note becomes a Claude `/btw` side-note slash-command. Validated
+    // to a short, safe set of chars so it can't inject arbitrary control input.
+    const rawPrefix = url.searchParams.get("prefix") || "";
+    const prefix = sanitizeVoicePrefix(rawPrefix);
     const contentType = req.headers["content-type"] || "audio/webm";
     const audio = await readRequestBuffer(req, MAX_AUDIO_BYTES);
     if (audio.length === 0) {
@@ -2122,11 +2137,12 @@ async function handleApi(req, res, url) {
       return;
     }
 
-    const text = await transcribeAudio(audio, contentType);
-    if (!text) {
+    const transcript = await transcribeAudio(audio, contentType);
+    if (!transcript) {
       sendJson(res, 422, { error: "No speech recognized" });
       return;
     }
+    const text = prefix ? `${prefix}${transcript}` : transcript;
     if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
       sendJson(res, 413, { error: "Transcribed text is too large" });
       return;
@@ -2141,7 +2157,9 @@ async function handleApi(req, res, url) {
 
     sendJson(res, 200, {
       ok: true,
-      text,
+      text, // the full sent text (prefix + transcript)
+      transcript, // the raw transcript without the prefix
+      prefix,
       model: getVoiceConfig().transcribeModel,
       sendMode: sendResult.mode,
       submitNudgeDelayMs:

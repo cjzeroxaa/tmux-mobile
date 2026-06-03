@@ -808,8 +808,29 @@ input {
 
 .voice-entry {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 64px 48px 48px;
+  grid-template-columns: 44px minmax(0, 1fr) 64px 48px 48px;
   gap: 6px;
+}
+
+/* /btw mode toggle — sits before the mic; lights up when active so voice
+   dictation is sent as a "/btw …" side note to the agent. */
+.btw-toggle {
+  height: 48px;
+  min-height: 48px;
+  border: 1px solid rgba(39, 68, 114, 0.28);
+  border-radius: 8px;
+  background: #f2f4f7;
+  color: #6b7785;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.btw-toggle.active {
+  background: var(--accent, #35597a);
+  color: #fff;
+  border-color: var(--accent, #35597a);
 }
 
 .voice-button {

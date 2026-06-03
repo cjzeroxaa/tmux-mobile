@@ -47,6 +47,11 @@ const composerAtom = createPersistedAtom("tmux-mobile-composer", {
   textMode: false,
 });
 
+// "/btw mode": when on, voice dictation is sent prefixed with "/btw " — a Claude
+// slash-command for dropping a side note into the session. Persisted so the mode
+// sticks across reloads.
+const btwAtom = createPersistedAtom("tmux-mobile-btw", { on: false });
+
 // "kami" = Japanese washi-paper light theme (default), "dark" = original.
 const themeAtom = createPersistedAtom("tmux-mobile-theme", { theme: "kami" });
 
@@ -302,6 +307,7 @@ const els = {
   snapshotStaleIcon: document.querySelector("#snapshotStaleIcon"),
   voiceEntry: document.querySelector("#voiceEntry"),
   voiceButton: document.querySelector("#voiceButton"),
+  btwToggle: document.querySelector("#btwToggle"),
   voiceTitle: document.querySelector("#voiceTitle"),
   voiceSubtitle: document.querySelector("#voiceSubtitle"),
   voiceStatus: document.querySelector("#voiceStatus"),
@@ -1364,17 +1370,20 @@ async function sendPendingVoiceRecording() {
     enter: "1",
     submitNudge: "1",
   });
+  // /btw mode: prefix the dictation with the Claude side-note slash-command.
+  if (btwAtom.get().on) params.set("prefix", "/btw ");
   const data = await api(`/api/voice-send?${params}`, {
     method: "POST",
     headers: { "content-type": state.voice.pendingMimeType || "audio/webm" },
     body: blob,
   });
-  const transcript = String(data.text || "").trim();
-  if (!transcript) {
+  // Show the full sent text (incl. any /btw prefix) in the chat log.
+  const sent = String(data.text || "").trim();
+  if (!sent) {
     throw new Error("No speech detected");
   }
-  state.voice.pendingTranscript = transcript;
-  addChat("user", transcript, "voice send");
+  state.voice.pendingTranscript = sent;
+  addChat("user", sent, data.prefix ? "voice /btw" : "voice send");
   window.setTimeout(() => refreshSnapshot(true), 350);
   clearPendingVoiceAudio();
   setVoiceStatus("idle", "Ready", "Tap mic to record");
@@ -3528,6 +3537,19 @@ document.addEventListener("visibilitychange", () => {
 });
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
 els.keyboardButton.addEventListener("click", showTextComposer);
+
+// /btw mode toggle: when on, voice dictation is sent as a "/btw …" side note.
+function renderBtwToggle() {
+  const on = btwAtom.get().on;
+  els.btwToggle.classList.toggle("active", on);
+  els.btwToggle.setAttribute("aria-pressed", String(on));
+}
+els.btwToggle?.addEventListener("click", () => {
+  btwAtom.set({ on: !btwAtom.get().on });
+  renderBtwToggle();
+  setStatus(btwAtom.get().on ? "/btw mode on — voice sends as a side note" : "/btw mode off");
+});
+renderBtwToggle();
 els.actionsToggle.addEventListener("click", () => {
   state.actionsOpen = !state.actionsOpen;
   renderComposerMode();
