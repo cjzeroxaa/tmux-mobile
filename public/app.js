@@ -3543,6 +3543,14 @@ function renderBtwToggle() {
   const on = btwAtom.get().on;
   els.btwToggle.classList.toggle("active", on);
   els.btwToggle.setAttribute("aria-pressed", String(on));
+  // Make the state unmistakable in the label itself: a filled dot + "ON" when
+  // active, a hollow dot when off — not just a color change.
+  els.btwToggle.innerHTML = on
+    ? '<span class="btw-dot">●</span>/btw'
+    : '<span class="btw-dot">○</span>/btw';
+  els.btwToggle.title = on
+    ? "/btw mode ON — voice is sent as a /btw side note (tap to turn off)"
+    : "/btw mode off — tap to send voice as a /btw side note";
 }
 els.btwToggle?.addEventListener("click", () => {
   btwAtom.set({ on: !btwAtom.get().on });
