@@ -211,7 +211,9 @@ above act as the per-field defaults; a choice made in the UI takes precedence
 until cleared back to the default. Overrides are saved (keyed by user id) to
 `~/.config/tmux-mobile/voice.json` (override the path with
 `TMUX_MOBILE_VOICE_CONFIG`). Selections are validated against a curated
-allowlist, so the API can't be used to inject an arbitrary model name. On
+allowlist, so the API can't be used to inject an arbitrary model name. Each
+voice picker has a **▶ Sample** button that plays a short clip in the selected
+voice (via the TTS sample endpoint) so you can compare voices before saving. On
 Cloud Run the home dir is ephemeral, so overrides live in memory for the
 instance's lifetime and reset to defaults when the single instance recycles.
 

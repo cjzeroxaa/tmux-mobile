@@ -241,7 +241,10 @@
 
         <label class="settings-field">
           <span>Read-aloud voice</span>
-          <select id="voiceSpeechVoice"></select>
+          <div class="settings-field-row">
+            <select id="voiceSpeechVoice"></select>
+            <button id="previewSpeechVoice" class="small-button voice-preview" type="button" data-source="voiceSpeechVoice" title="Play a sample" aria-label="Play a sample of this voice">▶ Sample</button>
+          </div>
         </label>
 
         <label class="settings-field">
@@ -251,7 +254,10 @@
 
         <label class="settings-field">
           <span>Realtime voice</span>
-          <select id="voiceRealtimeVoice"></select>
+          <div class="settings-field-row">
+            <select id="voiceRealtimeVoice"></select>
+            <button id="previewRealtimeVoice" class="small-button voice-preview" type="button" data-source="voiceRealtimeVoice" title="Play a sample" aria-label="Play a sample of this voice">▶ Sample</button>
+          </div>
         </label>
 
         <div class="settings-actions">

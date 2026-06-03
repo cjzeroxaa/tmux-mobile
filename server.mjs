@@ -7,6 +7,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { currentBackend, localBackend, withBackend } from "./lib/backend.mjs";
 import {
+  VOICE_OPTIONS,
   describeVoiceConfig,
   getVoiceConfig,
   updateVoiceConfig,
@@ -968,14 +969,18 @@ async function summarizePaneForSpeech(paneId, lineCount) {
   };
 }
 
-async function createSpeechAudio(text) {
+async function createSpeechAudio(text, overrides = {}) {
   if (!process.env.OPENAI_API_KEY) {
     const error = new Error("OPENAI_API_KEY is not set");
     error.status = 500;
     throw error;
   }
 
-  const { speechModel, speechVoice } = getVoiceConfig();
+  // Default to the user's saved config, but let callers (e.g. the voice
+  // preview) pin a specific model/voice without mutating saved settings.
+  const config = getVoiceConfig();
+  const speechModel = overrides.model || config.speechModel;
+  const speechVoice = overrides.voice || config.speechVoice;
   const body = {
     model: speechModel,
     voice: speechVoice,
@@ -2159,6 +2164,27 @@ if (MODE.kind === "register") {
         return;
       }
 
+      // Voice preview: synthesize a short sample phrase in a chosen voice so the
+      // user can hear it before saving. Validates the voice against the curated
+      // allowlist and never mutates the user's saved config.
+      if (req.method === "POST" && url.pathname === "/api/voice-preview") {
+        const body = await readJsonBody(req);
+        const voice = String(body.voice || "");
+        if (!VOICE_OPTIONS.voice.includes(voice)) {
+          sendJson(res, 400, {
+            error: `Unknown voice: ${voice}. Allowed: ${VOICE_OPTIONS.voice.join(", ")}`,
+          });
+          return;
+        }
+        const sample =
+          typeof body.text === "string" && body.text.trim()
+            ? body.text.trim().slice(0, 200)
+            : `Hi, this is the ${voice} voice. Your terminal is ready when you are.`;
+        const audioBase64 = await createSpeechAudio(sample, { voice });
+        sendJson(res, 200, { audioBase64, mimeType: "audio/mpeg", voice });
+        return;
+      }
+
       if (url.pathname.startsWith("/api/")) {
         if (hub) {
           if (req.method === "GET" && url.pathname === "/api/machines") {
@@ -2219,4 +2245,27 @@ if (MODE.kind === "register") {
   server.listen(PORT, HOST, () => {
     console.log(`tmux ${MODE.kind} listening at http://${HOST}:${PORT}`);
   });
+
+  // Graceful shutdown. Cloud Run sends SIGTERM to an old instance before it is
+  // torn down during a revision rollout; closing agent WebSockets here makes
+  // each agent reconnect immediately (onto the new revision) instead of staying
+  // pinned to this dying instance until its socket eventually dies on its own.
+  let shuttingDown = false;
+  function gracefulShutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logServerEvent("controller_shutdown", {
+      signal,
+      revision: APP_REVISION,
+      message: "Closing agent connections so agents reconnect to the new revision.",
+    });
+    try {
+      hub?.shutdown();
+    } catch {}
+    server.close(() => process.exit(0));
+    // Don't wait forever for lingering keep-alive sockets to drain.
+    setTimeout(() => process.exit(0), 5_000).unref?.();
+  }
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 }

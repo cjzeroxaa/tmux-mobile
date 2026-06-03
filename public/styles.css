@@ -1098,6 +1098,26 @@ input {
   font-size: 0.95rem;
 }
 
+.settings-field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-field-row select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.voice-preview {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.voice-preview:disabled {
+  opacity: 0.6;
+}
+
 .settings-actions {
   display: flex;
   align-items: center;

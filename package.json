@@ -7,7 +7,7 @@
     "start": "node server.mjs",
     "controller": "node server.mjs --controller",
     "agent": "node server.mjs --register",
-    "test": "node test/voice-config.mjs && node test/agent-liveness.mjs && node test/e2e-controller.mjs"
+    "test": "node test/voice-config.mjs && node test/agent-liveness.mjs && node test/agent-shutdown-reconnect.mjs && node test/e2e-controller.mjs"
   },
   "engines": {
     "node": ">=20"

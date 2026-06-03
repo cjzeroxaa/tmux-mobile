@@ -174,6 +174,8 @@ const els = {
   voiceSpeechVoice: document.querySelector("#voiceSpeechVoice"),
   voiceRealtimeModel: document.querySelector("#voiceRealtimeModel"),
   voiceRealtimeVoice: document.querySelector("#voiceRealtimeVoice"),
+  previewSpeechVoice: document.querySelector("#previewSpeechVoice"),
+  previewRealtimeVoice: document.querySelector("#previewRealtimeVoice"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
   fullscreenRead: document.querySelector("#fullscreenRead"),
@@ -246,7 +248,8 @@ function shouldAttachMachineHeader(path) {
     pathname !== "/api/runtime" &&
     pathname !== "/api/machines" &&
     pathname !== "/api/health" &&
-    pathname !== "/api/voice-config"
+    pathname !== "/api/voice-config" &&
+    pathname !== "/api/voice-preview"
   );
 }
 
@@ -2557,6 +2560,10 @@ const VOICE_FIELD_SELECTS = {
   realtimeVoice: "voiceRealtimeVoice",
 };
 
+// Currently-playing voice sample, if any (declared here so closeVoiceSettings
+// can stop it).
+let voicePreviewAudio = null;
+
 function setVoiceSettingsStatus(message, isError = false) {
   els.voiceSettingsStatus.textContent = message || "";
   els.voiceSettingsStatus.classList.toggle("error", Boolean(isError));
@@ -2594,6 +2601,10 @@ async function openVoiceSettings() {
 
 function closeVoiceSettings() {
   els.voiceSettingsSheet.hidden = true;
+  if (voicePreviewAudio) {
+    voicePreviewAudio.pause();
+    voicePreviewAudio = null;
+  }
 }
 
 async function saveVoiceSettings() {
@@ -2619,10 +2630,47 @@ async function saveVoiceSettings() {
   }
 }
 
+// Voice sample preview: play a short clip in the currently-selected voice so
+// the user can hear it before saving. Both the read-aloud and realtime voice
+// pickers use the TTS sample endpoint (the realtime API shares the same voices).
+async function previewVoice(button) {
+  const select = els[button.dataset.source];
+  const voice = select?.value;
+  if (!voice) return;
+  // Stop any sample already playing (including a re-click of the same button).
+  if (voicePreviewAudio) {
+    voicePreviewAudio.pause();
+    voicePreviewAudio = null;
+  }
+  const previousLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = "…";
+  try {
+    const result = await api("/api/voice-preview", {
+      method: "POST",
+      body: JSON.stringify({ voice }),
+    });
+    const bytes = audioBytesFromBase64(result.audioBase64);
+    const blob = new Blob([bytes], { type: result.mimeType || "audio/mpeg" });
+    const objectUrl = URL.createObjectURL(blob);
+    const audio = new Audio(objectUrl);
+    voicePreviewAudio = audio;
+    audio.addEventListener("ended", () => URL.revokeObjectURL(objectUrl), { once: true });
+    await audio.play();
+  } catch (error) {
+    setVoiceSettingsStatus(error.message || "Preview failed", true);
+  } finally {
+    button.disabled = false;
+    button.textContent = previousLabel;
+  }
+}
+
 els.openVoiceSettings.addEventListener("click", openVoiceSettings);
 els.closeVoiceSettings.addEventListener("click", closeVoiceSettings);
 els.voiceSettingsBackdrop.addEventListener("click", closeVoiceSettings);
 els.saveVoiceSettings.addEventListener("click", saveVoiceSettings);
+els.previewSpeechVoice.addEventListener("click", () => previewVoice(els.previewSpeechVoice));
+els.previewRealtimeVoice.addEventListener("click", () => previewVoice(els.previewRealtimeVoice));
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !els.voiceSettingsSheet.hidden) closeVoiceSettings();
 });
