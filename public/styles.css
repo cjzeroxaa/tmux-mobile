@@ -17,6 +17,10 @@
   --code-bg: #2a2723;
   --code-ink: #e8e0cd;
   --shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
+  /* Terminal snapshot font size — adjusted live from the More menu's A−/A+
+     and persisted in localStorage. Lives in :root (not the kami override)
+     so both themes pick it up. */
+  --snapshot-font-size: 13px;
 }
 
 /* Same noise texture as kami but at lower opacity — keeps the "ink on paper"
@@ -211,6 +215,64 @@ h3 {
   color: var(--accent-dark);
 }
 
+/* Font-size row: not a menu item (doesn't auto-close on tap). A label on
+ * the left with the snapshot's current size value, and A−/A+ steppers on
+ * the right. Both buttons stay live so you can hold the menu open and
+ * tap a couple of times to dial in the right size. */
+.more-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.more-actions-row + .more-actions-item,
+.more-actions-item + .more-actions-row {
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 11px;
+}
+
+.font-size-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.font-size-button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.font-size-button:active {
+  background: var(--surface);
+}
+
+.font-size-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+#fontSizeValue {
+  min-width: 22px;
+  text-align: center;
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
 .snapshot-panel,
 .control-panel {
   min-width: 0;
@@ -342,7 +404,7 @@ input {
   color: var(--code-ink);
   padding: 10px;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 13px;
+  font-size: var(--snapshot-font-size);
   line-height: 1.42;
   white-space: pre-wrap;
   word-break: break-word;

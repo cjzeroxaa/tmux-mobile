@@ -54,6 +54,24 @@ function readPersistedLines() {
   return LINE_OPTIONS.includes(value) ? value : DEFAULT_LINES;
 }
 
+// Snapshot font size (px). Adjusted live from the More menu's A−/A+ pair.
+// Clamped to [SNAPSHOT_FONT_MIN, SNAPSHOT_FONT_MAX] so a bogus localStorage
+// value can't make the terminal pane unreadable.
+const SNAPSHOT_FONT_MIN = 10;
+const SNAPSHOT_FONT_MAX = 22;
+const SNAPSHOT_FONT_DEFAULT = 13;
+const snapshotFontAtom = createPersistedAtom("tmux-mobile-snapshot-font-size", {
+  px: SNAPSHOT_FONT_DEFAULT,
+});
+function clampSnapshotFont(px) {
+  const value = Number(px);
+  if (!Number.isFinite(value)) return SNAPSHOT_FONT_DEFAULT;
+  return Math.max(SNAPSHOT_FONT_MIN, Math.min(SNAPSHOT_FONT_MAX, Math.round(value)));
+}
+function readPersistedSnapshotFont() {
+  return clampSnapshotFont(snapshotFontAtom.get().px);
+}
+
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme === "dark" ? "" : "kami";
 }
@@ -153,6 +171,9 @@ const els = {
   themeToggle: document.querySelector("#themeToggle"),
   moreActionsToggle: document.querySelector("#moreActionsToggle"),
   moreActionsMenu: document.querySelector("#moreActionsMenu"),
+  fontSizeDecrease: document.querySelector("#fontSizeDecrease"),
+  fontSizeIncrease: document.querySelector("#fontSizeIncrease"),
+  fontSizeValue: document.querySelector("#fontSizeValue"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
   fullscreenRead: document.querySelector("#fullscreenRead"),
@@ -2395,6 +2416,31 @@ document.addEventListener("click", (event) => {
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !els.moreActionsMenu.hidden) setMoreActionsOpen(false);
+});
+
+// Snapshot font-size A−/A+ inside the More menu. These intentionally do NOT
+// close the menu (they're inside .more-actions-row, not .more-actions-item)
+// so the user can tap a few times to dial in the right size in one go.
+function applySnapshotFontSize(px) {
+  const clamped = clampSnapshotFont(px);
+  document.documentElement.style.setProperty("--snapshot-font-size", `${clamped}px`);
+  els.fontSizeValue.textContent = String(clamped);
+  els.fontSizeDecrease.disabled = clamped <= SNAPSHOT_FONT_MIN;
+  els.fontSizeIncrease.disabled = clamped >= SNAPSHOT_FONT_MAX;
+}
+function stepSnapshotFontSize(delta) {
+  const next = clampSnapshotFont(readPersistedSnapshotFont() + delta);
+  snapshotFontAtom.set({ px: next });
+  applySnapshotFontSize(next);
+}
+applySnapshotFontSize(readPersistedSnapshotFont());
+els.fontSizeDecrease.addEventListener("click", (event) => {
+  event.stopPropagation();
+  stepSnapshotFontSize(-1);
+});
+els.fontSizeIncrease.addEventListener("click", (event) => {
+  event.stopPropagation();
+  stepSnapshotFontSize(+1);
 });
 els.refreshSnapshot.addEventListener("click", () => refreshSnapshot());
 els.fullscreenSnapshot.addEventListener("click", () => {
