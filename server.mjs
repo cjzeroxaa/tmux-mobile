@@ -3,7 +3,7 @@ import http from "node:http";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { currentBackend, localBackend, withBackend } from "./lib/backend.mjs";
 import { OP } from "./lib/protocol.mjs";
@@ -11,6 +11,7 @@ import {
   computeWindowMetadata,
   createMetadataCache,
 } from "./lib/window-metadata.mjs";
+import { detectTurn } from "./lib/turn-detection.mjs";
 import {
   VOICE_OPTIONS,
   describeVoiceConfig,
@@ -775,17 +776,47 @@ async function getSessionWindowActivity(sessionId) {
 // the process; shared across sessions/windows with the same cwd.
 const windowMetadataCache = createMetadataCache();
 
-// Returns { [windowId]: { agentType, repo, git: {branch, worktree} } } for a
-// session. Live fields (agentType) come free from the window row; cwd-scoped
-// fields (repo, git) are resolved via the agent and cached per cwd.
+// Returns per-window metadata for a session:
+//   { agentType, repo, git, turn, contentHash }
+// Live (agentType) + cwd-scoped (repo, git) come from computeWindowMetadata.
+// turn (working/idle, agent-specific) and contentHash (for client "unread"
+// detection) need pane content, computed here for windows that have an agent.
 async function getSessionWindowMetadata(sessionId) {
   const windows = await listWindows(sessionId);
-  return computeWindowMetadata(
+  const base = await computeWindowMetadata(
     windows,
     currentBackend(),
     windowMetadataCache,
     Date.now(),
   );
+  // Enrich with turn + contentHash. We capture the active pane once per window
+  // and derive both from it. Only windows with a detected agent get a turn;
+  // every window gets a contentHash so the client can flag unread changes.
+  await Promise.all(
+    windows.map(async (win) => {
+      try {
+        const panes = await listPanes(win.id);
+        const pane = panes.find((p) => p.active) || panes[0];
+        if (!pane) return;
+        const screen = await capturePane(pane.id, "screen");
+        const clean = cleanTerminalText(screen);
+        base[win.id].contentHash = createHash("sha1")
+          .update(clean)
+          .digest("hex")
+          .slice(0, 16);
+        const agentType = base[win.id].agentType;
+        if (agentType) {
+          base[win.id].turn = detectTurn(agentType, {
+            title: pane.title,
+            paneTail: clean.split("\n").slice(-12).join("\n"),
+          });
+        }
+      } catch {
+        // pane vanished / capture failed — leave turn & contentHash unset
+      }
+    }),
+  );
+  return base;
 }
 
 async function capturePane(paneId, mode, lineCount, { ansi = false } = {}) {

@@ -195,6 +195,18 @@ Each window carries derived metadata (`lib/window-metadata.mjs`), exposed via
   the agent and cached by cwd with a 10-minute TTL (re-resolves when the cwd
   changes; staleness is fine).
 - **git** — `{ branch, worktree }` (also cwd-scoped, short TTL).
+- **turn** — `working` / `idle` / null: has the agent's turn ended? Per agent:
+  claude from its pane title (a braille-spinner prefix = working, steady
+  `✳ Claude Code` = idle); codex from its pane footer (`Worked for…` = working,
+  `Goal achieved` / idle prompt = idle).
+- **contentHash** — a short hash of the visible pane, used by the client for
+  **unread** detection: a window whose hash differs from what it had at your last
+  visit is flagged with a dot ("new since last visit"); unchanged = nothing to
+  revisit. Visiting a window (or viewing it) updates its baseline.
+
+The window list shows a turn-tinted agent chip (working pulses, idle dimmed) and
+an unread dot, so you can glance to see which agent windows finished and which
+have new output worth revisiting.
 
 The metadata is a small **registry of descriptors** — each field is either `live`
 (computed from the window row) or `cwdScoped` (resolved via the agent + cached),

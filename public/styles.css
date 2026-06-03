@@ -1895,6 +1895,31 @@ input {
 .agent-chip.agent-codex { background: #e3e9f5; color: #2f5bb7; }
 .agent-chip.agent-gemini { background: #e4f0e4; color: #2c7a3e; }
 
+/* Turn state: working pulses (agent busy), idle is dimmed (turn ended). */
+.agent-chip.turn-working {
+  animation: agentPulse 1.4s ease-in-out infinite;
+}
+.agent-chip.turn-idle {
+  opacity: 0.6;
+}
+@keyframes agentPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* Unread dot: window changed since last visit. */
+.unread-dot {
+  flex: 0 0 auto;
+  color: var(--accent-dark, #2a4863);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.item.unread .item-title > span:nth-of-type(1),
+.item.unread .item-title span:first-of-type {
+  font-weight: 800;
+}
+
 .empty {
   border: 1px dashed var(--line);
   border-radius: 8px;

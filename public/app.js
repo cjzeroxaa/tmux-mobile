@@ -79,6 +79,41 @@ const recentWindowsAtom = createPersistedAtom("tmux-mobile-recent-windows", {
   keys: [],
 });
 
+// "Unread" tracking: the pane content hash each window had when we last visited
+// it. A window is "unread" (worth revisiting) when its current contentHash
+// differs from this; unchanged since the last visit -> nothing new. Keyed by the
+// stable window identity (machine+session+index), persisted so it survives
+// reloads. Bounded so it can't grow forever.
+const SEEN_HASHES_MAX = 200;
+const seenHashesAtom = createPersistedAtom("tmux-mobile-seen-hashes", {
+  byKey: {},
+});
+
+function markWindowVisited(win) {
+  const key = windowRecentKey(win);
+  const hash = state.windowMetadata[win.id]?.contentHash;
+  if (!key || !hash) return;
+  const byKey = { ...seenHashesAtom.get().byKey, [key]: hash };
+  // Trim oldest-ish entries if we exceed the cap (object insertion order).
+  const keys = Object.keys(byKey);
+  if (keys.length > SEEN_HASHES_MAX) {
+    for (const k of keys.slice(0, keys.length - SEEN_HASHES_MAX)) delete byKey[k];
+  }
+  seenHashesAtom.set({ byKey });
+}
+
+// Unread = we've visited this window before AND its content changed since. A
+// never-visited window is not "unread" (we don't nag about windows you've never
+// opened); a window with no contentHash yet is treated as not-unread.
+function isWindowUnread(win) {
+  const key = windowRecentKey(win);
+  const current = state.windowMetadata[win.id]?.contentHash;
+  if (!key || !current) return false;
+  const seen = seenHashesAtom.get().byKey[key];
+  if (seen === undefined) return false; // never visited -> not flagged
+  return seen !== current;
+}
+
 function windowRecentKey(win) {
   if (!win) return "";
   const session = state.sessions.find((s) => s.id === win.sessionId);
@@ -531,14 +566,19 @@ function itemButton({
   branch = "",
   worktree = false,
   agentType = "",
+  turn = "",
+  unread = false,
 }) {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = `${className || "item"}${active ? " active" : ""}`;
-  // Small chip naming the AI agent running in the window (claude/codex/gemini).
+  button.className = `${className || "item"}${active ? " active" : ""}${unread ? " unread" : ""}`;
+  // Small chip naming the AI agent running in the window (claude/codex/gemini),
+  // tinted by turn state: "working" pulses, "idle" is muted (turn ended).
   const agentChip = agentType
-    ? `<span class="agent-chip agent-${escapeHtml(agentType)}">${escapeHtml(agentType)}</span>`
+    ? `<span class="agent-chip agent-${escapeHtml(agentType)} turn-${escapeHtml(turn || "unknown")}">${escapeHtml(agentType)}${turn === "working" ? " ●" : turn === "idle" ? " ✓" : ""}</span>`
     : "";
+  // Unread dot: this window changed since you last visited it.
+  const unreadDot = unread ? `<span class="unread-dot" title="New since last visit" aria-label="unread">●</span>` : "";
   // Combine branch + worktree on a single line. Show ↳ wt chip only when the
   // window is actually in a linked git worktree (not the main checkout).
   const worktreeChip = worktree
@@ -551,6 +591,7 @@ function itemButton({
       : "";
   button.innerHTML = `
     <div class="item-title">
+      ${unreadDot}
       <span>${escapeHtml(title)}</span>
       ${agentChip}
       ${badge ? `<span class="badge ${badgeGreen ? "green" : ""}">${escapeHtml(badge)}</span>` : ""}
@@ -681,6 +722,8 @@ function renderWindows() {
       const branch = meta.git?.branch || "";
       const worktree = Boolean(meta.git?.worktree);
       const agentType = meta.agentType || "";
+      const turn = meta.turn || "";
+      const unread = isWindowUnread(win) && win.id !== state.windowId;
       // Show the cwd's basename only when it carries new info — i.e. when it
       // differs from the branch name. With `git worktree add ../foo foo` the
       // dir and branch usually share a name, in which case the cwd row would
@@ -700,6 +743,8 @@ function renderWindows() {
           branch,
           worktree,
           agentType,
+          turn,
+          unread,
         }),
       );
       els.mobileWindows.append(windowAnnotationRow(win));
@@ -2526,6 +2571,11 @@ async function loadWindowMetadata() {
       ),
     );
     state.windowMetadata = Object.assign({}, ...lists);
+    // Keep the currently-viewed window's seen-hash current — while you're
+    // looking at it, its changes aren't "unread". (Other windows accumulate
+    // unread state against their last-visit baseline.)
+    const activeWin = selectedWindow();
+    if (activeWin) markWindowVisited(activeWin);
     renderWindows();
     renderTargetLabels();
     // If the active window's repo just became known (or changed), re-render the
@@ -2575,6 +2625,9 @@ async function selectWindow(windowId) {
   state.windowId = windowId;
   state.sessionId = win?.sessionId || state.sessionId;
   state.paneId = "";
+  // Visiting a window clears its "unread" flag: record the content we're now
+  // looking at as the seen baseline.
+  if (win) markWindowVisited(win);
   renderWindows();
   updateTargetUrl();
   // Dismiss the picker instantly — don't make the user stare at a half-
