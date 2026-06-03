@@ -571,6 +571,59 @@ async function renameWindow(windowId, name) {
   return { ok: true };
 }
 
+// Shells we don't re-run as a "command" when duplicating — a window sitting at a
+// shell prompt should duplicate to a fresh shell, not literally run `bash`.
+const DUP_SHELLS = new Set(["bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh", "csh"]);
+
+// Duplicate a window: open a new window in the same session, same working
+// directory, re-running the command the source window used. cwd comes from the
+// active pane; the command prefers pane_start_command (the literal launch
+// command, e.g. "sleep 300"), falling back to the running program name
+// (pane_current_command) when it's an interactive app rather than a bare shell.
+async function duplicateWindow(windowId) {
+  requireId(windowId, "window");
+  const info = await getWindowInfo(windowId);
+  // Read the active pane's cwd + commands. #{?} chooses active pane via -F on
+  // the window target; display-message -p -t <window> reports the active pane.
+  const stdout = await runTmux([
+    "display-message",
+    "-p",
+    "-t",
+    windowId,
+    "#{pane_current_path}\t#{pane_current_command}\t#{pane_start_command}",
+  ]);
+  const [cwd = "", currentCommand = "", rawStartCommand = ""] = stdout
+    .trimEnd()
+    .split("\t");
+
+  // tmux returns pane_start_command wrapped in literal double-quotes
+  // (e.g. `"sleep 300"`); strip them so the shell runs the actual command and
+  // not a program literally named `sleep 300`.
+  let startCommand = rawStartCommand.trim();
+  if (startCommand.length >= 2 && startCommand.startsWith('"') && startCommand.endsWith('"')) {
+    startCommand = startCommand.slice(1, -1);
+  }
+
+  const command =
+    startCommand ||
+    (currentCommand && !DUP_SHELLS.has(currentCommand) ? currentCommand : "");
+
+  // new-window -P -F <fmt> [-c cwd] -t <session> -n <name> [-- command]
+  const args = ["new-window", "-P", "-F", formats.windows, "-t", info.sessionId];
+  if (cwd) args.push("-c", cwd);
+  if (info.windowName) args.push("-n", info.windowName);
+  if (command) args.push(command); // shell-command run in the new window
+  const created = await runTmux(args);
+  clearSessionSummaryCache(info.sessionId);
+  const [row] = rows(created);
+  if (!row) {
+    const error = new Error("tmux did not return the duplicated window");
+    error.status = 500;
+    throw error;
+  }
+  return { ...windowFromRow(row), duplicatedFrom: windowId, command: command || "" };
+}
+
 // Store a free-text follow-up note on the WINDOW as the @tm_annotation
 // window-scoped user option (set-option -w). Empty/whitespace clears it. Useful
 // for tracking the follow-up of a long-running task in a specific window.
@@ -1774,8 +1827,15 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/windows") {
     const body = await readJsonBody(req);
-    const sessionId = requireId(body.sessionId, "session");
-    sendJson(res, 200, await createWindow(sessionId));
+    // `duplicateFrom` present -> clone that window (same cwd + command);
+    // otherwise create a fresh window in the given session.
+    if (Object.prototype.hasOwnProperty.call(body, "duplicateFrom")) {
+      const windowId = requireId(body.duplicateFrom, "window");
+      sendJson(res, 200, await duplicateWindow(windowId));
+    } else {
+      const sessionId = requireId(body.sessionId, "session");
+      sendJson(res, 200, await createWindow(sessionId));
+    }
     return;
   }
 

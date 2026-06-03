@@ -211,6 +211,20 @@ h3 {
   color: var(--accent-dark);
 }
 
+/* Destructive item (Close window). */
+.more-actions-item.danger {
+  color: #c0392b;
+}
+
+.more-actions-item.danger svg {
+  color: #c0392b;
+}
+
+.more-actions-item.danger:hover,
+.more-actions-item.danger:focus-visible {
+  background: rgba(192, 57, 43, 0.1);
+}
+
 .snapshot-panel,
 .control-panel {
   min-width: 0;

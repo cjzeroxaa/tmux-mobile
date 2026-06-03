@@ -250,6 +250,9 @@ const els = {
   fullscreenRead: document.querySelector("#fullscreenRead"),
   paneInput: document.querySelector("#paneInput"),
   renameWindow: document.querySelector("#renameWindow"),
+  newWindow: document.querySelector("#newWindow"),
+  duplicateWindow: document.querySelector("#duplicateWindow"),
+  closeWindow: document.querySelector("#closeWindow"),
   lineCount: document.querySelector("#lineCount"),
   autoRefresh: document.querySelector("#autoRefresh"),
   snapshotStaleIcon: document.querySelector("#snapshotStaleIcon"),
@@ -2574,6 +2577,87 @@ async function renameSelectedWindow() {
   }
 }
 
+// Create a fresh window in the current session and switch to it.
+async function createNewWindow() {
+  const sessionId = selectedWindow()?.sessionId || state.sessionId;
+  if (!sessionId) {
+    setStatus("Select a window first", false);
+    return;
+  }
+  els.newWindow.disabled = true;
+  setStatus("creating window...");
+  try {
+    const created = await api("/api/windows", {
+      method: "POST",
+      body: JSON.stringify({ sessionId }),
+    });
+    await refreshTree();
+    if (created?.id) await selectWindow(created.id);
+    setStatus(`new window: ${created.index}: ${created.name}`);
+  } catch (error) {
+    setStatus(error.message, false);
+  } finally {
+    els.newWindow.disabled = false;
+  }
+}
+
+// Duplicate the current window (same cwd + command) and switch to it.
+async function duplicateCurrentWindow() {
+  const win = selectedWindow();
+  if (!win) {
+    setStatus("Select a window first", false);
+    return;
+  }
+  els.duplicateWindow.disabled = true;
+  setStatus("duplicating window...");
+  try {
+    const created = await api("/api/windows", {
+      method: "POST",
+      body: JSON.stringify({ duplicateFrom: win.id }),
+    });
+    await refreshTree();
+    if (created?.id) await selectWindow(created.id);
+    setStatus(
+      created?.command
+        ? `duplicated window (re-ran: ${created.command})`
+        : "duplicated window",
+    );
+  } catch (error) {
+    setStatus(error.message, false);
+  } finally {
+    els.duplicateWindow.disabled = false;
+  }
+}
+
+// Close the current window after a confirmation.
+async function closeCurrentWindow() {
+  const win = selectedWindow();
+  if (!win) {
+    setStatus("Select a window first", false);
+    return;
+  }
+  const ok = window.confirm(`Close window "${win.index}: ${win.name}"? This kills the window and its panes.`);
+  if (!ok) return;
+  els.closeWindow.disabled = true;
+  setStatus("closing window...");
+  try {
+    await api("/api/windows", {
+      method: "DELETE",
+      body: JSON.stringify({ windowId: win.id }),
+    });
+    // The killed window is gone; clear selection and let refreshTree pick a new
+    // target (refreshTree falls back when the current window no longer exists).
+    state.windowId = "";
+    state.paneId = "";
+    await refreshTree();
+    setStatus(`closed window: ${win.index}: ${win.name}`);
+  } catch (error) {
+    setStatus(error.message, false);
+  } finally {
+    els.closeWindow.disabled = false;
+  }
+}
+
 async function loadPanes() {
   const previousPaneId = state.paneId;
   state.panes = [];
@@ -3266,6 +3350,9 @@ els.snapshot.addEventListener(
   { passive: true },
 );
 els.renameWindow.addEventListener("click", renameSelectedWindow);
+els.newWindow.addEventListener("click", createNewWindow);
+els.duplicateWindow.addEventListener("click", duplicateCurrentWindow);
+els.closeWindow.addEventListener("click", closeCurrentWindow);
 // Reflect the persisted depth in the picker before the user sees it. The HTML
 // default is option value="500" but state.lines may already be something else
 // from localStorage; this keeps them in lockstep.

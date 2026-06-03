@@ -307,6 +307,31 @@ async function exerciseTmux(baseUrl, cookie, email, machineId) {
   });
   assert.equal(cleared.annotation, "", "window annotation cleared");
 
+  // Window ops: create a new window, duplicate it, then close (kill) one and
+  // confirm the count returns to baseline.
+  const baseCount = (
+    await requestJson(baseUrl, `/api/windows?sessionId=${encodeURIComponent(session.id)}`, { cookie, machineId })
+  ).length;
+  const newWin = await requestJson(baseUrl, "/api/windows", {
+    cookie,
+    machineId,
+    body: { sessionId: session.id },
+  });
+  assert.ok(newWin.id, "new window created");
+  const dupWin = await requestJson(baseUrl, "/api/windows", {
+    cookie,
+    machineId,
+    body: { duplicateFrom: newWin.id },
+  });
+  assert.ok(dupWin.id && dupWin.id !== newWin.id, "duplicate window created");
+  const afterCreate = await requestJson(baseUrl, `/api/windows?sessionId=${encodeURIComponent(session.id)}`, { cookie, machineId });
+  assert.equal(afterCreate.length, baseCount + 2, "two windows added");
+  // Close both extras.
+  await requestJson(baseUrl, "/api/windows", { cookie, machineId, method: "DELETE", body: { windowId: dupWin.id } });
+  await requestJson(baseUrl, "/api/windows", { cookie, machineId, method: "DELETE", body: { windowId: newWin.id } });
+  const afterClose = await requestJson(baseUrl, `/api/windows?sessionId=${encodeURIComponent(session.id)}`, { cookie, machineId });
+  assert.equal(afterClose.length, baseCount, "windows closed back to baseline");
+
   const panes = await requestJson(
     baseUrl,
     `/api/panes?windowId=${encodeURIComponent(windows[0].id)}`,

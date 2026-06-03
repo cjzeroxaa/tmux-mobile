@@ -166,6 +166,18 @@ captured pane output comes back through the correct user route.
 - `lib/agent.mjs` — outbound connection, request serving, reconnect.
 - `Dockerfile` — Cloud Run controller image.
 
+### Window operations
+
+The topbar **More** menu has window management: **New window** (fresh window in
+the current session), **Duplicate window** (a new window in the same session
+with the same working directory, re-running the command the source used —
+`pane_start_command` if the window was launched with one, else the running
+program name, falling back to a plain shell), and **Close window** (kills the
+window after a confirmation). Server side: `POST /api/windows {sessionId}` to
+create, `POST /api/windows {duplicateFrom: windowId}` to duplicate, and
+`DELETE /api/windows {windowId}` to close (refuses to kill the last window in a
+session).
+
 ### Window annotations
 
 Each window in the target picker has a free-text **follow-up note** (e.g.
