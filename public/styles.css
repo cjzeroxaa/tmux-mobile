@@ -346,6 +346,11 @@ input {
   line-height: 1.42;
   white-space: pre-wrap;
   word-break: break-word;
+  /* Make pane text selectable/copyable, including the long-press copy menu on
+     mobile Safari/Chrome. */
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
 }
 
 /* URLs auto-detected in the tmux pane. Inherit the terminal text color (so an

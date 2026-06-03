@@ -34,6 +34,8 @@ const MAX_CAPTURE_LINES = 5000;
 const SUMMARY_MODEL = process.env.OPENAI_SUMMARY_MODEL || "gpt-5.4-mini";
 // Max bytes the smart content viewer will read from a pane-referenced file.
 const FILE_VIEWER_MAX_BYTES = 5 * 1024 * 1024;
+// Larger cap for media/html opened in an external tab (video especially).
+const FILE_EXTERNAL_MAX_BYTES = 50 * 1024 * 1024;
 // Extensions the viewer recognizes, mapped to a kind + content type.
 const IMAGE_EXTS = new Map([
   [".png", "image/png"],
@@ -46,6 +48,16 @@ const IMAGE_EXTS = new Map([
   [".ico", "image/x-icon"],
 ]);
 const MARKDOWN_EXTS = new Set([".md", ".markdown", ".mdown", ".mkd"]);
+// Types opened in an external browser tab (not rendered in the in-app modal):
+// video and standalone HTML. The browser handles playback/rendering natively.
+const EXTERNAL_EXTS = new Map([
+  [".webm", "video/webm"],
+  [".mp4", "video/mp4"],
+  [".m4v", "video/mp4"],
+  [".mov", "video/quicktime"],
+  [".html", "text/html; charset=utf-8"],
+  [".htm", "text/html; charset=utf-8"],
+]);
 function fileExt(filePath) {
   return path.extname(String(filePath)).toLowerCase();
 }
@@ -53,11 +65,16 @@ function fileKind(filePath) {
   const ext = fileExt(filePath);
   if (IMAGE_EXTS.has(ext)) return "image";
   if (MARKDOWN_EXTS.has(ext)) return "markdown";
+  if (EXTERNAL_EXTS.has(ext)) return "external";
   return "other";
 }
 function fileContentType(filePath) {
   const ext = fileExt(filePath);
-  return IMAGE_EXTS.get(ext) || "text/markdown; charset=utf-8";
+  return (
+    IMAGE_EXTS.get(ext) ||
+    EXTERNAL_EXTS.get(ext) ||
+    "text/markdown; charset=utf-8"
+  );
 }
 // Git repo a user clones to run the connector (agent). Shown in the
 // "no machine connected" UI; override for forks/mirrors.
@@ -1787,7 +1804,7 @@ async function handleApi(req, res, url) {
     try {
       result = await backend.readfile(requestedPath, {
         baseDir: cwd,
-        maxBytes: FILE_VIEWER_MAX_BYTES,
+        maxBytes: kind === "external" ? FILE_EXTERNAL_MAX_BYTES : FILE_VIEWER_MAX_BYTES,
       });
     } catch (error) {
       // Safety net: an agent that slipped past the capability check (or any

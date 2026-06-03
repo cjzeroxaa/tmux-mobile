@@ -171,7 +171,9 @@ captured pane output comes back through the correct user route.
 URLs in the pane are clickable. File paths ending in an image extension
 (`.png/.jpg/.jpeg/.gif/.svg/.webp/.bmp/.ico`) or a markdown extension
 (`.md/.markdown/.mdown/.mkd`) are also clickable and open an in-app viewer:
-images render inline, markdown renders to formatted HTML. Markdown
+images render inline, markdown renders to formatted HTML, and video/HTML
+(`.webm/.mp4/.m4v/.mov/.html`) open in an external browser tab (fetched as a
+blob, so native playback/rendering applies). Markdown
 ` ```mermaid ` blocks render as diagrams — Mermaid is lazy-loaded from a CDN only
 when a file actually contains one (so plain markdown loads nothing extra) and
 runs with `securityLevel: 'strict'`; if it can't load, the diagram source stays

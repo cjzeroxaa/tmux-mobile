@@ -146,6 +146,7 @@ const state = {
   actionsOpen: false,
   snapshotFullscreen: false,
   snapshotPinnedToBottom: true,
+  pendingSnapshotText: null,
   pendingUrlTarget: readUrlTarget(),
   directories: {
     cwd: "",
@@ -2163,7 +2164,27 @@ function stripAnsi(text) {
     .replace(/\x1B\[[0-9;:]*m/g, "");
 }
 
+// True when the user currently has a non-collapsed text selection inside the
+// snapshot. Used to avoid clobbering an in-progress selection (and the "Copy"
+// menu) when the auto-refresh would otherwise replace the snapshot's innerHTML.
+function hasSnapshotSelection() {
+  const sel = window.getSelection?.();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return false;
+  const node = sel.anchorNode;
+  return Boolean(node && els.snapshot.contains(node));
+}
+
 function updateSnapshotText(text, { forceScrollBottom = false } = {}) {
+  // Don't destroy a selection the user is actively making — refreshing
+  // innerHTML mid-selection makes the text effectively uncopyable on mobile
+  // (the next ~auto-refresh wipes the highlight before they can hit Copy). Defer
+  // this update; a later refresh (after they copy / tap away) will apply it.
+  if (!forceScrollBottom && hasSnapshotSelection()) {
+    state.pendingSnapshotText = text;
+    return;
+  }
+  state.pendingSnapshotText = null;
+
   const shouldScrollToBottom =
     forceScrollBottom || state.snapshotPinnedToBottom || isSnapshotAtBottom();
   const previousScrollTop = els.snapshot.scrollTop;
@@ -2999,12 +3020,25 @@ els.fullscreenSnapshot.addEventListener("click", () => {
 
 // Smart content viewer: fetch a pane-referenced file and show it inline. The
 // path is resolved against the pane's cwd server-side (and confined to it).
+// Extensions that open in an external browser tab rather than the in-app modal
+// (video + standalone HTML). Keep in sync with the server's EXTERNAL_EXTS.
+const EXTERNAL_FILE_EXT = /\.(webm|mp4|m4v|mov|html?)$/i;
+
 async function openFileViewer(filePath) {
   if (!filePath) return;
   if (!state.paneId) {
     setStatus("Select a pane first", false);
     return;
   }
+
+  // Media/HTML open in a new tab. Open the tab synchronously now (inside the
+  // click gesture) so mobile browsers don't block the popup; point it at the
+  // fetched blob once it's ready.
+  if (EXTERNAL_FILE_EXT.test(filePath)) {
+    await openFileInNewTab(filePath);
+    return;
+  }
+
   els.fileViewerTitle.textContent = filePath;
   els.fileViewerBody.innerHTML = '<div class="viewer-loading">Loading…</div>';
   els.fileViewerSheet.hidden = false;
@@ -3015,6 +3049,43 @@ async function openFileViewer(filePath) {
   } catch (error) {
     els.fileViewerBody.innerHTML = `<div class="viewer-error"></div>`;
     els.fileViewerBody.firstChild.textContent = error.message || "Could not open file";
+  }
+}
+
+async function openFileInNewTab(filePath) {
+  // Pre-open the tab in the gesture so it isn't popup-blocked; show a tiny
+  // loading note while bytes transfer, then swap in the blob URL.
+  const tab = window.open("", "_blank");
+  if (tab) {
+    try {
+      tab.document.write("<!doctype html><title>Loading…</title><body style=\"font:14px sans-serif;padding:1rem\">Loading file…</body>");
+    } catch {}
+  }
+  try {
+    const params = new URLSearchParams({ paneId: state.paneId, path: filePath });
+    const data = await api(`/api/file?${params}`);
+    const bytes = audioBytesFromBase64(data.base64);
+    const blob = new Blob([bytes], { type: data.contentType || "application/octet-stream" });
+    const objectUrl = URL.createObjectURL(blob);
+    if (tab && !tab.closed) {
+      tab.location.href = objectUrl;
+    } else {
+      // Popup was blocked — fall back to navigating via a temporary link.
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.click();
+    }
+    // Revoke later so the new tab has time to load it.
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  } catch (error) {
+    if (tab && !tab.closed) {
+      try {
+        tab.document.body.textContent = error.message || "Could not open file";
+      } catch {}
+    }
+    setStatus(error.message || "Could not open file", false);
   }
 }
 
@@ -3089,6 +3160,17 @@ els.snapshot.addEventListener("click", (event) => {
     return;
   }
   if (state.snapshotFullscreen && isWideViewport()) focusPaneInput();
+});
+
+// When a deferred snapshot update is pending (held back because the user was
+// selecting text), apply it as soon as the selection clears so the view doesn't
+// stay stale.
+document.addEventListener("selectionchange", () => {
+  if (state.pendingSnapshotText != null && !hasSnapshotSelection()) {
+    const text = state.pendingSnapshotText;
+    state.pendingSnapshotText = null;
+    updateSnapshotText(text);
+  }
 });
 
 // Keyboard activation for the file-path spans (they're role="link" tabindex=0).

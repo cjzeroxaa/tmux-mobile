@@ -83,4 +83,10 @@ assert.ok(out.includes('data-file-path="~/notes.md"'), `15 home path: ${out}`);
 out = render('x"><img src=x onerror=alert(1)>.png');
 assert.ok(!out.includes("<img src=x"), `16 no html injection: ${out}`);
 
+// 17. media + html paths are detected (these open in an external tab)
+for (const p of ["./demo.webm", "out/clip.mp4", "render/report.html", "~/v.mov"]) {
+  out = render(`made ${p} ok`);
+  assert.ok(out.includes(`data-file-path="${p}"`), `17 detects ${p}: ${out}`);
+}
+
 console.log("linkify unit tests passed");

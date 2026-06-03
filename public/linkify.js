@@ -27,9 +27,10 @@ export function unescapeHtmlEntities(value) {
 export const URL_IN_ESCAPED = /(\bhttps?:\/\/|\bwww\.)[^\s<>"']+/gi;
 
 // File extensions the smart content viewer can render. Keep in sync with the
-// server's fileKind()/IMAGE_EXTS/MARKDOWN_EXTS.
+// server's fileKind()/IMAGE_EXTS/MARKDOWN_EXTS/EXTERNAL_EXTS. Images + markdown
+// open in the in-app viewer; webm/mp4/mov/html open in an external tab.
 const VIEWABLE_FILE_EXTS =
-  "png|jpe?g|gif|svg|webp|bmp|ico|md|markdown|mdown|mkd";
+  "png|jpe?g|gif|svg|webp|bmp|ico|md|markdown|mdown|mkd|webm|mp4|m4v|mov|html?";
 
 // Matches file paths ending in a viewable extension, in already-escaped text.
 // Requires either a path separator or a leading ./ ../ ~/ so a bare word like
