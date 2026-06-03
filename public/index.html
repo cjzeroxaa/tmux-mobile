@@ -127,6 +127,17 @@
       <section class="control-panel">
         <div id="chat" class="chat" hidden></div>
 
+        <!-- Customizable snippets: a horizontally-scrolling bar of frequently
+             used sentences/commands. Tapping a chip sends it to the active pane
+             (each chip carries its own "press Enter" choice). The gear opens the
+             manager. Chips are rendered by app.js from persisted storage. -->
+        <div id="snippetBar" class="snippet-bar" aria-label="Snippets">
+          <div id="snippetChips" class="snippet-chips"></div>
+          <button id="manageSnippets" class="icon-button snippet-manage" type="button" title="Edit snippets" aria-label="Edit snippets">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          </button>
+        </div>
+
         <div id="voiceComposer" class="voice-composer">
           <div class="voice-actions">
             <div id="voiceStatusRow" class="voice-status-row" hidden>
@@ -303,6 +314,25 @@
           <button id="closeFileViewer" class="icon-button" type="button" title="Close">X</button>
         </div>
         <div id="fileViewerBody" class="viewer-body"></div>
+      </section>
+    </div>
+
+    <!-- Snippet manager: add / edit / remove the frequently-used sentences shown
+         in the snippet bar. Rows are rendered by app.js. -->
+    <div id="snippetSheet" class="settings-sheet" hidden>
+      <button id="snippetBackdrop" class="settings-backdrop" type="button" aria-label="Close snippet editor"></button>
+      <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="snippetTitle">
+        <div class="settings-panel-header">
+          <h2 id="snippetTitle">Snippets</h2>
+          <button id="closeSnippets" class="icon-button" type="button" title="Close">X</button>
+        </div>
+        <p class="settings-hint">Frequently-used sentences. Tap a chip in the bar to send it to the active pane. "Enter" runs it (presses Return); off just inserts the text.</p>
+        <div id="snippetList" class="snippet-list"></div>
+        <div class="snippet-add">
+          <input id="snippetNewText" type="text" autocomplete="off" placeholder="New snippet text" />
+          <label class="snippet-enter-toggle"><input id="snippetNewEnter" type="checkbox" checked /> <span>Enter</span></label>
+          <button id="snippetAdd" class="small-button submit" type="button">Add</button>
+        </div>
       </section>
     </div>
 

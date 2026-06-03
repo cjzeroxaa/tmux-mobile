@@ -648,6 +648,122 @@ input {
   display: block;
 }
 
+/* Snippet bar: a horizontally-scrolling row of frequently-used-sentence chips
+   plus a manage button, sitting just above the composer. */
+.snippet-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.snippet-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+}
+
+.snippet-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  padding: 6px 11px;
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.4));
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: inherit;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.snippet-chip:active {
+  background: var(--surface);
+}
+
+.snippet-chip-enter {
+  opacity: 0.55;
+  font-size: 0.8em;
+}
+
+.snippet-empty {
+  font-size: 0.82rem;
+  opacity: 0.6;
+  padding: 4px 2px;
+}
+
+.snippet-manage {
+  flex: 0 0 auto;
+}
+
+/* Snippet manager rows. */
+.snippet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 50dvh;
+  overflow-y: auto;
+}
+
+.snippet-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.snippet-row-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.4));
+  background: var(--surface);
+  color: inherit;
+  font-size: 0.9rem;
+}
+
+.snippet-enter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+  opacity: 0.85;
+}
+
+.snippet-row-move {
+  flex: 0 0 auto;
+}
+
+.snippet-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.snippet-add input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.4));
+  background: var(--surface);
+  color: inherit;
+  font-size: 0.9rem;
+}
+
 .voice-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
