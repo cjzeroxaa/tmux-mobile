@@ -168,6 +168,8 @@ captured pane output comes back through the correct user route.
 - `lib/protocol.mjs` — the hub↔agent wire protocol and tmux allowlist.
 - `lib/hub.mjs` — agent registry, command broker, per-machine remote backend.
 - `lib/agent.mjs` — outbound connection, request serving, reconnect.
+- `lib/ask-question.mjs` / `lib/ask-question-keys.mjs` — parse Claude's
+  AskUserQuestion TUI, and compute the keystrokes that answer it.
 - `Dockerfile` — Cloud Run controller image.
 
 ### Window operations
@@ -183,6 +185,33 @@ window after a confirmation). Server side: `POST /api/windows {sessionId}` to
 create, `POST /api/windows {duplicateFrom: windowId}` to duplicate, and
 `DELETE /api/windows {windowId}` to close (refuses to kill the last window in a
 session).
+
+### Answering AskUserQuestion prompts
+
+Claude Code's `AskUserQuestion` renders an interactive TUI (a tab bar, `❯`
+cursor, checkboxes for multi-select, a free-form "Type something" escape, and a
+review screen) that's awkward to drive key-by-key from a phone. The topbar
+**More → Answer question** opens an overlay that turns it into tappable cards.
+
+It is **user-triggered and on-demand** — nothing scans for prompts in the
+background. When you tap it, the server captures the active pane *once*, parses
+the prompt (`lib/ask-question.mjs`), and renders it: one chip per question
+(✓ = answered), the question text, and an option card each — radio-style for
+single-select, checkboxes for multi-select — plus a free-form input. Picking an
+answer is applied by **driving the real TUI with keystrokes**
+(`lib/ask-question-keys.mjs`): single-select moves the cursor and hits Enter
+(auto-advancing to the next question); multi-select toggles the chosen boxes then
+selects Submit; the review screen gets a final confirm; the free-form input
+declines the prompt and sends your text as a normal reply. After each step the
+server re-parses and returns the next state, so multi-question prompts walk
+forward in place and the overlay closes when the prompt is gone.
+
+Server side (both local and controller mode — everything routes through the
+backend seam, so a remote agent's pane is driven the same way):
+`GET /api/ask-question?paneId=` returns `{ active, question }`;
+`POST /api/ask-answer {paneId, action, …}` with `action` of `single`
+(`optionIndex`), `multi` (`checked: number[]`), `free` (`text`), `reviewSubmit`,
+or `cancel`. Inter-keystroke delay is `TMUX_ASK_KEY_DELAY_MS` (default 140ms).
 
 ### Window metadata
 

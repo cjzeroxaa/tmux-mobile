@@ -12,6 +12,14 @@ import {
   createMetadataCache,
 } from "./lib/window-metadata.mjs";
 import { detectTurn } from "./lib/turn-detection.mjs";
+import { isAskQuestion, parseAskQuestion } from "./lib/ask-question.mjs";
+import {
+  singleSelectKeys,
+  multiSelectKeys,
+  reviewSubmitKeys,
+  freeFormKeys,
+  cancelKeys,
+} from "./lib/ask-question-keys.mjs";
 import {
   VOICE_OPTIONS,
   describeVoiceConfig,
@@ -121,6 +129,12 @@ const SUBMIT_NUDGE_DELAY_MS =
 const PASTE_ENTER_DELAY_MS = parsePositiveInteger(
   process.env.TMUX_PASTE_ENTER_DELAY_MS,
   120,
+);
+// Delay between keystrokes when driving the AskUserQuestion TUI, so its cursor
+// movement / toggles keep up with the input over the WebSocket.
+const ASK_KEY_DELAY_MS = parsePositiveInteger(
+  process.env.TMUX_ASK_KEY_DELAY_MS,
+  140,
 );
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -821,12 +835,47 @@ async function getSessionWindowMetadata(sessionId) {
             paneTail: clean.split("\n").slice(-12).join("\n"),
           });
         }
+        // Note: AskUserQuestion detection/parsing is NOT done here — it's fully
+        // on-demand via /api/ask-question when the user taps "Answer question",
+        // so the metadata poll stays cheap (no per-poll scanning).
       } catch {
         // pane vanished / capture failed — leave turn & contentHash unset
       }
     }),
   );
   return base;
+}
+
+// --- AskUserQuestion overlay support (on-demand) ---
+
+// The active pane id for a window (a pane id is also accepted as-is).
+async function resolveActivePane(idMaybeWindow) {
+  // If it's already a pane id (%N) just use it; if a window id (@N) find its
+  // active pane. The client passes the active paneId, so this usually no-ops.
+  if (/^%/.test(idMaybeWindow)) return idMaybeWindow;
+  const panes = await listPanes(idMaybeWindow);
+  const pane = panes.find((p) => p.active) || panes[0];
+  return pane ? pane.id : idMaybeWindow;
+}
+
+// Parse the current AskUserQuestion state of a pane (null if not showing one).
+async function readAskQuestion(paneId) {
+  const screen = cleanTerminalText(await capturePane(paneId, "screen"));
+  return parseAskQuestion(screen);
+}
+
+// Send a computed key list to the pane, one key at a time with a small delay so
+// the TUI keeps up (same rationale as the paste->Enter delay). A list item that
+// is { text } is sent as literal text rather than a key name.
+async function sendAskKeys(paneId, keys) {
+  for (const k of keys) {
+    if (k && typeof k === "object" && typeof k.text === "string") {
+      await sendTextToPane(paneId, k.text, { enter: false });
+    } else {
+      await runTmux(["send-keys", "-t", paneId, k]);
+    }
+    await delay(ASK_KEY_DELAY_MS);
+  }
 }
 
 async function capturePane(paneId, mode, lineCount, { ansi = false } = {}) {
@@ -1898,6 +1947,61 @@ async function handleApi(req, res, url) {
   ) {
     const sessionId = requireId(url.searchParams.get("sessionId"), "session");
     sendJson(res, 200, await getSessionWindowMetadata(sessionId));
+    return;
+  }
+
+  // On-demand: parse the active pane's current AskUserQuestion (if any). The
+  // user triggers this by tapping "Answer question" — no continuous scanning.
+  if (req.method === "GET" && url.pathname === "/api/ask-question") {
+    const paneId = await resolveActivePane(requireId(url.searchParams.get("paneId"), "pane"));
+    const parsed = await readAskQuestion(paneId);
+    sendJson(res, 200, { paneId, active: Boolean(parsed), question: parsed });
+    return;
+  }
+
+  // Apply an AskUserQuestion answer by driving the TUI with keystrokes. Body:
+  //   { paneId, action: "single", optionIndex }
+  //   { paneId, action: "multi", checked: number[] }
+  //   { paneId, action: "free", text }
+  //   { paneId, action: "reviewSubmit" }
+  //   { paneId, action: "cancel" }
+  // Re-parses the pane first so the keys are computed against the live cursor
+  // state, then returns the new parsed state so the overlay can continue
+  // (next question / review / done).
+  if (req.method === "POST" && url.pathname === "/api/ask-answer") {
+    const body = await readJsonBody(req);
+    const paneId = await resolveActivePane(requireId(body.paneId, "pane"));
+    const parsed = await readAskQuestion(paneId);
+    if (!parsed) {
+      sendJson(res, 409, { error: "No active question in this pane" });
+      return;
+    }
+    let keys = [];
+    switch (body.action) {
+      case "single":
+        keys = singleSelectKeys(parsed, Number(body.optionIndex));
+        break;
+      case "multi":
+        keys = multiSelectKeys(parsed, new Set((body.checked || []).map(Number)));
+        break;
+      case "free":
+        keys = freeFormKeys(String(body.text || ""));
+        break;
+      case "reviewSubmit":
+        keys = reviewSubmitKeys(parsed);
+        break;
+      case "cancel":
+        keys = cancelKeys();
+        break;
+      default:
+        sendJson(res, 400, { error: `Unknown action: ${body.action}` });
+        return;
+    }
+    await sendAskKeys(paneId, keys);
+    // Let the TUI settle, then report the new state (next question / review / gone).
+    await delay(ASK_KEY_DELAY_MS * 2);
+    const next = await readAskQuestion(paneId);
+    sendJson(res, 200, { paneId, active: Boolean(next), question: next });
     return;
   }
 

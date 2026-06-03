@@ -44,6 +44,10 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
           </button>
           <div id="moreActionsMenu" class="more-actions-menu" hidden role="menu" aria-label="More actions">
+            <button id="answerQuestion" class="more-actions-item" type="button" role="menuitem">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+              <span>Answer question</span>
+            </button>
             <button id="renameWindow" class="more-actions-item" type="button" role="menuitem">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
               <span>Rename window</span>
@@ -371,6 +375,22 @@
           <span id="duplicateStatus" class="settings-status" role="status" aria-live="polite"></span>
           <button id="confirmDuplicate" class="small-button submit" type="button">Create</button>
         </div>
+      </section>
+    </div>
+
+    <!-- AskUserQuestion overlay: user-triggered (More -> Answer question). Renders
+         Claude's question(s) as tappable radio/checkbox cards + a free-text path,
+         and drives the tmux TUI to apply the answer. Built by app.js. -->
+    <div id="askSheet" class="settings-sheet" hidden>
+      <button id="askBackdrop" class="settings-backdrop" type="button" aria-label="Close question"></button>
+      <section class="ask-panel" role="dialog" aria-modal="true" aria-labelledby="askTitle">
+        <div class="settings-panel-header">
+          <h2 id="askTitle">Answer question</h2>
+          <button id="closeAsk" class="icon-button" type="button" title="Close">X</button>
+        </div>
+        <div id="askTabs" class="ask-tabs" aria-hidden="true"></div>
+        <div id="askBody" class="ask-body"></div>
+        <div id="askStatus" class="settings-status" role="status" aria-live="polite"></div>
       </section>
     </div>
 

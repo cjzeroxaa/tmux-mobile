@@ -1522,6 +1522,142 @@ input {
   box-shadow: 0 -18px 38px rgba(15, 20, 24, 0.2);
 }
 
+/* AskUserQuestion overlay — a bottom sheet like the settings panel, with option
+   cards. */
+.ask-panel {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 88dvh;
+  overflow-y: auto;
+  border-radius: 10px 10px 0 0;
+  background: var(--surface);
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  box-shadow: 0 -18px 38px rgba(15, 20, 24, 0.25);
+}
+
+.ask-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ask-tab {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  border: 1px dashed var(--line);
+}
+
+.ask-tab.answered {
+  color: var(--accent-dark);
+  border-style: solid;
+}
+
+.ask-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ask-question {
+  font-size: 1.02rem;
+  font-weight: 700;
+  margin: 2px 0 4px;
+}
+
+.ask-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 11px 12px;
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.35));
+  border-radius: 9px;
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+}
+
+.ask-option:hover {
+  border-color: var(--accent, #6c88a6);
+}
+
+.ask-option .ask-mark {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border: 2px solid var(--border, rgba(120, 120, 120, 0.5));
+  border-radius: 50%; /* radio for single-select */
+}
+
+.ask-option.multi .ask-mark {
+  border-radius: 5px; /* square for multi-select */
+}
+
+.ask-option.checked .ask-mark {
+  background: var(--accent, #35597a);
+  border-color: var(--accent, #35597a);
+  box-shadow: inset 0 0 0 3px var(--surface);
+}
+
+.ask-option-main {
+  min-width: 0;
+}
+
+.ask-option-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.ask-option-desc {
+  margin-top: 2px;
+  font-size: 0.82rem;
+  opacity: 0.75;
+  line-height: 1.4;
+}
+
+.ask-free {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.ask-free input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.4));
+  background: var(--surface);
+  color: inherit;
+  font-size: 0.92rem;
+}
+
+.ask-submit {
+  margin-top: 6px;
+  background: var(--accent, #35597a);
+  color: #fff;
+}
+
+.ask-loading,
+.ask-empty,
+.ask-review {
+  font-size: 0.9rem;
+  opacity: 0.85;
+  padding: 6px 0;
+}
+
 .settings-panel-header {
   display: flex;
   align-items: center;

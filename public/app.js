@@ -291,6 +291,13 @@ const els = {
   fullscreenRead: document.querySelector("#fullscreenRead"),
   paneInput: document.querySelector("#paneInput"),
   renameWindow: document.querySelector("#renameWindow"),
+  answerQuestion: document.querySelector("#answerQuestion"),
+  askSheet: document.querySelector("#askSheet"),
+  askBackdrop: document.querySelector("#askBackdrop"),
+  closeAsk: document.querySelector("#closeAsk"),
+  askTabs: document.querySelector("#askTabs"),
+  askBody: document.querySelector("#askBody"),
+  askStatus: document.querySelector("#askStatus"),
   newWindow: document.querySelector("#newWindow"),
   duplicateWindow: document.querySelector("#duplicateWindow"),
   closeWindow: document.querySelector("#closeWindow"),
@@ -2798,6 +2805,183 @@ async function closeCurrentWindow() {
   }
 }
 
+// --- AskUserQuestion overlay (user-triggered) ---
+
+// Open the overlay: on demand, ask the server to parse the active pane's current
+// Claude AskUserQuestion, then render it. Nothing is scanned until this runs.
+async function openAskOverlay() {
+  if (!state.paneId) {
+    setStatus("Select a window first", false);
+    return;
+  }
+  els.askSheet.hidden = false;
+  els.askTabs.innerHTML = "";
+  els.askBody.innerHTML = '<div class="ask-loading">Scanning for a question…</div>';
+  els.askStatus.textContent = "";
+  els.askStatus.classList.remove("error");
+  try {
+    const data = await api(`/api/ask-question?paneId=${encodeURIComponent(state.paneId)}`);
+    renderAsk(data.question);
+  } catch (error) {
+    askError(error.message || "Could not read the pane");
+  }
+}
+
+function closeAskOverlay() {
+  els.askSheet.hidden = true;
+  els.askBody.innerHTML = "";
+  els.askTabs.innerHTML = "";
+}
+
+function askError(msg) {
+  els.askBody.innerHTML = "";
+  const d = document.createElement("div");
+  d.className = "ask-empty";
+  d.textContent = msg;
+  els.askBody.append(d);
+}
+
+// Render the parsed question (or the "no question / done" states).
+function renderAsk(q) {
+  els.askTabs.innerHTML = "";
+  els.askBody.innerHTML = "";
+  if (!q) {
+    askError("No active question in this window. (Answered, or none showing.)");
+    return;
+  }
+  // Tab strip (one chip per question; ✓ = answered).
+  if (q.tabs && q.tabs.length) {
+    for (const t of q.tabs) {
+      const chip = document.createElement("span");
+      chip.className = `ask-tab${t.answered ? " answered" : ""}`;
+      chip.textContent = `${t.answered ? "✓ " : ""}${t.header}`;
+      els.askTabs.append(chip);
+    }
+  }
+
+  // Review screen -> a confirm button.
+  if (q.review) {
+    const note = document.createElement("div");
+    note.className = "ask-review";
+    note.textContent = "Review your answers, then submit.";
+    els.askBody.append(note);
+    const submit = button("Submit answers", "ask-submit", () => submitAsk({ action: "reviewSubmit" }));
+    els.askBody.append(submit);
+    els.askBody.append(button("Cancel", "ask-cancel", () => submitAsk({ action: "cancel" })));
+    return;
+  }
+
+  // Question text.
+  const qt = document.createElement("div");
+  qt.className = "ask-question";
+  qt.textContent = q.questionText || "";
+  els.askBody.append(qt);
+
+  // Option cards. Skip the Submit pseudo-option; "Type something" -> free-form;
+  // "Chat about this" omitted (the free-form path covers typing your own answer).
+  const realOptions = q.options
+    .map((o, i) => ({ ...o, index: i }))
+    .filter((o) => !o.isSubmit && !o.isChat);
+
+  if (q.multiSelect) {
+    const checked = new Set(q.options.map((o, i) => (o.checked ? i : -1)).filter((i) => i >= 0));
+    for (const o of realOptions) {
+      if (o.isFreeForm) continue;
+      const card = optionCard(o, true, checked.has(o.index));
+      card.addEventListener("click", () => {
+        if (checked.has(o.index)) checked.delete(o.index);
+        else checked.add(o.index);
+        card.classList.toggle("checked");
+      });
+      els.askBody.append(card);
+    }
+    els.askBody.append(button("Submit selected", "ask-submit", () =>
+      submitAsk({ action: "multi", checked: [...checked] }),
+    ));
+  } else {
+    for (const o of realOptions) {
+      if (o.isFreeForm) continue;
+      const card = optionCard(o, false, false);
+      card.addEventListener("click", () => submitAsk({ action: "single", optionIndex: o.index }));
+      els.askBody.append(card);
+    }
+  }
+
+  // Free-form ("type your own answer") — always offered; it declines the
+  // structured prompt and sends your text as a normal reply (matches the TUI).
+  const wrap = document.createElement("div");
+  wrap.className = "ask-free";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = "Or type your own answer…";
+  const send = button("Send", "ask-free-send", () => {
+    const text = input.value.trim();
+    if (text) submitAsk({ action: "free", text });
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); send.click(); }
+  });
+  wrap.append(input, send);
+  els.askBody.append(wrap);
+}
+
+function optionCard(o, multi, checked) {
+  const card = document.createElement("button");
+  card.type = "button";
+  card.className = `ask-option${multi ? " multi" : ""}${checked ? " checked" : ""}`;
+  const mark = document.createElement("span");
+  mark.className = "ask-mark";
+  mark.setAttribute("aria-hidden", "true");
+  const title = document.createElement("div");
+  title.className = "ask-option-title";
+  title.textContent = o.title;
+  const left = document.createElement("div");
+  left.className = "ask-option-main";
+  left.append(title);
+  if (o.desc) {
+    const desc = document.createElement("div");
+    desc.className = "ask-option-desc";
+    desc.textContent = o.desc;
+    left.append(desc);
+  }
+  card.append(mark, left);
+  return card;
+}
+
+function button(label, cls, onClick) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = `small-button ${cls}`;
+  b.textContent = label;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+// Apply an action via the server (drives the TUI), then re-render with the
+// returned next state (next question / review / done).
+async function submitAsk(payload) {
+  els.askStatus.classList.remove("error");
+  els.askStatus.textContent = "Applying…";
+  try {
+    const data = await api("/api/ask-answer", {
+      method: "POST",
+      body: JSON.stringify({ paneId: state.paneId, ...payload }),
+    });
+    els.askStatus.textContent = "";
+    if (!data.active) {
+      // Done (or declined) — close and refresh the snapshot to show the result.
+      closeAskOverlay();
+      setStatus("answer sent");
+      window.setTimeout(() => refreshSnapshot(true), 400);
+      return;
+    }
+    renderAsk(data.question); // next question or the review screen
+  } catch (error) {
+    els.askStatus.textContent = error.message || "Could not apply";
+    els.askStatus.classList.add("error");
+  }
+}
+
 async function loadPanes() {
   const previousPaneId = state.paneId;
   state.panes = [];
@@ -3490,6 +3674,12 @@ els.snapshot.addEventListener(
   { passive: true },
 );
 els.renameWindow.addEventListener("click", renameSelectedWindow);
+els.answerQuestion.addEventListener("click", openAskOverlay);
+els.closeAsk.addEventListener("click", closeAskOverlay);
+els.askBackdrop.addEventListener("click", closeAskOverlay);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !els.askSheet.hidden) closeAskOverlay();
+});
 els.newWindow.addEventListener("click", createNewWindow);
 els.duplicateWindow.addEventListener("click", duplicateCurrentWindow);
 els.closeWindow.addEventListener("click", closeCurrentWindow);
