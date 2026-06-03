@@ -31,6 +31,11 @@ const MAX_CAPTURE_LINES = 5000;
 // via lib/voice-config.mjs and the web app's Settings panel; read them at call
 // time with getVoiceConfig() rather than freezing them at module load.
 const SUMMARY_MODEL = process.env.OPENAI_SUMMARY_MODEL || "gpt-5.4-mini";
+// Git repo a user clones to run the connector (agent). Shown in the
+// "no machine connected" UI; override for forks/mirrors.
+const CONNECTOR_CLONE_URL =
+  process.env.TMUX_MOBILE_CLONE_URL ||
+  "https://github.com/cjzeroxaa/tmux-mobile.git";
 const WINDOW_BRIEFING_MODEL =
   process.env.OPENAI_WINDOW_BRIEFING_MODEL || "gpt-5.4-mini";
 const AGENT_RESPONSE_EXTRACT_MODEL =
@@ -2126,7 +2131,13 @@ if (MODE.kind === "register") {
         : String(process.env.TMUX_MOBILE_USER || "default");
 
       if (req.method === "GET" && url.pathname === "/api/runtime") {
-        sendJson(res, 200, { mode: IS_HUB_MODE ? "hub" : MODE.kind, revision: APP_REVISION });
+        sendJson(res, 200, {
+          mode: IS_HUB_MODE ? "hub" : MODE.kind,
+          revision: APP_REVISION,
+          // Connector repo, shown in the "no machine connected" UI so a user
+          // knows what to clone. Overridable via env for forks/mirrors.
+          cloneUrl: CONNECTOR_CLONE_URL,
+        });
         return;
       }
 

@@ -96,6 +96,32 @@
         </div>
         <pre id="snapshot" class="snapshot">Select a window.</pre>
         <input id="paneInput" class="pane-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Pane keyboard input" tabindex="-1" />
+
+        <!-- Shown only in hub mode when no machine is connected: tells the user
+             how to clone the repo and run the connector on the machine they
+             want to control. The controller URL and clone command are filled in
+             by app.js from the current origin. -->
+        <section id="connectorHelp" class="connector-help" hidden aria-live="polite">
+          <h2>No machine connected</h2>
+          <p>Run the connector on the machine you want to control. It opens an outbound connection to this controller — no inbound port needed.</p>
+          <ol class="connector-steps">
+            <li>
+              <span class="connector-step-label">Clone &amp; install</span>
+              <div class="connector-cmd-row">
+                <code id="connectorClone" class="connector-cmd"></code>
+                <button class="small-button connector-copy" type="button" data-copy="connectorClone" aria-label="Copy clone command">Copy</button>
+              </div>
+            </li>
+            <li>
+              <span class="connector-step-label">Start the connector</span>
+              <div class="connector-cmd-row">
+                <code id="connectorRun" class="connector-cmd"></code>
+                <button class="small-button connector-copy" type="button" data-copy="connectorRun" aria-label="Copy connector command">Copy</button>
+              </div>
+            </li>
+          </ol>
+          <p class="connector-note">On first run it prints a Google device-login URL and code; sign in with an allowed account and this page will pick up the machine automatically.</p>
+        </section>
       </section>
 
       <section class="control-panel">

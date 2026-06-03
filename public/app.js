@@ -65,6 +65,7 @@ function applyTheme(theme) {
 const state = {
   runtimeMode: "local",
   serverRevision: "",
+  cloneUrl: "https://github.com/cjzeroxaa/tmux-mobile.git",
   machines: [],
   machineId: machineAtom.get().machineId || "",
   sessions: [],
@@ -155,6 +156,9 @@ const els = {
   mobileWindows: document.querySelector("#mobileWindows"),
   mobileTargetLabel: document.querySelector("#mobileTargetLabel"),
   snapshot: document.querySelector("#snapshot"),
+  connectorHelp: document.querySelector("#connectorHelp"),
+  connectorClone: document.querySelector("#connectorClone"),
+  connectorRun: document.querySelector("#connectorRun"),
   chat: document.querySelector("#chat"),
   mobileRefreshTree: document.querySelector("#mobileRefreshTree"),
   mobileRefresh: document.querySelector("#mobileRefresh"),
@@ -341,6 +345,7 @@ async function loadRuntimeAndMachines() {
   }
   state.serverRevision = runtime.revision || state.serverRevision;
   state.runtimeMode = runtime.mode || "local";
+  if (runtime.cloneUrl) state.cloneUrl = runtime.cloneUrl;
   if (state.runtimeMode !== "hub") {
     state.machines = [];
     state.machineId = "";
@@ -359,6 +364,7 @@ async function loadRuntimeAndMachines() {
 }
 
 function renderMachinePicker() {
+  renderConnectorHelp();
   if (!els.machinePicker || !els.machineSelect) return;
   const show = state.runtimeMode === "hub";
   els.machinePicker.hidden = !show;
@@ -385,6 +391,22 @@ function renderMachinePicker() {
   }
   els.machineSelect.value = state.machineId;
   els.machineSelect.disabled = state.machines.length === 0 && !state.machineId;
+}
+
+// Show clone+connector instructions only in hub mode with no machine online.
+// The controller URL is the page's own origin (so it's correct on whatever
+// domain the user reached, e.g. http://t.sycamore.sh); the clone URL comes from
+// /api/runtime. Hidden in every other state.
+function renderConnectorHelp() {
+  if (!els.connectorHelp) return;
+  const showHelp =
+    state.runtimeMode === "hub" && state.machines.length === 0;
+  els.connectorHelp.hidden = !showHelp;
+  els.snapshot.classList.toggle("dimmed", showHelp);
+  if (!showHelp) return;
+  const controllerUrl = window.location.origin;
+  els.connectorClone.textContent = `git clone ${state.cloneUrl} && cd tmux-mobile && npm install`;
+  els.connectorRun.textContent = `node server.mjs --register ${controllerUrl}`;
 }
 
 function machineLabel(machine) {
@@ -2671,6 +2693,33 @@ els.voiceSettingsBackdrop.addEventListener("click", closeVoiceSettings);
 els.saveVoiceSettings.addEventListener("click", saveVoiceSettings);
 els.previewSpeechVoice.addEventListener("click", () => previewVoice(els.previewSpeechVoice));
 els.previewRealtimeVoice.addEventListener("click", () => previewVoice(els.previewRealtimeVoice));
+
+// Copy buttons in the connector-help panel: copy the referenced <code> text.
+if (els.connectorHelp) {
+  els.connectorHelp.addEventListener("click", async (event) => {
+    const button = event.target.closest(".connector-copy");
+    if (!button) return;
+    const source = els[button.dataset.copy];
+    if (!source) return;
+    const text = source.textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      const previous = button.textContent;
+      button.textContent = "Copied";
+      setTimeout(() => {
+        button.textContent = previous;
+      }, 1200);
+    } catch {
+      // Clipboard blocked (e.g. insecure context): select the text so the user
+      // can copy manually.
+      const range = document.createRange();
+      range.selectNodeContents(source);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  });
+}
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !els.voiceSettingsSheet.hidden) closeVoiceSettings();
 });
