@@ -33,6 +33,10 @@ Tailscale HTTPS URL.
 ## Cloud Run controller
 
 Controller mode removes the Tailscale requirement for browser access. The same
+A short screen recording of the core flow (window switching, snippet send, PR
+links, the smart content viewer rendering a Mermaid diagram) is at
+[`docs/demo.mp4`](docs/demo.mp4).
+
 `server.mjs` runs in three roles, chosen by flags:
 
 - local: `npm start`, the original single-machine app.
