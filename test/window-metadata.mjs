@@ -5,6 +5,8 @@ import assert from "node:assert/strict";
 import { parseGitRemote } from "../lib/backend.mjs";
 import {
   detectAgentType,
+  detectAgentFromCommandLine,
+  isInterpreter,
   computeWindowMetadata,
   createMetadataCache,
 } from "../lib/window-metadata.mjs";
@@ -36,6 +38,40 @@ assert.equal(detectAgentType("gemini"), "gemini");
 assert.equal(detectAgentType("CLAUDE"), "claude"); // normalized
 assert.equal(detectAgentType("node"), null);
 assert.equal(detectAgentType(""), null);
+
+// --- interpreter-launched agents (node /usr/bin/codex etc.) ---
+assert.ok(isInterpreter("node") && isInterpreter("python3") && !isInterpreter("codex"));
+assert.equal(detectAgentFromCommandLine("node /usr/bin/codex --yolo"), "codex");
+assert.equal(detectAgentFromCommandLine("node /usr/lib/node_modules/@openai/codex/bin/codex.js"), "codex");
+assert.equal(detectAgentFromCommandLine("node /usr/bin/claude"), "claude");
+assert.equal(detectAgentFromCommandLine("/usr/bin/gemini chat"), "gemini");
+assert.equal(detectAgentFromCommandLine("node server.mjs --foo"), null);
+assert.equal(detectAgentFromCommandLine("vim --codex-notes"), null); // flag, not a basename
+
+// computeWindowMetadata uses backend.paneCommand to resolve interpreter windows,
+// only for interpreter foreground commands, cached per tty.
+let psCalls = 0;
+const ttyBackend = {
+  async paneCommand(tty) {
+    psCalls += 1;
+    return { command: tty === "/dev/pts/1" ? "node /usr/bin/codex --yolo" : "node app.js" };
+  },
+  async repo() { return { host: "", owner: "", name: "" }; },
+  async branch() { return { branch: "", worktree: false }; },
+};
+const ttyCache = createMetadataCache();
+const ttyWins = [
+  { id: "@a", cwd: "/x", activeCommand: "node", tty: "/dev/pts/1" },   // -> codex via ps
+  { id: "@b", cwd: "/x", activeCommand: "node", tty: "/dev/pts/2" },   // -> null
+  { id: "@c", cwd: "/x", activeCommand: "claude", tty: "/dev/pts/3" }, // -> claude, no ps
+];
+let tmd = await computeWindowMetadata(ttyWins, ttyBackend, ttyCache, 1000);
+assert.equal(tmd["@a"].agentType, "codex", "node /usr/bin/codex -> codex");
+assert.equal(tmd["@b"].agentType, null, "plain node -> null");
+assert.equal(tmd["@c"].agentType, "claude", "direct claude, no ps");
+assert.equal(psCalls, 2, `ps only for interpreter windows: ${psCalls}`);
+tmd = await computeWindowMetadata(ttyWins, ttyBackend, ttyCache, 5000);
+assert.equal(psCalls, 2, "paneCommand cached per tty within TTL");
 
 // --- computeWindowMetadata: live + cwd-scoped, cache + dedup + TTL ---
 let repoCalls = 0;

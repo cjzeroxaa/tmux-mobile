@@ -185,8 +185,11 @@ session).
 Each window carries derived metadata (`lib/window-metadata.mjs`), exposed via
 `GET /api/window-metadata?sessionId=` as `{ [windowId]: { agentType, repo, git } }`:
 
-- **agentType** — `claude` / `codex` / `gemini` / null, from the running command.
-  A *live* field: cheap, recomputed every refresh.
+- **agentType** — `claude` / `codex` / `gemini` / null. Cheap when the foreground
+  command is the agent directly; when it's an interpreter (e.g. `node`, because
+  codex/claude/gemini are node CLIs run as `node /usr/bin/codex`), it resolves
+  the full command line via `ps` on the agent's tty and matches the agent there.
+  The `ps` lookup runs only for interpreter windows and is cached per tty (~15s).
 - **repo** — `{ host, owner, name }` from the git `origin` remote of the window's
   cwd (for turning `PR #N` into a GitHub link). A *cwd-scoped* field: resolved on
   the agent and cached by cwd with a 10-minute TTL (re-resolves when the cwd

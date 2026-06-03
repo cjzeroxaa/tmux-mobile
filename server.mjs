@@ -201,7 +201,7 @@ const formats = {
   // The annotation (free-text follow-up note) is the LAST field and may contain
   // tabs, so windowFromRow takes everything from its index onward.
   windows:
-    "#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{window_flags}\t#{pane_current_command}\t#{pane_current_path}\t#{@tm_annotation}",
+    "#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{window_flags}\t#{pane_current_command}\t#{pane_tty}\t#{pane_current_path}\t#{@tm_annotation}",
   panes:
     "#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_title}",
   paneInfo:
@@ -472,10 +472,10 @@ function sessionFromRow([id, name, windows, attached, created]) {
 }
 
 function windowFromRow(fields) {
-  const [id, index, name, active, panes, flags, activeCommand, cwd] = fields;
+  const [id, index, name, active, panes, flags, activeCommand, tty, cwd] = fields;
   // The annotation is the last format field and is free text (may contain tabs),
-  // so take everything from index 8 onward and rejoin rather than positionally.
-  const annotation = fields.slice(8).join("\t");
+  // so take everything from index 9 onward and rejoin rather than positionally.
+  const annotation = fields.slice(9).join("\t");
   return {
     id,
     index: Number(index),
@@ -484,6 +484,7 @@ function windowFromRow(fields) {
     panes: Number(panes || 0),
     flags,
     activeCommand,
+    tty: tty || "",
     cwd: cwd || "",
     annotation: annotation || "",
   };
