@@ -70,6 +70,7 @@ export function renderMarkdown(src) {
     const fence = line.match(/^\s*```(.*)$/);
     if (fence) {
       closeList();
+      const lang = fence[1].trim().toLowerCase();
       const code = [];
       i += 1;
       while (i < lines.length && !/^\s*```/.test(lines[i])) {
@@ -77,7 +78,17 @@ export function renderMarkdown(src) {
         i += 1;
       }
       i += 1; // skip closing fence
-      html.push(`<pre class="md-code"><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+      const body = code.join("\n");
+      if (lang === "mermaid") {
+        // Emit a container the client upgrades to a rendered diagram (mermaid is
+        // lazy-loaded only when such a block exists). The escaped source is kept
+        // so it degrades to readable text if rendering fails or is unavailable.
+        html.push(
+          `<pre class="mermaid-block" data-mermaid="pending">${escapeHtml(body)}</pre>`,
+        );
+      } else {
+        html.push(`<pre class="md-code"><code>${escapeHtml(body)}</code></pre>`);
+      }
       continue;
     }
 

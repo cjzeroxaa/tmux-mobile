@@ -495,6 +495,38 @@ input {
   padding: 0;
 }
 
+/* Mermaid: the raw source block shown until (or instead of) rendering, and the
+   rendered diagram container. */
+.viewer-markdown pre.mermaid-block {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.85em;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.viewer-markdown pre.mermaid-block[data-mermaid="pending"] {
+  opacity: 0.6; /* dimmed while the diagram is being rendered */
+}
+
+.viewer-markdown pre.mermaid-block[data-mermaid="error"] {
+  border-left: 3px solid #c0392b;
+}
+
+.viewer-markdown .mermaid-rendered {
+  display: flex;
+  justify-content: center;
+  margin: 0.8em 0;
+}
+
+.viewer-markdown .mermaid-rendered svg {
+  max-width: 100%;
+  height: auto;
+}
+
 .viewer-markdown a {
   color: var(--accent-dark);
 }

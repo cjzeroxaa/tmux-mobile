@@ -2787,7 +2787,8 @@ function renderFileViewer(data) {
     const text = decodeBase64Utf8(data.base64);
     const wrap = document.createElement("div");
     wrap.className = "viewer-markdown";
-    wrap.innerHTML = renderMarkdown(text);
+    const rendered = renderMarkdown(text);
+    wrap.innerHTML = rendered;
     const container = document.createElement("div");
     container.replaceChildren(wrap);
     if (data.truncated) {
@@ -2797,6 +2798,17 @@ function renderFileViewer(data) {
       container.appendChild(note);
     }
     els.fileViewerBody.replaceChildren(container);
+    // Upgrade any ```mermaid blocks to rendered diagrams. Both mermaid.js and the
+    // heavy mermaid library it pulls from the CDN are imported lazily here — only
+    // when the file actually contains a diagram — so plain markdown never loads
+    // them. The cheap inline check avoids importing the module otherwise.
+    if (rendered.includes('class="mermaid-block"')) {
+      import("./mermaid.js")
+        .then((m) => m.renderMermaidIn(wrap))
+        .catch(() => {
+          /* leave diagram source visible if the module/CDN can't load */
+        });
+    }
     return;
   }
   els.fileViewerBody.innerHTML = '<div class="viewer-error">Unsupported file type.</div>';

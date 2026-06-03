@@ -171,9 +171,13 @@ captured pane output comes back through the correct user route.
 URLs in the pane are clickable. File paths ending in an image extension
 (`.png/.jpg/.jpeg/.gif/.svg/.webp/.bmp/.ico`) or a markdown extension
 (`.md/.markdown/.mdown/.mkd`) are also clickable and open an in-app viewer:
-images render inline, markdown renders to formatted HTML. The file is read on
-the agent's machine via a new `readfile` protocol op and `GET /api/file`, with
-the path resolved against the pane's working directory. Reads are **confined to
+images render inline, markdown renders to formatted HTML. Markdown
+` ```mermaid ` blocks render as diagrams — Mermaid is lazy-loaded from a CDN only
+when a file actually contains one (so plain markdown loads nothing extra) and
+runs with `securityLevel: 'strict'`; if it can't load, the diagram source stays
+visible. The file is read on the agent's machine via a new `readfile` protocol
+op and `GET /api/file`, with the path resolved against the pane's working
+directory. Reads are **confined to
 that cwd subtree** (symlink- and `../`-safe via `realpath`), capped at 5 MB, and
 limited to the viewable extensions — so the viewer can't be used to read
 arbitrary files on the machine.

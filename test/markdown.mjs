@@ -52,4 +52,22 @@ assert.ok(h.includes("<hr />"), "8 hr");
 h = renderMarkdown("![alt](https://example.com/a.png)");
 assert.ok(h.includes('<img alt="alt" src="https://example.com/a.png"'), `9 img: ${h}`);
 
+// 10. a ```mermaid block becomes a mermaid container (not a plain code block),
+//     with its source escaped and a pending marker for the client to upgrade.
+h = renderMarkdown("```mermaid\ngraph TD; A-->B;\n```");
+assert.ok(h.includes('class="mermaid-block"'), `10 mermaid container: ${h}`);
+assert.ok(h.includes('data-mermaid="pending"'), "10 pending marker");
+assert.ok(h.includes("graph TD; A--&gt;B;"), `10 source escaped (no raw -->): ${h}`);
+assert.ok(!h.includes("md-code"), "10 not a normal code block");
+
+// 11. a regular (non-mermaid) code block is still a normal code block
+h = renderMarkdown("```python\nprint('hi')\n```");
+assert.ok(h.includes('<pre class="md-code">'), "11 normal code block");
+assert.ok(!h.includes("mermaid-block"), "11 not mermaid");
+
+// 12. mermaid source with HTML/script is escaped (no injection via diagram text)
+h = renderMarkdown("```mermaid\n<script>alert(1)</script>\n```");
+assert.ok(h.includes("&lt;script&gt;"), "12 mermaid source escaped");
+assert.ok(!h.includes("<script>"), "12 no raw script in mermaid block");
+
 console.log("markdown unit tests passed");
