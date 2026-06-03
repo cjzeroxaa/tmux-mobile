@@ -97,6 +97,19 @@ const SUBMIT_NUDGE_DELAY_MS =
   configuredSubmitNudgeDelayMs >= 0
     ? configuredSubmitNudgeDelayMs
     : 700;
+// Gap between finishing a bracketed paste and sending the submit Enter. tmux
+// pastes text wrapped in bracketed-paste markers (ESC[200~ … ESC[201~); if the
+// Enter is sent immediately it arrives in the SAME terminal read as the paste
+// tail, and input-line apps (Claude/Codex CLIs, readline) often consume it as
+// part of paste finalization instead of as "submit" — so the line sits unsent.
+// A short delay makes the Enter land as its own keypress, reliably submitting.
+const PASTE_ENTER_DELAY_MS = parsePositiveInteger(
+  process.env.TMUX_PASTE_ENTER_DELAY_MS,
+  120,
+);
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 const SUMMARY_CACHE_MS = 60_000;
 const SUMMARY_LINES_DEFAULT = 20;
 const WINDOW_BRIEFING_LINES = 60;
@@ -425,6 +438,9 @@ async function pasteTextToPane(paneId, text) {
 async function sendTextToPane(paneId, text, { enter = false } = {}) {
   await pasteTextToPane(paneId, text);
   if (enter) {
+    // Wait for the bracketed paste to be fully consumed before the Enter, so the
+    // app sees Enter as a distinct submit keypress (see PASTE_ENTER_DELAY_MS).
+    await delay(PASTE_ENTER_DELAY_MS);
     await runTmux(["send-keys", "-t", paneId, "Enter"]);
     return { mode: "paste-buffer", sentEnter: true };
   }
@@ -1868,14 +1884,20 @@ async function handleApi(req, res, url) {
       return;
     }
 
-    const sendResult =
-      text.length > 0
-        ? await sendTextToPane(paneId, text, { enter: false })
-        : { mode: "none", sentEnter: false };
-    if (sendEnter) {
-      await runTmux(["send-keys", "-t", paneId, "Enter"]);
-      if (submitNudge && text.length > 0) {
+    let sendResult;
+    if (text.length > 0) {
+      // Paste + (optionally) Enter in one call so the paste->Enter delay applies
+      // and the Enter reliably submits rather than being eaten by the paste.
+      sendResult = await sendTextToPane(paneId, text, { enter: sendEnter });
+      if (sendEnter && submitNudge) {
         sendSubmitNudge(paneId);
+      }
+    } else {
+      // No text — a bare Enter keypress (e.g. the Enter quick-key). No paste, so
+      // no race; send it directly.
+      sendResult = { mode: "none", sentEnter: false };
+      if (sendEnter) {
+        await runTmux(["send-keys", "-t", paneId, "Enter"]);
       }
     }
     sendJson(res, 200, {
@@ -1926,12 +1948,11 @@ async function handleApi(req, res, url) {
       return;
     }
 
-    const sendResult = await sendTextToPane(paneId, text, { enter: false });
-    if (sendEnter) {
-      await runTmux(["send-keys", "-t", paneId, "Enter"]);
-      if (submitNudge) {
-        sendSubmitNudge(paneId);
-      }
+    // Paste + Enter together so the paste->Enter delay applies and the Enter
+    // reliably submits (rather than being consumed by the bracketed paste).
+    const sendResult = await sendTextToPane(paneId, text, { enter: sendEnter });
+    if (sendEnter && submitNudge) {
+      sendSubmitNudge(paneId);
     }
 
     sendJson(res, 200, {
