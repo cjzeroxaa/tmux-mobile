@@ -180,6 +180,26 @@ create, `POST /api/windows {duplicateFrom: windowId}` to duplicate, and
 `DELETE /api/windows {windowId}` to close (refuses to kill the last window in a
 session).
 
+### Window metadata
+
+Each window carries derived metadata (`lib/window-metadata.mjs`), exposed via
+`GET /api/window-metadata?sessionId=` as `{ [windowId]: { agentType, repo, git } }`:
+
+- **agentType** — `claude` / `codex` / `gemini` / null, from the running command.
+  A *live* field: cheap, recomputed every refresh.
+- **repo** — `{ host, owner, name }` from the git `origin` remote of the window's
+  cwd (for turning `PR #N` into a GitHub link). A *cwd-scoped* field: resolved on
+  the agent and cached by cwd with a 10-minute TTL (re-resolves when the cwd
+  changes; staleness is fine).
+- **git** — `{ branch, worktree }` (also cwd-scoped, short TTL).
+
+The metadata is a small **registry of descriptors** — each field is either `live`
+(computed from the window row) or `cwdScoped` (resolved via the agent + cached),
+so adding a field is one entry. Consumers today: an agent-type chip in the window
+list, and PR-reference linking (`PR #1234` → `github.com/owner/repo/issues/1234`
+for the active window's repo; bare `#1234` is deliberately not linked). Future
+uses: agent-specific mode switching and turn detection.
+
 ### Window annotations
 
 Each window in the target picker has a free-text **follow-up note** (e.g.

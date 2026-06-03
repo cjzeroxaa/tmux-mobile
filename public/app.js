@@ -131,7 +131,7 @@ const state = {
   windows: [],
   windowSummaries: {},
   windowActivity: {},
-  windowBranches: {},
+  windowMetadata: {}, // { [windowId]: { agentType, repo, git: {branch, worktree} } }
   activityTimer: null,
   summariesLoading: false,
   panes: [],
@@ -147,6 +147,7 @@ const state = {
   snapshotFullscreen: false,
   snapshotPinnedToBottom: true,
   pendingSnapshotText: null,
+  snapshotText: null,
   pendingUrlTarget: readUrlTarget(),
   directories: {
     cwd: "",
@@ -409,7 +410,7 @@ function resetTmuxState(message = "Select a window.") {
   state.windows = [];
   state.windowSummaries = {};
   state.windowActivity = {};
-  state.windowBranches = {};
+  state.windowMetadata = {};
   state.panes = [];
   state.sessionId = "";
   state.windowId = "";
@@ -529,10 +530,15 @@ function itemButton({
   cwd = "",
   branch = "",
   worktree = false,
+  agentType = "",
 }) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = `${className || "item"}${active ? " active" : ""}`;
+  // Small chip naming the AI agent running in the window (claude/codex/gemini).
+  const agentChip = agentType
+    ? `<span class="agent-chip agent-${escapeHtml(agentType)}">${escapeHtml(agentType)}</span>`
+    : "";
   // Combine branch + worktree on a single line. Show ↳ wt chip only when the
   // window is actually in a linked git worktree (not the main checkout).
   const worktreeChip = worktree
@@ -546,6 +552,7 @@ function itemButton({
   button.innerHTML = `
     <div class="item-title">
       <span>${escapeHtml(title)}</span>
+      ${agentChip}
       ${badge ? `<span class="badge ${badgeGreen ? "green" : ""}">${escapeHtml(badge)}</span>` : ""}
     </div>
     ${branchLine}
@@ -670,9 +677,10 @@ function renderWindows() {
     for (const win of wins) {
       const summary = state.windowSummaries[win.id];
       const live = Boolean(state.windowActivity[win.id]);
-      const info = state.windowBranches[win.id] || {};
-      const branch = info.branch || "";
-      const worktree = Boolean(info.worktree);
+      const meta = state.windowMetadata[win.id] || {};
+      const branch = meta.git?.branch || "";
+      const worktree = Boolean(meta.git?.worktree);
+      const agentType = meta.agentType || "";
       // Show the cwd's basename only when it carries new info — i.e. when it
       // differs from the branch name. With `git worktree add ../foo foo` the
       // dir and branch usually share a name, in which case the cwd row would
@@ -691,6 +699,7 @@ function renderWindows() {
           cwd: cwdLabel,
           branch,
           worktree,
+          agentType,
         }),
       );
       els.mobileWindows.append(windowAnnotationRow(win));
@@ -711,9 +720,9 @@ function renderTargetLabels() {
     }
     return;
   }
-  const info = state.windowBranches[win.id] || {};
-  const branch = info.branch || "";
-  const worktree = Boolean(info.worktree);
+  const meta = state.windowMetadata[win.id] || {};
+  const branch = meta.git?.branch || "";
+  const worktree = Boolean(meta.git?.worktree);
   // WT chip goes at the START of the label — the target-pill's strong has
   // text-overflow: ellipsis, so anything tacked on at the end gets clipped
   // first on long branch names. The chip needs to be unmissable, not the
@@ -831,7 +840,7 @@ function openTargetPicker() {
   refreshTree().then(() => {
     startActivityPolling();
     loadWindowSummaries({ force: false });
-    loadWindowBranches();
+    loadWindowMetadata();
   });
 }
 
@@ -2195,9 +2204,16 @@ function ansiStyle(state) {
   return parts.join(";");
 }
 
+// The active window's GitHub repo (for PR-reference linking), or null. Read
+// before ansiToHtml's local `state` shadow so it sees the real app state.
+function activeWindowRepo() {
+  return state.windowMetadata?.[state.windowId]?.repo || null;
+}
+
 // Convert capture-pane -e output (text with SGR color/style codes) to safe HTML.
 function ansiToHtml(text) {
   const input = String(text || "");
+  const repo = activeWindowRepo(); // captured before the local `state` shadow below
   const sgr = /\x1B\[([0-9;:]*)m/g;
   const state = freshAnsiState();
   let html = "";
@@ -2206,7 +2222,7 @@ function ansiToHtml(text) {
   const emit = (chunk) => {
     if (!chunk) return;
     const style = ansiStyle(state);
-    const body = linkifyEscaped(escapeHtml(chunk));
+    const body = linkifyEscaped(escapeHtml(chunk), { repo });
     html += style ? `<span style="${style}">${body}</span>` : body;
   };
   while ((m = sgr.exec(input)) !== null) {
@@ -2235,6 +2251,9 @@ function hasSnapshotSelection() {
 }
 
 function updateSnapshotText(text, { forceScrollBottom = false } = {}) {
+  // Remember the raw text so a later metadata change (e.g. the active window's
+  // repo resolving) can re-render to linkify PR refs without a re-fetch.
+  state.snapshotText = text;
   // Don't destroy a selection the user is actively making — refreshing
   // innerHTML mid-selection makes the text effectively uncopyable on mobile
   // (the next ~auto-refresh wipes the highlight before they can hit Copy). Defer
@@ -2497,17 +2516,23 @@ async function loadWindowSummaries({ force = false } = {}) {
   }
 }
 
-async function loadWindowBranches() {
+async function loadWindowMetadata() {
   if (state.windows.length === 0) return;
   try {
+    const prevRepo = JSON.stringify(activeWindowRepo());
     const lists = await Promise.all(
       state.sessions.map((session) =>
-        api(`/api/window-branches?sessionId=${encodeURIComponent(session.id)}`).catch(() => ({})),
+        api(`/api/window-metadata?sessionId=${encodeURIComponent(session.id)}`).catch(() => ({})),
       ),
     );
-    state.windowBranches = Object.assign({}, ...lists);
+    state.windowMetadata = Object.assign({}, ...lists);
     renderWindows();
     renderTargetLabels();
+    // If the active window's repo just became known (or changed), re-render the
+    // snapshot so PR references in the visible output get linkified.
+    if (JSON.stringify(activeWindowRepo()) !== prevRepo && state.snapshotText != null) {
+      updateSnapshotText(state.snapshotText);
+    }
   } catch {
     // ignore transient failures
   }

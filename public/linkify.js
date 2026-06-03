@@ -41,13 +41,37 @@ const FILE_IN_ESCAPED = new RegExp(
   "gi",
 );
 
-// Wrap URLs found in an already-escaped chunk with anchor tags. The href is
-// un-escaped back to raw characters (e.g. &amp; -> &) so the link points where
-// the terminal shows; the displayed text keeps its escaping.
-export function linkifyEscaped(escaped) {
+// Turn an already-escaped chunk into HTML with links. `opts.repo` (the active
+// window's { host, owner, name }) enables PR-reference linking when present.
+export function linkifyEscaped(escaped, opts = {}) {
   let out = linkifyUrls(String(escaped));
   out = linkifyFiles(out);
+  if (opts.repo && opts.repo.owner && opts.repo.name) {
+    out = linkifyPrRefs(out, opts.repo);
+  }
   return out;
+}
+
+// Matches "PR #1234" / "PR#1234" (case-insensitive), in already-escaped text.
+// Deliberately NOT bare "#1234" — that over-triggers on shell/markdown/diff text.
+const PR_REF_IN_ESCAPED = /\bPR\s*#(\d+)\b/gi;
+
+// Link PR references to the active window's GitHub repo. github.com/owner/repo/
+// issues/N auto-redirects to the PR, so we don't need to distinguish issue vs PR.
+// Runs after URL/file linkify and skips text already inside an <a> so it can't
+// double-wrap. Only used when a repo is known.
+function linkifyPrRefs(html, repo) {
+  const host = repo.host && repo.host !== "github.com" ? repo.host : "github.com";
+  const parts = html.split(/(<a\b[^>]*>.*?<\/a>)/gs);
+  return parts
+    .map((part, i) => {
+      if (i % 2 === 1) return part; // inside an <a> — leave it
+      return part.replace(PR_REF_IN_ESCAPED, (match, num) => {
+        const href = `https://${host}/${repo.owner}/${repo.name}/issues/${num}`;
+        return `<a href="${href}" class="pane-link" target="_blank" rel="noopener noreferrer">${match}</a>`;
+      });
+    })
+    .join("");
 }
 
 function linkifyUrls(escaped) {

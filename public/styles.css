@@ -1878,6 +1878,23 @@ input {
   color: var(--accent-dark);
 }
 
+/* AI agent type chip (claude/codex/gemini) in a window row. */
+.agent-chip {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  background: #ede7fb;
+  color: #5b3fb0;
+}
+
+.agent-chip.agent-claude { background: #f3e7df; color: #b5530f; }
+.agent-chip.agent-codex { background: #e3e9f5; color: #2f5bb7; }
+.agent-chip.agent-gemini { background: #e4f0e4; color: #2c7a3e; }
+
 .empty {
   border: 1px dashed var(--line);
   border-radius: 8px;

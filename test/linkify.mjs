@@ -89,4 +89,32 @@ for (const p of ["./demo.webm", "out/clip.mp4", "render/report.html", "~/v.mov"]
   assert.ok(out.includes(`data-file-path="${p}"`), `17 detects ${p}: ${out}`);
 }
 
+// --- PR reference linking (needs an active-window repo) ---
+const repo = { host: "github.com", owner: "sycamore-labs", name: "kernel" };
+const renderRepo = (t) => linkifyEscaped(escapeHtml(t), { repo });
+
+// 18. "PR #1234" -> github issues link (auto-redirects to the PR)
+out = renderRepo("landed in PR #4877 today");
+assert.ok(
+  out.includes('href="https://github.com/sycamore-labs/kernel/issues/4877"'),
+  `18 PR link: ${out}`,
+);
+assert.ok(out.includes(">PR #4877</a>"), "18 display text");
+
+// 19. "PR#1234" (no space) also matches
+out = renderRepo("see PR#12");
+assert.ok(out.includes("/issues/12"), `19 PR no-space: ${out}`);
+
+// 20. bare "#1234" is NOT linked (too noisy)
+out = renderRepo("comment #4877 and item #3");
+assert.ok(!out.includes("<a "), `20 bare # not linked: ${out}`);
+
+// 21. without a repo, "PR #1234" is left as plain text
+out = render("PR #4877 with no repo");
+assert.ok(!out.includes("<a "), `21 no repo -> no link: ${out}`);
+
+// 22. a non-github host is honored
+out = linkifyEscaped(escapeHtml("PR #5"), { repo: { host: "git.example.com", owner: "o", name: "r" } });
+assert.ok(out.includes('href="https://git.example.com/o/r/issues/5"'), `22 custom host: ${out}`);
+
 console.log("linkify unit tests passed");

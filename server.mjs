@@ -8,6 +8,10 @@ import { fileURLToPath } from "node:url";
 import { currentBackend, localBackend, withBackend } from "./lib/backend.mjs";
 import { OP } from "./lib/protocol.mjs";
 import {
+  computeWindowMetadata,
+  createMetadataCache,
+} from "./lib/window-metadata.mjs";
+import {
   VOICE_OPTIONS,
   describeVoiceConfig,
   getVoiceConfig,
@@ -766,20 +770,21 @@ async function getSessionWindowActivity(sessionId) {
   return result;
 }
 
-async function getSessionWindowBranches(sessionId) {
+// cwd-keyed TTL cache for expensive window metadata (repo, branch). Lives for
+// the process; shared across sessions/windows with the same cwd.
+const windowMetadataCache = createMetadataCache();
+
+// Returns { [windowId]: { agentType, repo, git: {branch, worktree} } } for a
+// session. Live fields (agentType) come free from the window row; cwd-scoped
+// fields (repo, git) are resolved via the agent and cached per cwd.
+async function getSessionWindowMetadata(sessionId) {
   const windows = await listWindows(sessionId);
-  const result = {};
-  await Promise.all(
-    windows.map(async (win) => {
-      if (!win.cwd) return;
-      try {
-        result[win.id] = await currentBackend().branch(win.cwd);
-      } catch {
-        result[win.id] = "";
-      }
-    }),
+  return computeWindowMetadata(
+    windows,
+    currentBackend(),
+    windowMetadataCache,
+    Date.now(),
   );
-  return result;
 }
 
 async function capturePane(paneId, mode, lineCount, { ansi = false } = {}) {
@@ -1843,9 +1848,14 @@ async function handleApi(req, res, url) {
     return;
   }
 
-  if (req.method === "GET" && url.pathname === "/api/window-branches") {
+  // Per-window metadata (agentType, repo, git branch/worktree). Replaces the
+  // old window-branches endpoint, which is kept as an alias for compatibility.
+  if (
+    req.method === "GET" &&
+    (url.pathname === "/api/window-metadata" || url.pathname === "/api/window-branches")
+  ) {
     const sessionId = requireId(url.searchParams.get("sessionId"), "session");
-    sendJson(res, 200, await getSessionWindowBranches(sessionId));
+    sendJson(res, 200, await getSessionWindowMetadata(sessionId));
     return;
   }
 
