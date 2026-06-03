@@ -158,6 +158,36 @@ h3 {
   color: var(--accent-dark);
 }
 
+/* "Needs you" pill in the topbar — appears when other windows' agents have
+   finished (unread) or are waiting on a question. Tap to jump to the first. */
+.needs-attention {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--accent, #35597a);
+  border-radius: 999px;
+  padding: 0 11px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  background: var(--accent, #35597a);
+  color: #fff;
+  box-shadow: var(--shadow);
+}
+
+.needs-attention .needs-dot {
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* Question-waiting is louder than just-finished. */
+.needs-attention.question {
+  background: #b3261e;
+  border-color: #b3261e;
+  animation: agentPulse 1.4s ease-in-out infinite;
+}
+
 /* "More" overflow menu in the topbar. The trigger is just an icon-button;
  * the dropdown is absolutely positioned below it, right-anchored so it stays
  * on-screen on narrow phones. */
@@ -2120,6 +2150,12 @@ input {
 }
 .agent-chip.turn-idle {
   opacity: 0.6;
+}
+/* Waiting on an AskUserQuestion prompt — the strongest "needs you" state. */
+.agent-chip.turn-ask {
+  background: #fde8e8;
+  color: #b3261e;
+  animation: agentPulse 1.4s ease-in-out infinite;
 }
 @keyframes agentPulse {
   0%, 100% { opacity: 1; }

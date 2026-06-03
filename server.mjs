@@ -835,9 +835,12 @@ async function getSessionWindowMetadata(sessionId) {
             paneTail: clean.split("\n").slice(-12).join("\n"),
           });
         }
-        // Note: AskUserQuestion detection/parsing is NOT done here — it's fully
-        // on-demand via /api/ask-question when the user taps "Answer question",
-        // so the metadata poll stays cheap (no per-poll scanning).
+        // Cheap "is this pane blocked on an AskUserQuestion prompt?" check — just
+        // the detector's two regex tests over the screen we already captured (NOT
+        // the full parse, which stays on-demand via /api/ask-question). This lets
+        // the UI flag a window as "waiting for your answer" distinctly from a
+        // turn that merely ended.
+        base[win.id].waitingForInput = isAskQuestion(clean);
       } catch {
         // pane vanished / capture failed — leave turn & contentHash unset
       }

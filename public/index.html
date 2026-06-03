@@ -37,6 +37,9 @@
         <button id="openTargetPicker" class="target-pill" type="button">
           <strong id="mobileTargetLabel">No window selected</strong>
         </button>
+        <!-- "Needs you" pill: shown when one or more other windows' agents have
+             finished (unread) or are waiting on a question. Tap to jump. -->
+        <button id="needsAttention" class="needs-attention" type="button" hidden aria-live="polite"></button>
         <!-- Four window-management actions folded behind a single "More"
              button so the topbar has room for the full path. -->
         <div class="more-actions">

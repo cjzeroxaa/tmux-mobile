@@ -240,14 +240,28 @@ Each window carries derived metadata (`lib/window-metadata.mjs`), exposed via
   claude from its pane title (a braille-spinner prefix = working, steady
   `✳ Claude Code` = idle); codex from its pane footer (`Worked for…` = working,
   `Goal achieved` / idle prompt = idle).
+- **waitingForInput** — `true` when the pane is blocked on an AskUserQuestion
+  prompt. Cheap: the `isAskQuestion()` detector's two regex tests over the screen
+  already captured for `turn`/`contentHash` (the full parse stays on-demand). This
+  is the strongest "needs you" signal — distinct from a turn that merely ended.
 - **contentHash** — a short hash of the visible pane, used by the client for
   **unread** detection: a window whose hash differs from what it had at your last
   visit is flagged with a dot ("new since last visit"); unchanged = nothing to
   revisit. Visiting a window (or viewing it) updates its baseline.
 
-The window list shows a turn-tinted agent chip (working pulses, idle dimmed) and
-an unread dot, so you can glance to see which agent windows finished and which
-have new output worth revisiting.
+The window list shows a turn-tinted agent chip (working pulses, idle dimmed,
+`❓ ask` when waiting on a question) and an unread dot.
+
+**"Needs you" indicators.** A window *needs you* when its agent is waiting on a
+question, or its turn ended (idle) and its content changed since you last looked
+(idle + unread). To surface this without opening the picker, the client runs a
+**background metadata poll** (every 5s, 12s when the tab is hidden — kept alive
+even with the picker closed) and reflects the result three ways: an always-visible
+topbar **pill** (`● N waiting`, or a louder pulsing `❓ N needs answer` when any is
+a question) that jumps to the first such window on tap (auto-opening the answer
+overlay for a question); the browser **tab title** (`(N) …`) and a badged
+**favicon** (canvas-drawn dot), so a backgrounded tab/PWA still shows the count;
+and the per-window chip above. The current window never counts itself.
 
 The metadata is a small **registry of descriptors** — each field is either `live`
 (computed from the window row) or `cwdScoped` (resolved via the agent + cached),

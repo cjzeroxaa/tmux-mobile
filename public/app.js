@@ -126,6 +126,32 @@ function windowRecentKey(win) {
   return [state.machineId || "local", sessionName, win.index].join("\u001f");
 }
 
+// Does this window need the user's attention? Two cases, strongest first:
+//   "question" — the agent is blocked on an AskUserQuestion prompt.
+//   "finished" — the agent's turn ended (idle) AND its content changed since you
+//                last looked (unread) — i.e. it finished something you haven't
+//                seen.
+// The currently-viewed window never "needs you" (you're already looking at it).
+// Returns "question" | "finished" | null.
+function windowNeedsAttention(win) {
+  if (!win || win.id === state.windowId) return null;
+  const meta = state.windowMetadata[win.id] || {};
+  if (meta.waitingForInput) return "question";
+  if (meta.turn === "idle" && isWindowUnread(win)) return "finished";
+  return null;
+}
+
+// All windows currently needing attention, with their reason — drives the topbar
+// pill, the tab-title/favicon badge, and lets a tap jump to the first one.
+function windowsNeedingAttention() {
+  const out = [];
+  for (const win of state.windows) {
+    const reason = windowNeedsAttention(win);
+    if (reason) out.push({ win, reason });
+  }
+  return out;
+}
+
 function recordRecentWindow(win) {
   const key = windowRecentKey(win);
   if (!key) return;
@@ -173,6 +199,7 @@ const state = {
   windowActivity: {},
   windowMetadata: {}, // { [windowId]: { agentType, repo, git: {branch, worktree} } }
   activityTimer: null,
+  metadataTimer: null, // background "needs you" metadata poll
   summariesLoading: false,
   panes: [],
   sessionId: "",
@@ -256,6 +283,7 @@ const els = {
   createSession: document.querySelector("#createSession"),
   mobileWindows: document.querySelector("#mobileWindows"),
   mobileTargetLabel: document.querySelector("#mobileTargetLabel"),
+  needsAttention: document.querySelector("#needsAttention"),
   snapshot: document.querySelector("#snapshot"),
   fileViewerSheet: document.querySelector("#fileViewerSheet"),
   fileViewerBackdrop: document.querySelector("#fileViewerBackdrop"),
@@ -454,6 +482,7 @@ function setStatus(text, ok = true) {
 }
 
 function resetTmuxState(message = "Select a window.") {
+  stopMetadataPolling();
   state.sessions = [];
   state.windows = [];
   state.windowSummaries = {};
@@ -466,6 +495,7 @@ function resetTmuxState(message = "Select a window.") {
   renderMachinePicker();
   renderWindows();
   renderTargetLabels();
+  updateAttentionIndicators(); // clears title/favicon/pill
   resetDirectoryNavigator();
   updateSnapshotText(message, { forceScrollBottom: true });
 }
@@ -581,14 +611,25 @@ function itemButton({
   agentType = "",
   turn = "",
   unread = false,
+  waitingForInput = false,
 }) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = `${className || "item"}${active ? " active" : ""}${unread ? " unread" : ""}`;
   // Small chip naming the AI agent running in the window (claude/codex/gemini),
-  // tinted by turn state: "working" pulses, "idle" is muted (turn ended).
+  // tinted by turn state: "working" pulses, "idle" is muted (turn ended). A
+  // window blocked on an AskUserQuestion prompt gets a distinct "❓ ask" state —
+  // the strongest "needs you" signal.
+  const turnState = waitingForInput ? "ask" : turn || "unknown";
+  const turnSuffix = waitingForInput
+    ? " ❓"
+    : turn === "working"
+      ? " ●"
+      : turn === "idle"
+        ? " ✓"
+        : "";
   const agentChip = agentType
-    ? `<span class="agent-chip agent-${escapeHtml(agentType)} turn-${escapeHtml(turn || "unknown")}">${escapeHtml(agentType)}${turn === "working" ? " ●" : turn === "idle" ? " ✓" : ""}</span>`
+    ? `<span class="agent-chip agent-${escapeHtml(agentType)} turn-${escapeHtml(turnState)}">${escapeHtml(agentType)}${turnSuffix}</span>`
     : "";
   // Unread dot: this window changed since you last visited it.
   const unreadDot = unread ? `<span class="unread-dot" title="New since last visit" aria-label="unread">●</span>` : "";
@@ -736,6 +777,7 @@ function renderWindows() {
       const worktree = Boolean(meta.git?.worktree);
       const agentType = meta.agentType || "";
       const turn = meta.turn || "";
+      const waitingForInput = Boolean(meta.waitingForInput) && win.id !== state.windowId;
       const unread = isWindowUnread(win) && win.id !== state.windowId;
       // Show the cwd's basename only when it carries new info — i.e. when it
       // differs from the branch name. With `git worktree add ../foo foo` the
@@ -758,6 +800,7 @@ function renderWindows() {
           agentType,
           turn,
           unread,
+          waitingForInput,
         }),
       );
       els.mobileWindows.append(windowAnnotationRow(win));
@@ -2462,6 +2505,8 @@ async function refreshTree({
     if (state.targetPickerOpen) {
       startActivityPolling();
     }
+    // Keep "needs you" indicators live in the background (picker closed too).
+    startMetadataPolling();
     if (syncUrl) {
       updateTargetUrl();
     }
@@ -2584,6 +2629,106 @@ async function loadWindowSummaries({ force = false } = {}) {
   }
 }
 
+// --- "Needs you" attention indicators (tab title/favicon + topbar pill) ---
+
+// The original document title, captured once so the badge can be added/removed
+// without losing it.
+const BASE_DOCUMENT_TITLE = document.title;
+let badgedFaviconUrl = null; // cached data: URL for the badged favicon
+let originalFaviconHref = null;
+
+function faviconLink() {
+  return document.querySelector('link[rel="icon"][type="image/png"]')
+    || document.querySelector('link[rel="icon"]');
+}
+
+// Draw a small red dot in the corner of the app icon and return a data URL. Done
+// once and cached. If the icon can't be loaded (e.g. taints the canvas), returns
+// null and we fall back to a title-only badge.
+function buildBadgedFavicon() {
+  return new Promise((resolve) => {
+    const link = faviconLink();
+    const href = link?.href || "/icon-192.png";
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const size = 64;
+        const c = document.createElement("canvas");
+        c.width = size;
+        c.height = size;
+        const ctx = c.getContext("2d");
+        ctx.drawImage(img, 0, 0, size, size);
+        const r = size * 0.26;
+        ctx.beginPath();
+        ctx.arc(size - r, r, r, 0, Math.PI * 2);
+        ctx.fillStyle = "#e5484d";
+        ctx.fill();
+        ctx.lineWidth = size * 0.06;
+        ctx.strokeStyle = "#fff";
+        ctx.stroke();
+        resolve(c.toDataURL("image/png"));
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = href;
+  });
+}
+
+async function setFaviconBadged(badged) {
+  const link = faviconLink();
+  if (!link) return;
+  if (originalFaviconHref === null) originalFaviconHref = link.href;
+  if (badged) {
+    if (badgedFaviconUrl === null) badgedFaviconUrl = await buildBadgedFavicon();
+    if (badgedFaviconUrl) link.href = badgedFaviconUrl;
+  } else if (originalFaviconHref) {
+    link.href = originalFaviconHref;
+  }
+}
+
+// Reflect the current "needs you" set into: the tab title + favicon (so a
+// backgrounded tab/PWA shows a count), and the always-visible topbar pill.
+function updateAttentionIndicators() {
+  const pending = windowsNeedingAttention();
+  const count = pending.length;
+  const anyQuestion = pending.some((p) => p.reason === "question");
+
+  // Tab title + favicon badge.
+  document.title = count > 0 ? `(${count}) ${BASE_DOCUMENT_TITLE}` : BASE_DOCUMENT_TITLE;
+  setFaviconBadged(count > 0);
+
+  // Topbar pill.
+  if (els.needsAttention) {
+    if (count > 0) {
+      const icon = anyQuestion ? "❓" : "●";
+      const noun = anyQuestion ? "needs answer" : count === 1 ? "waiting" : "waiting";
+      els.needsAttention.hidden = false;
+      els.needsAttention.classList.toggle("question", anyQuestion);
+      els.needsAttention.innerHTML = `<span class="needs-dot" aria-hidden="true">${icon}</span>${count} ${noun}`;
+      els.needsAttention.setAttribute(
+        "aria-label",
+        `${count} window${count === 1 ? "" : "s"} ${anyQuestion ? "waiting for an answer" : "finished and unread"}`,
+      );
+    } else {
+      els.needsAttention.hidden = true;
+    }
+  }
+}
+
+// Jump to the first window that needs attention (tapping the pill). If it's
+// waiting on a question, open the answer overlay straight away.
+function jumpToFirstAttention() {
+  const pending = windowsNeedingAttention();
+  if (!pending.length) return;
+  const { win, reason } = pending[0];
+  selectWindow(win.id);
+  if (reason === "question") {
+    window.setTimeout(() => openAskOverlay(), 350);
+  }
+}
+
 async function loadWindowMetadata() {
   if (state.windows.length === 0) return;
   try {
@@ -2601,6 +2746,7 @@ async function loadWindowMetadata() {
     if (activeWin) markWindowVisited(activeWin);
     renderWindows();
     renderTargetLabels();
+    updateAttentionIndicators();
     // If the active window's repo just became known (or changed), re-render the
     // snapshot so PR references in the visible output get linkified.
     if (JSON.stringify(activeWindowRepo()) !== prevRepo && state.snapshotText != null) {
@@ -2639,6 +2785,46 @@ function stopActivityPolling() {
     state.activityTimer = null;
   }
 }
+
+// Background metadata poll so turn / unread / waiting state (and the "needs you"
+// indicators) stay fresh even when the target picker is closed — including while
+// the tab is backgrounded, which is exactly when the tab-title/favicon badge
+// earns its keep. Throttled when hidden to keep it cheap. (The picker also calls
+// loadWindowMetadata() directly for an immediate refresh on open.)
+const METADATA_POLL_VISIBLE_MS = 5000;
+const METADATA_POLL_HIDDEN_MS = 12000;
+
+function metadataPollInterval() {
+  return document.hidden ? METADATA_POLL_HIDDEN_MS : METADATA_POLL_VISIBLE_MS;
+}
+
+function startMetadataPolling() {
+  stopMetadataPolling();
+  if (state.sessions.length === 0) return;
+  loadWindowMetadata(); // immediate first read
+  state.metadataTimer = window.setTimeout(
+    async function tick() {
+      await loadWindowMetadata();
+      state.metadataTimer = window.setTimeout(tick, metadataPollInterval());
+    },
+    metadataPollInterval(),
+  );
+}
+
+function stopMetadataPolling() {
+  if (state.metadataTimer) {
+    window.clearTimeout(state.metadataTimer);
+    state.metadataTimer = null;
+  }
+}
+
+// When the tab is hidden the in-flight timer keeps its (longer) cadence; on
+// becoming visible again, refresh right away so the badge clears promptly.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && state.sessions.length > 0) {
+    startMetadataPolling();
+  }
+});
 
 async function selectWindow(windowId) {
   const win = state.windows.find((item) => item.id === windowId);
@@ -3872,6 +4058,9 @@ els.machineSelect?.addEventListener("change", () => {
   });
 });
 els.openTargetPicker.addEventListener("click", openTargetPicker);
+if (els.needsAttention) {
+  els.needsAttention.addEventListener("click", jumpToFirstAttention);
+}
 els.closeTargetPicker.addEventListener("click", closeTargetPicker);
 els.targetBackdrop.addEventListener("click", closeTargetPicker);
 els.openDirectoryPicker.addEventListener("click", openDirectoryPicker);
