@@ -1614,6 +1614,46 @@ input {
   color: var(--muted);
 }
 
+/* Per-session follow-up note shown under the session header. Full-width button;
+   reads as a sticky note when set, a subtle "+ add note" when empty. */
+.session-annotation {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.session-annotation.has-note {
+  border-style: solid;
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
+.session-annotation-icon {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.session-annotation-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.session-annotation:hover {
+  border-color: var(--accent, #6c88a6);
+}
+
 .mobile-target-groups {
   display: grid;
   min-height: 0;

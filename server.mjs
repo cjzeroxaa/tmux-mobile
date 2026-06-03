@@ -193,7 +193,7 @@ function loadLocalEnv(filePath) {
 
 const formats = {
   sessions:
-    "#{session_id}\t#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created_string}",
+    "#{session_id}\t#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created_string}\t#{@tm_annotation}",
   windows:
     "#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{window_flags}\t#{pane_current_command}\t#{pane_current_path}",
   panes:
@@ -455,13 +455,18 @@ function sendSubmitNudge(paneId) {
   }, SUBMIT_NUDGE_DELAY_MS);
 }
 
-function sessionFromRow([id, name, windows, attached, created]) {
+function sessionFromRow(fields) {
+  const [id, name, windows, attached, created] = fields;
+  // The annotation is the last format field and is free text (may contain tabs),
+  // so take everything from index 5 onward and rejoin rather than positionally.
+  const annotation = fields.slice(5).join("\t");
   return {
     id,
     name,
     windows: Number(windows || 0),
     attached: attached === "1",
     created,
+    annotation: annotation || "",
   };
 }
 
@@ -511,10 +516,32 @@ async function renameSession(sessionId, name) {
   const sessionName = requireSessionName(name);
   await runTmux(["rename-session", "-t", sessionId, sessionName]);
   clearSessionSummaryCache(sessionId);
+  return readSessionRow(sessionId, "renamed");
+}
+
+// Store a free-text follow-up note on the session as the @tm_annotation user
+// option. Empty/whitespace clears it (unset-option). Returns the updated session.
+async function setSessionAnnotation(sessionId, annotation) {
+  requireId(sessionId, "session");
+  const text = String(annotation ?? "");
+  if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
+    const error = new Error("Annotation is too large");
+    error.status = 413;
+    throw error;
+  }
+  if (text.trim() === "") {
+    await runTmux(["set-option", "-t", sessionId, "-u", "@tm_annotation"]);
+  } else {
+    await runTmux(["set-option", "-t", sessionId, "@tm_annotation", text]);
+  }
+  return readSessionRow(sessionId, "annotated");
+}
+
+async function readSessionRow(sessionId, what) {
   const stdout = await runTmux(["display-message", "-p", "-t", sessionId, formats.sessions]);
   const [row] = rows(stdout);
   if (!row) {
-    const error = new Error("tmux did not return the renamed session");
+    const error = new Error(`tmux did not return the ${what} session`);
     error.status = 500;
     throw error;
   }
@@ -1713,7 +1740,12 @@ async function handleApi(req, res, url) {
   if (req.method === "PATCH" && url.pathname === "/api/sessions") {
     const body = await readJsonBody(req);
     const sessionId = requireId(body.sessionId, "session");
-    sendJson(res, 200, await renameSession(sessionId, body.name));
+    // `annotation` present -> set the follow-up note; otherwise rename.
+    if (Object.prototype.hasOwnProperty.call(body, "annotation")) {
+      sendJson(res, 200, await setSessionAnnotation(sessionId, body.annotation));
+    } else {
+      sendJson(res, 200, await renameSession(sessionId, body.name));
+    }
     return;
   }
 

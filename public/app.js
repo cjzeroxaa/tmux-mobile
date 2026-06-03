@@ -568,6 +568,54 @@ function recentWindowButton(win) {
   });
 }
 
+// A per-session annotation row under the session header: a free-text follow-up
+// note (e.g. "waiting on CI #4567") useful for tracking long-running tasks.
+// Click to edit; stored server-side on the tmux session so it follows the
+// session across devices and restarts.
+function sessionAnnotationRow(session) {
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "session-annotation";
+  const note = (session.annotation || "").trim();
+  if (note) {
+    row.classList.add("has-note");
+    const icon = document.createElement("span");
+    icon.className = "session-annotation-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = "📝";
+    const text = document.createElement("span");
+    text.className = "session-annotation-text";
+    text.textContent = note;
+    row.append(icon, text);
+    row.title = "Edit note";
+    row.setAttribute("aria-label", `Session note: ${note}. Tap to edit.`);
+  } else {
+    row.textContent = "+ add note";
+    row.title = "Add a follow-up note";
+    row.setAttribute("aria-label", "Add a session note");
+  }
+  row.addEventListener("click", () => editSessionAnnotation(session));
+  return row;
+}
+
+async function editSessionAnnotation(session) {
+  const current = session.annotation || "";
+  const next = window.prompt(`Note for session "${session.name}":`, current);
+  if (next === null) return; // cancelled
+  try {
+    const updated = await api("/api/sessions", {
+      method: "PATCH",
+      body: JSON.stringify({ sessionId: session.id, annotation: next }),
+    });
+    // Reflect the new value locally and re-render so it shows immediately.
+    const s = state.sessions.find((item) => item.id === session.id);
+    if (s) s.annotation = updated.annotation || "";
+    renderWindows();
+  } catch (error) {
+    setStatus(error.message || "Could not save note", false);
+  }
+}
+
 // One flat list of every window, grouped under a session header — no session
 // dropdown, so any window is one tap away — with a Recent section on top for
 // quick switching back to where you just were.
@@ -607,6 +655,7 @@ function renderWindows() {
       <span class="window-group-count">${wins.length} win${wins.length === 1 ? "" : "s"}${session.attached ? " · attached" : ""}</span>
     `;
     els.mobileWindows.append(header);
+    els.mobileWindows.append(sessionAnnotationRow(session));
 
     for (const win of wins) {
       const summary = state.windowSummaries[win.id];
