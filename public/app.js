@@ -1100,6 +1100,23 @@ function composerFocus() {
   else els.textInput.focus();
 }
 
+// Drop focus from the editor so the mobile virtual keyboard retracts. Lexical
+// reconciles asynchronously and re-asserts DOM focus while it still holds a
+// selection, so clearing the selection first (inside an update) is what actually
+// lets the blur stick; then blur the contenteditable element directly.
+function composerBlur() {
+  const node = els.textInput;
+  if (!node) return;
+  if (composerEditor) {
+    const { editor, lexical } = composerEditor;
+    editor.update(() => {
+      lexical.$setSelection(null);
+    });
+    editor.blur();
+  }
+  node.blur();
+}
+
 // Set the composer's contents to `text` (replace) with the caret at the end.
 function composerSetText(text) {
   const value = String(text || "");
@@ -1187,7 +1204,7 @@ function clearPendingVoiceAudio() {
   renderVoiceRetry();
 }
 
-async function submitTextComposer(event) {
+async function submitTextComposer(event, { keepFocus = true } = {}) {
   event?.preventDefault();
   const text = composerGetText();
   if (!text.trim()) {
@@ -1199,9 +1216,11 @@ async function submitTextComposer(event) {
     return;
   }
 
-  // Clear the box and keep it focused for the next message.
+  // Clear the box. Enter-to-send keeps focus (you're mid-flow typing); tapping
+  // the Send button is an explicit "done" → blur so the virtual keyboard hides.
   composerClear();
-  composerFocus();
+  if (keepFocus) composerFocus();
+  else composerBlur();
   els.submitText.disabled = true;
   // Remember what was sent so it shows under "Recent" in the Insert picker.
   pushComposerHistory(text);
@@ -4267,7 +4286,10 @@ document.addEventListener("visibilitychange", () => {
 // controls take over (the mic itself is hidden via CSS).
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
 // Submit: send the box contents to the pane.
-els.submitText.addEventListener("click", submitTextComposer);
+// Send button = explicit "done": submit and hide the virtual keyboard.
+els.submitText.addEventListener("click", (event) =>
+  submitTextComposer(event, { keepFocus: false }),
+);
 els.textInput.addEventListener("input", () => {
   if (!composerEditor) {
     els.textInput.classList.toggle("empty", els.textInput.innerText.trim().length === 0);
