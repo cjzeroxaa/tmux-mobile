@@ -14,6 +14,8 @@ import {
 import { detectTurn } from "./lib/turn-detection.mjs";
 import { detectAgentMode, AGENT_MODES } from "./lib/agent-mode.mjs";
 import { isScrollbackMode } from "./lib/pane-mode.mjs";
+import { renderMarkdown } from "./public/markdown.js";
+import { escapeHtml as escapeHtmlShared } from "./public/linkify.js";
 import { isAskQuestion, parseAskQuestion } from "./lib/ask-question.mjs";
 import {
   singleSelectKeys,
@@ -94,6 +96,125 @@ function fileContentType(filePath) {
     EXTERNAL_EXTS.get(ext) ||
     "text/markdown; charset=utf-8"
   );
+}
+
+// Make a basename safe for a Content-Disposition filename: strip path bits and
+// quotes/control chars that could break the header or smuggle directives.
+function sanitizeFilename(name) {
+  return String(name || "file")
+    .replace(/^.*[/\\]/, "") // basename only
+    .replace(/["\r\n]/g, "") // no quotes/newlines in the header
+    .replace(/[\x00-\x1f]/g, "")
+    .slice(0, 255) || "file";
+}
+
+// Wrap rendered markdown in a minimal, self-contained HTML page for a new tab.
+// The <title> is the file name so the tab label and "Save as…" are sensible.
+// Styles are inlined (the tab isn't the app) and kept close to the in-app viewer.
+function renderMarkdownPage(name, markdown, truncated) {
+  const title = escapeHtmlShared(sanitizeFilename(name));
+  const body = renderMarkdown(markdown);
+  const note = truncated
+    ? '<p class="trunc">Showing the first part of a large file.</p>'
+    : "";
+  // Lazily upgrade ```mermaid blocks to diagrams — only inject the script when
+  // the page actually contains one (mirrors the in-app lazy CDN loader). strict
+  // securityLevel so an untrusted diagram can't inject HTML/script.
+  const mermaidScript = /class="mermaid-block"/.test(body)
+    ? `<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: false, securityLevel: "strict",
+    theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default" });
+  let n = 0;
+  for (const block of document.querySelectorAll('pre.mermaid-block')) {
+    try {
+      const { svg } = await mermaid.render("md-" + (++n), block.textContent);
+      const fig = document.createElement("div"); fig.innerHTML = svg; block.replaceWith(fig);
+    } catch (e) { block.title = "Mermaid render failed: " + (e?.message || ""); }
+  }
+</script>`
+    : "";
+  return `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${title}</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { max-width: 820px; margin: 0 auto; padding: 24px 18px 64px;
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  h1,h2,h3,h4 { line-height: 1.25; }
+  pre { background: rgba(127,127,127,.12); padding: 12px; border-radius: 8px; overflow:auto; }
+  code { background: rgba(127,127,127,.14); padding: .1em .35em; border-radius: 4px; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; }
+  th, td { border: 1px solid rgba(127,127,127,.4); padding: 6px 10px; }
+  blockquote { margin: .6em 0; padding-left: 12px; border-left: 3px solid rgba(127,127,127,.5); opacity:.85; }
+  img { max-width: 100%; height: auto; }
+  li.task-item { list-style: none; margin-left: -1.2em; }
+  del { opacity: .7; }
+  .trunc { color: #b26b00; font-style: italic; }
+  svg { max-width: 100%; height: auto; }
+</style>
+</head><body>
+${note}
+${body}
+${mermaidScript}
+</body></html>`;
+}
+
+// Shared validation + read for the file-serving routes (/api/file, /api/file-raw,
+// /api/file-view). Returns { requestedPath, name, kind, contentType, result } on
+// success, or null after sending the appropriate error response.
+async function readFileForServing(req, res, url) {
+  const paneId = requireId(url.searchParams.get("paneId"), "pane");
+  const requestedPath = String(url.searchParams.get("path") || "");
+  if (!requestedPath) {
+    sendJson(res, 400, { error: "path is required" });
+    return null;
+  }
+  const kind = fileKind(requestedPath);
+  if (kind === "other") {
+    sendJson(res, 415, { error: "Unsupported file type" });
+    return null;
+  }
+  const backend = currentBackend();
+  if (typeof backend.supportsOp === "function" && !backend.supportsOp(OP.READFILE)) {
+    sendJson(res, 501, {
+      error:
+        "This machine's connector is out of date — restart it (node server.mjs --register …) to view files.",
+    });
+    return null;
+  }
+  const cwd = await getPaneCwd(paneId);
+  const isAbsoluteOrHome = path.isAbsolute(requestedPath) || requestedPath.startsWith("~");
+  if (!cwd && !isAbsoluteOrHome) {
+    sendJson(res, 404, { error: "Pane has no working directory" });
+    return null;
+  }
+  try {
+    const result = await backend.readfile(requestedPath, {
+      baseDir: cwd,
+      maxBytes: kind === "external" ? FILE_EXTERNAL_MAX_BYTES : FILE_VIEWER_MAX_BYTES,
+    });
+    return {
+      requestedPath,
+      name: path.basename(requestedPath),
+      kind,
+      contentType: fileContentType(requestedPath),
+      result,
+    };
+  } catch (error) {
+    if (/unknown op/i.test(error.message) || error instanceof TypeError) {
+      sendJson(res, 501, {
+        error: "This machine's connector is out of date — restart it to view files.",
+      });
+      return null;
+    }
+    const status = error.code === "EACCES" ? 403 : 404;
+    sendJson(res, status, { error: error.message || "Could not read file" });
+    return null;
+  }
 }
 
 // Sanitize a voice-send prefix (e.g. "/btw "). Allow a leading-slash command
@@ -2227,65 +2348,65 @@ async function handleApi(req, res, url) {
   // boundary is the OS file permissions of the user the agent runs as — a file
   // that user can read is served; one they can't yields EACCES.
   if (req.method === "GET" && url.pathname === "/api/file") {
-    const paneId = requireId(url.searchParams.get("paneId"), "pane");
-    const requestedPath = String(url.searchParams.get("path") || "");
-    if (!requestedPath) {
-      sendJson(res, 400, { error: "path is required" });
-      return;
-    }
-    const kind = fileKind(requestedPath);
-    if (kind === "other") {
-      sendJson(res, 415, { error: "Unsupported file type" });
-      return;
-    }
-    const backend = currentBackend();
-    // The connected agent may predate the readfile op (connector not restarted
-    // onto current code). Detect that up front and tell the user plainly instead
-    // of leaking a raw "unknown op: readfile" from the agent.
-    if (typeof backend.supportsOp === "function" && !backend.supportsOp(OP.READFILE)) {
-      sendJson(res, 501, {
-        error:
-          "This machine's connector is out of date — restart it (node server.mjs --register …) to view files.",
-      });
-      return;
-    }
-    const cwd = await getPaneCwd(paneId);
-    // cwd is only needed to resolve a relative path; absolute and ~ paths don't
-    // need it.
-    const isAbsoluteOrHome = path.isAbsolute(requestedPath) || requestedPath.startsWith("~");
-    if (!cwd && !isAbsoluteOrHome) {
-      sendJson(res, 404, { error: "Pane has no working directory" });
-      return;
-    }
-    let result;
-    try {
-      result = await backend.readfile(requestedPath, {
-        baseDir: cwd,
-        maxBytes: kind === "external" ? FILE_EXTERNAL_MAX_BYTES : FILE_VIEWER_MAX_BYTES,
-      });
-    } catch (error) {
-      // Safety net: an agent that slipped past the capability check (or any
-      // backend missing the method) still gets a clear message.
-      if (/unknown op/i.test(error.message) || error instanceof TypeError) {
-        sendJson(res, 501, {
-          error:
-            "This machine's connector is out of date — restart it to view files.",
-        });
-        return;
-      }
-      const status = error.code === "EACCES" ? 403 : 404;
-      sendJson(res, status, { error: error.message || "Could not read file" });
-      return;
-    }
+    const f = await readFileForServing(req, res, url);
+    if (!f) return; // error already sent
     sendJson(res, 200, {
-      path: requestedPath,
-      name: path.basename(requestedPath),
-      kind,
-      contentType: fileContentType(requestedPath),
-      base64: result.base64,
-      size: result.size,
-      truncated: result.truncated,
+      path: f.requestedPath,
+      name: f.name,
+      kind: f.kind,
+      contentType: f.contentType,
+      base64: f.result.base64,
+      size: f.result.size,
+      truncated: f.result.truncated,
     });
+    return;
+  }
+
+  // Raw file streaming with a SENSIBLE filename. Used so artifacts open in a new
+  // tab as a real URL (not an opaque blob:) and downloads save under the actual
+  // file name via Content-Disposition. Routed by machineId (header OR ?machineId)
+  // and cookie-authed like every /api route, so a plain tab navigation works.
+  // `?dl=1` forces a download (attachment); otherwise the browser shows it inline.
+  if (req.method === "GET" && url.pathname === "/api/file-raw") {
+    const f = await readFileForServing(req, res, url);
+    if (!f) return;
+    const bytes = Buffer.from(f.result.base64, "base64");
+    const download = url.searchParams.get("dl") === "1";
+    res.writeHead(200, {
+      "content-type": f.contentType,
+      "content-disposition": `${download ? "attachment" : "inline"}; filename="${sanitizeFilename(f.name)}"`,
+      "content-length": String(bytes.length),
+      "cache-control": "no-store",
+    });
+    res.end(bytes);
+    return;
+  }
+
+  // Markdown rendered to a standalone HTML page for opening in a new tab — keeps
+  // the formatted view (headings, lists, tables) with a real document <title> so
+  // the tab and any "Save as" use the file's name, not a blob GUID.
+  if (req.method === "GET" && url.pathname === "/api/file-view") {
+    const f = await readFileForServing(req, res, url);
+    if (!f) return;
+    if (f.kind !== "markdown") {
+      // Non-markdown has nothing to render; just stream it inline.
+      const bytes = Buffer.from(f.result.base64, "base64");
+      res.writeHead(200, {
+        "content-type": f.contentType,
+        "content-disposition": `inline; filename="${sanitizeFilename(f.name)}"`,
+        "content-length": String(bytes.length),
+        "cache-control": "no-store",
+      });
+      res.end(bytes);
+      return;
+    }
+    const md = Buffer.from(f.result.base64, "base64").toString("utf8");
+    const page = renderMarkdownPage(f.name, md, f.result.truncated);
+    res.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+    });
+    res.end(page);
     return;
   }
 

@@ -1,5 +1,4 @@
 import { escapeHtml, linkifyEscaped } from "./linkify.js";
-import { renderMarkdown } from "./markdown.js";
 
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
@@ -362,11 +361,6 @@ const els = {
   reconnectBannerText: document.querySelector("#reconnectBannerText"),
   exitCopyMode: document.querySelector("#exitCopyMode"),
   snapshot: document.querySelector("#snapshot"),
-  fileViewerSheet: document.querySelector("#fileViewerSheet"),
-  fileViewerBackdrop: document.querySelector("#fileViewerBackdrop"),
-  fileViewerTitle: document.querySelector("#fileViewerTitle"),
-  fileViewerBody: document.querySelector("#fileViewerBody"),
-  closeFileViewer: document.querySelector("#closeFileViewer"),
   connectorHelp: document.querySelector("#connectorHelp"),
   connectorClone: document.querySelector("#connectorClone"),
   connectorRun: document.querySelector("#connectorRun"),
@@ -4384,133 +4378,44 @@ els.fullscreenSnapshot.addEventListener("click", () => {
 
 // Smart content viewer: fetch a pane-referenced file and show it inline. The
 // path is resolved against the pane's cwd server-side (and confined to it).
-// Extensions that open in an external browser tab rather than the in-app modal
-// (video + standalone HTML). Keep in sync with the server's EXTERNAL_EXTS.
-const EXTERNAL_FILE_EXT = /\.(webm|mp4|m4v|mov|html?)$/i;
+// Markdown opens in a new tab as a rendered HTML page (/api/file-view); all other
+// viewable artifacts (images, video, HTML) open in a new tab as a real, named URL
+// (/api/file-raw). Real server URLs — not blob: — so the tab title and any
+// "Save as…" use the actual file name (Content-Disposition), no blob GUIDs.
+const MARKDOWN_FILE_EXT = /\.(md|markdown|mdown|mkd)$/i;
 
-async function openFileViewer(filePath) {
+// Build an authed, machine-scoped file URL. A new tab can't send the x-machine-id
+// header, so the machine is passed as a query param (the server accepts either);
+// auth rides on the same-origin cookie. `dl` forces a download.
+function fileUrl(endpoint, filePath, { dl = false } = {}) {
+  const params = new URLSearchParams({ paneId: state.paneId, path: filePath });
+  if (state.machineId) params.set("machineId", state.machineId);
+  if (dl) params.set("dl", "1");
+  return `${endpoint}?${params}`;
+}
+
+function openFileViewer(filePath) {
   if (!filePath) return;
   if (!state.paneId) {
     setStatus("Select a pane first", false);
     return;
   }
-
-  // Media/HTML open in a new tab. Open the tab synchronously now (inside the
-  // click gesture) so mobile browsers don't block the popup; point it at the
-  // fetched blob once it's ready.
-  if (EXTERNAL_FILE_EXT.test(filePath)) {
-    await openFileInNewTab(filePath);
-    return;
-  }
-
-  els.fileViewerTitle.textContent = filePath;
-  els.fileViewerBody.innerHTML = '<div class="viewer-loading">Loading…</div>';
-  els.fileViewerSheet.hidden = false;
-  try {
-    const params = new URLSearchParams({ paneId: state.paneId, path: filePath });
-    const data = await api(`/api/file?${params}`);
-    renderFileViewer(data);
-  } catch (error) {
-    els.fileViewerBody.innerHTML = `<div class="viewer-error"></div>`;
-    els.fileViewerBody.firstChild.textContent = error.message || "Could not open file";
+  // Open in a new tab via a real server URL. window.open in the click gesture
+  // avoids popup blocking; no fetch/blob round-trip needed.
+  const endpoint = MARKDOWN_FILE_EXT.test(filePath) ? "/api/file-view" : "/api/file-raw";
+  const url = fileUrl(endpoint, filePath);
+  const tab = window.open(url, "_blank", "noopener");
+  if (!tab) {
+    // Popup blocked — fall back to a same-tab navigation via a temporary link.
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.click();
   }
 }
 
-async function openFileInNewTab(filePath) {
-  // Pre-open the tab in the gesture so it isn't popup-blocked; show a tiny
-  // loading note while bytes transfer, then swap in the blob URL.
-  const tab = window.open("", "_blank");
-  if (tab) {
-    try {
-      tab.document.write("<!doctype html><title>Loading…</title><body style=\"font:14px sans-serif;padding:1rem\">Loading file…</body>");
-    } catch {}
-  }
-  try {
-    const params = new URLSearchParams({ paneId: state.paneId, path: filePath });
-    const data = await api(`/api/file?${params}`);
-    const bytes = audioBytesFromBase64(data.base64);
-    const blob = new Blob([bytes], { type: data.contentType || "application/octet-stream" });
-    const objectUrl = URL.createObjectURL(blob);
-    if (tab && !tab.closed) {
-      tab.location.href = objectUrl;
-    } else {
-      // Popup was blocked — fall back to navigating via a temporary link.
-      const a = document.createElement("a");
-      a.href = objectUrl;
-      a.target = "_blank";
-      a.rel = "noopener";
-      a.click();
-    }
-    // Revoke later so the new tab has time to load it.
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
-  } catch (error) {
-    if (tab && !tab.closed) {
-      try {
-        tab.document.body.textContent = error.message || "Could not open file";
-      } catch {}
-    }
-    setStatus(error.message || "Could not open file", false);
-  }
-}
 
-function renderFileViewer(data) {
-  els.fileViewerTitle.textContent = data.name || data.path || "File";
-  if (data.kind === "image") {
-    const img = document.createElement("img");
-    img.className = "viewer-image";
-    img.alt = data.name || "image";
-    img.src = `data:${data.contentType};base64,${data.base64}`;
-    els.fileViewerBody.replaceChildren(img);
-    return;
-  }
-  if (data.kind === "markdown") {
-    const text = decodeBase64Utf8(data.base64);
-    const wrap = document.createElement("div");
-    wrap.className = "viewer-markdown";
-    const rendered = renderMarkdown(text);
-    wrap.innerHTML = rendered;
-    const container = document.createElement("div");
-    container.replaceChildren(wrap);
-    if (data.truncated) {
-      const note = document.createElement("div");
-      note.className = "viewer-truncated";
-      note.textContent = "Showing the first part of a large file.";
-      container.appendChild(note);
-    }
-    els.fileViewerBody.replaceChildren(container);
-    // Upgrade any ```mermaid blocks to rendered diagrams. Both mermaid.js and the
-    // heavy mermaid library it pulls from the CDN are imported lazily here — only
-    // when the file actually contains a diagram — so plain markdown never loads
-    // them. The cheap inline check avoids importing the module otherwise.
-    if (rendered.includes('class="mermaid-block"')) {
-      import("./mermaid.js")
-        .then((m) => m.renderMermaidIn(wrap))
-        .catch(() => {
-          /* leave diagram source visible if the module/CDN can't load */
-        });
-    }
-    return;
-  }
-  els.fileViewerBody.innerHTML = '<div class="viewer-error">Unsupported file type.</div>';
-}
-
-function decodeBase64Utf8(base64) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return new TextDecoder("utf-8").decode(bytes);
-}
-
-function closeFileViewer() {
-  els.fileViewerSheet.hidden = true;
-  els.fileViewerBody.replaceChildren();
-}
-
-els.closeFileViewer.addEventListener("click", closeFileViewer);
-els.fileViewerBackdrop.addEventListener("click", closeFileViewer);
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !els.fileViewerSheet.hidden) closeFileViewer();
-});
 
 // Long-press the pane to open the "Answer question" overlay — the gesture the
 // user reaches for when they see Claude waiting on an AskUserQuestion. Like the
