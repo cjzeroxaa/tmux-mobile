@@ -683,6 +683,24 @@ function empty(container, text) {
   container.innerHTML = `<div class="empty">${escapeHtml(text)}</div>`;
 }
 
+// Brand-ish icon for an agent type, drawn in `currentColor` so the per-agent CSS
+// tint applies. Kept simple/recognizable rather than pixel-exact logos.
+const AGENT_ICONS = {
+  // Claude — Anthropic's radial "sunburst" mark.
+  claude:
+    '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M12 2l1.5 6L18 4.8l-2.3 4.4 6.3-.7-5.7 2.7 5.7 2.7-6.3-.7L18 19.2 13.5 16 12 22l-1.5-6L6 19.2l2.3-4.4-6.3.7L7.7 12 2 9.3l6.3.7L6 4.8 10.5 8 12 2z"/></svg>',
+  // Codex / OpenAI — the interlocking "knot" mark, stroked.
+  codex:
+    '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5.2a3.4 3.4 0 0 1 5.9 1.9 3.4 3.4 0 0 1 0 5.8 3.4 3.4 0 0 1-5.9 5.9 3.4 3.4 0 0 1-5.9-1.9 3.4 3.4 0 0 1 0-5.8A3.4 3.4 0 0 1 12 5.2z"/><path d="M12 8.4v7.2M8.9 10.2l6.2 3.6M15.1 10.2l-6.2 3.6"/></svg>',
+  // Gemini — a four-point sparkle.
+  gemini:
+    '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M12 2c.5 5 2.9 7.5 8 8-5.1.5-7.5 3-8 8-.5-5-2.9-7.5-8-8 5.1-.5 7.5-3 8-8z"/></svg>',
+};
+
+function agentIcon(type) {
+  return AGENT_ICONS[type] || escapeHtml(type);
+}
+
 function itemButton({
   active,
   title,
@@ -703,10 +721,11 @@ function itemButton({
   const button = document.createElement("button");
   button.type = "button";
   button.className = `${className || "item"}${active ? " active" : ""}${unread ? " unread" : ""}`;
-  // Small chip naming the AI agent running in the window (claude/codex/gemini),
-  // tinted by turn state: "working" pulses, "idle" is muted (turn ended). A
-  // window blocked on an AskUserQuestion prompt gets a distinct "❓ ask" state —
-  // the strongest "needs you" signal.
+  // Small chip showing the AI agent running in the window as a brand ICON
+  // (claude/codex/gemini) to save horizontal space, tinted by turn state:
+  // "working" pulses, "idle" is muted (turn ended). A window blocked on an
+  // AskUserQuestion prompt gets a distinct "❓ ask" state — the strongest
+  // "needs you" signal. The turn glyph trails the icon.
   const turnState = waitingForInput ? "ask" : turn || "unknown";
   const turnSuffix = waitingForInput
     ? " ❓"
@@ -716,7 +735,7 @@ function itemButton({
         ? " ✓"
         : "";
   const agentChip = agentType
-    ? `<span class="agent-chip agent-${escapeHtml(agentType)} turn-${escapeHtml(turnState)}">${escapeHtml(agentType)}${turnSuffix}</span>`
+    ? `<span class="agent-chip agent-${escapeHtml(agentType)} turn-${escapeHtml(turnState)}" title="${escapeHtml(agentType)}" aria-label="${escapeHtml(agentType)}">${agentIcon(agentType)}${turnSuffix}</span>`
     : "";
   // Unread dot: this window changed since you last visited it.
   const unreadDot = unread ? `<span class="unread-dot" title="New since last visit" aria-label="unread">●</span>` : "";

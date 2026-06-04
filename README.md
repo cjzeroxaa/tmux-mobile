@@ -269,8 +269,10 @@ Each window carries derived metadata (`lib/window-metadata.mjs`), exposed via
   in the pager past a short grace period (~2s), since briefly entering it
   (scrolling up to read) is intentional; re-entering restarts the grace clock.
 
-The window list shows a turn-tinted agent chip (working pulses, idle dimmed,
-`❓ ask` when waiting on a question) and an unread dot.
+The window list shows a compact agent chip — a brand **icon** (claude / codex /
+gemini) rather than the agent's name, to save horizontal space — tinted by turn
+state (working pulses, idle dimmed, `❓ ask` when waiting on a question) plus an
+unread dot.
 
 **"Needs you" indicators.** A window *needs you* when its agent is waiting on a
 question, or its turn ended (idle) and its content changed since you last looked

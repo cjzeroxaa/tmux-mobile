@@ -2201,14 +2201,20 @@ input {
 /* AI agent type chip (claude/codex/gemini) in a window row. */
 .agent-chip {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   border-radius: 999px;
-  padding: 2px 7px;
+  padding: 2px 6px;
   font-size: 10px;
   font-weight: 800;
-  text-transform: lowercase;
-  letter-spacing: 0.02em;
+  line-height: 1;
   background: #ede7fb;
   color: #5b3fb0;
+}
+
+.agent-chip svg {
+  display: block;
 }
 
 .agent-chip.agent-claude { background: #f3e7df; color: #b5530f; }
