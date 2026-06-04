@@ -248,15 +248,18 @@ Each window carries derived metadata (`lib/window-metadata.mjs`), exposed via
   **unread** detection: a window whose hash differs from what it had at your last
   visit is flagged with a dot ("new since last visit"); unchanged = nothing to
   revisit. Visiting a window (or viewing it) updates its baseline.
-- **inCopyMode** — `true` when the active pane is in tmux **copy-mode** (its
-  scrollback pager). This matters because copy-mode intercepts keystrokes as
-  pager commands, so input sent while it's active never reaches the program — the
-  text sits in the prompt unsubmitted and the window looks dead (Claude Code's
-  Ctrl+O output-expansion is a common way to land here). `/api/send` and
-  `/api/key` **auto-exit copy-mode** before delivering input (`-X cancel`, which
-  doesn't disturb the command line), so a stuck pane self-heals on the next
-  keystroke; the client also shows a "Scroll mode is on" banner with an
-  `/api/exit-copy-mode` button when the viewed pane is frozen.
+- **inCopyMode** — `true` only when the active pane is in tmux **copy-mode**
+  (its scrollback pager — detected via `pane_mode == "copy-mode"`, so a program's
+  own pane mode doesn't count). This matters because copy-mode intercepts
+  keystrokes as pager commands, so input sent while it's active never reaches the
+  program — the text sits in the prompt unsubmitted and the window looks dead
+  (Claude Code's Ctrl+O output-expansion is a common way to land here). `/api/send`
+  and `/api/key` **auto-exit copy-mode** before delivering input (`-X cancel`,
+  which doesn't disturb the command line), so a stuck pane self-heals on the next
+  keystroke. The client also shows a "Scroll mode is on" banner with an
+  `/api/exit-copy-mode` button — but only after the pane has stayed in copy-mode
+  past a short grace period (~6s), since briefly entering it (scrolling up to read)
+  is intentional and shouldn't nag; re-entering restarts the grace clock.
 
 The window list shows a turn-tinted agent chip (working pulses, idle dimmed,
 `❓ ask` when waiting on a question) and an unread dot.

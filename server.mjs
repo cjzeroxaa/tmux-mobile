@@ -228,7 +228,7 @@ const formats = {
   windows:
     "#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{window_flags}\t#{pane_current_command}\t#{pane_tty}\t#{pane_current_path}\t#{@tm_annotation}",
   panes:
-    "#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_in_mode}\t#{pane_title}",
+    "#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_mode}\t#{pane_title}",
   paneInfo:
     "#{session_name}\t#{window_index}\t#{window_name}\t#{pane_index}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_pid}\t#{pane_active}",
 };
@@ -486,15 +486,16 @@ async function sendTextToPane(paneId, text, { enter = false } = {}) {
 // scroll-up). Before we deliver any input, drop the pane out of copy-mode so the
 // keystroke lands on the program. Returns true if it had to exit copy-mode.
 async function exitCopyModeIfNeeded(paneId) {
-  let inMode = "0";
+  let mode = "";
   try {
-    inMode = (
-      await runTmux(["display-message", "-p", "-t", paneId, "#{pane_in_mode}"])
+    mode = (
+      await runTmux(["display-message", "-p", "-t", paneId, "#{pane_mode}"])
     ).trim();
   } catch {
     return false; // pane vanished / query failed — let the caller proceed
   }
-  if (inMode !== "1") return false;
+  // Only exit scrollback copy-mode; don't cancel a program's own pane mode.
+  if (mode !== "copy-mode") return false;
   // `-X cancel` leaves copy-mode without disturbing the command line (unlike
   // sending `q`, which the program would receive once we're out of mode).
   await runTmux(["send-keys", "-t", paneId, "-X", "cancel"]);
@@ -752,7 +753,7 @@ async function listPanes(windowId) {
     formats.panes,
   ]);
   return rows(stdout).map(
-    ([id, index, active, command, cwd, width, height, inMode, ...titleParts]) => ({
+    ([id, index, active, command, cwd, width, height, mode, ...titleParts]) => ({
       id,
       index: Number(index),
       active: active === "1",
@@ -760,7 +761,10 @@ async function listPanes(windowId) {
       cwd,
       width: Number(width || 0),
       height: Number(height || 0),
-      inCopyMode: inMode === "1",
+      // Only scrollback copy-mode swallows input the way the UI warns about; other
+      // pane modes (e.g. a program's own mode) shouldn't trip the "scroll mode"
+      // banner. `pane_mode` is "" when not in a mode, "copy-mode" for scrollback.
+      inCopyMode: mode === "copy-mode",
       // pane_title is last and may contain tabs — rejoin any split pieces.
       title: titleParts.join("\t"),
     }),

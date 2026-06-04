@@ -2822,14 +2822,49 @@ function updateAttentionIndicators() {
   }
 }
 
-// Show the "scroll mode is on" banner when the viewed window's pane is parked in
-// tmux copy-mode (its scrollback pager), which intercepts input. Sending
-// text/keys auto-exits it server-side, but the banner makes the state visible
-// and offers a one-tap escape.
+// Show the "scroll mode is on" banner only when the viewed pane has been parked
+// in tmux copy-mode for longer than a grace period. Entering copy-mode briefly is
+// almost always intentional (scrolling up to read), and sends auto-exit it anyway
+// — so we don't nag immediately. We only warn once the pane has *stayed* in
+// copy-mode past COPY_MODE_GRACE_MS, which signals it's actually parked/stuck.
+const COPY_MODE_GRACE_MS = 6000;
+// When the active window first entered copy-mode (ms epoch), or 0 if it isn't.
+let copyModeSince = 0;
+let copyModeGraceTimer = null;
+
 function updateCopyModeBanner() {
   if (!els.copyModeBanner) return;
   const meta = state.windowId ? state.windowMetadata[state.windowId] : null;
-  els.copyModeBanner.hidden = !meta?.inCopyMode;
+  const inCopyMode = Boolean(meta?.inCopyMode);
+
+  if (!inCopyMode) {
+    copyModeSince = 0;
+    if (copyModeGraceTimer) {
+      window.clearTimeout(copyModeGraceTimer);
+      copyModeGraceTimer = null;
+    }
+    els.copyModeBanner.hidden = true;
+    return;
+  }
+
+  // Just entered copy-mode — start the grace clock.
+  if (!copyModeSince) copyModeSince = Date.now();
+  const elapsed = Date.now() - copyModeSince;
+
+  if (elapsed >= COPY_MODE_GRACE_MS) {
+    els.copyModeBanner.hidden = false;
+    return;
+  }
+
+  // Still within the grace window: keep it hidden, but schedule a re-check so the
+  // banner appears even if no further metadata poll lands before grace elapses.
+  els.copyModeBanner.hidden = true;
+  if (!copyModeGraceTimer) {
+    copyModeGraceTimer = window.setTimeout(() => {
+      copyModeGraceTimer = null;
+      updateCopyModeBanner();
+    }, COPY_MODE_GRACE_MS - elapsed);
+  }
 }
 
 async function exitCopyModeNow() {
@@ -2970,6 +3005,7 @@ async function selectWindow(windowId) {
   // Visiting a window clears its "unread" flag: record the content we're now
   // looking at as the seen baseline.
   if (win) markWindowVisited(win);
+  copyModeSince = 0; // restart the grace clock for the newly-viewed window
   updateCopyModeBanner(); // reflect the new window's state (or hide until known)
   renderWindows();
   updateTargetUrl();
