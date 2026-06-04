@@ -366,16 +366,28 @@ the on-disk checkout being current isn't enough.)
 - Encodes the selected session/window in the URL as `?session=<name>&window=<index>`.
 - Auto refresh is enabled by default for the selected window view.
 
-## Text composer history
+## Composer
 
-The text composer (keyboard button → Lexical contenteditable) keeps a **history
-of sent messages** in browser localStorage (`tmux-mobile-composer-history`,
-bounded to 100, shared across windows since it's about what *you* typed). A
-**↺ history button** in the composer actions opens a "Recent messages" picker
-(newest first); tapping an entry loads it back into the input for editing or
-resending. Re-sending an existing entry moves it to most-recent rather than
-duplicating, so the list stays clean. History is recorded on each successful
-send and survives reloads.
+The composer is built around one rule: **the message box is the staging area for
+everything except raw terminal keys.** Snippets, voice dictation, typing, and
+recent history all populate the box; you review, then **Send** it to the pane.
+
+- **Message box** — a spacious Lexical contenteditable (falls back to a plain
+  contenteditable if the CDN fails). Enter sends, Shift+Enter newlines. The
+  **mic** dictates into it; **Send** submits.
+- **Tactical snippets** — a horizontal chip row of reusable text (`yes`,
+  `continue`, `/clear`, `/btw `, `claude`, `codex`, `/goal ` by default). Tapping
+  a chip **inserts** its text into the box (it doesn't send). The list icon opens
+  the **Insert picker** with two sections: **Snippets** (curated; add/edit/reorder/
+  delete) and **Recent** (auto-collected from what you've sent). Snippets are
+  `{ text }` in localStorage (`tmux-mobile-snippets`).
+- **History as auto snippets** — every Send is recorded to
+  `tmux-mobile-composer-history` (bounded 100, newest-first, deduped) and shown in
+  the Insert picker's **Recent** section; tap to insert for edit/resend.
+- **Direct keys** — a high-contrast row (`Ent Esc ^C Tab ↑ ↓`) that sends raw
+  terminal signals straight to the pane (the only controls that bypass the box).
+- **Global actions** in the topbar: **Read** (TTS of the window) and the
+  **needs-attention** pill.
 
 ## Voice transcription
 
@@ -400,11 +412,13 @@ The default transcription model is `gpt-4o-mini-transcribe`. Override it with:
 OPENAI_TRANSCRIBE_MODEL=gpt-4o-transcribe npm start
 ```
 
-The **`/btw` toggle** next to the mic turns on "side-note" mode: while on, voice
-dictation is sent prefixed with `/btw ` (a Claude slash-command for dropping a
-note into the session). Implemented via an optional `prefix` param on
-`/api/voice-send` (sanitized to a `/command`-style token, so it can't inject
-arbitrary input); the mode is persisted.
+Dictation is **transcribe-then-review**, not auto-send: tapping the mic enters a
+**listening** state (waveform across the box, glowing border, pulsing controls);
+**Keep (✓)** transcribes via `/api/transcribe` and **appends the text to the
+message box** for you to edit and Send, while **Discard (✕)** throws the audio
+away. (`/api/voice-send`, which transcribed *and* sent in one step, is no longer
+used by the client.) To drop a `/btw ` side-note, tap the `/btw ` snippet — it
+prefixes the box like any other snippet.
 
 The voice models (transcription, read-aloud TTS, and realtime) can also be
 changed at runtime from the web app: open the topbar **More → Voice settings**

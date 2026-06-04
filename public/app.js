@@ -42,16 +42,6 @@ const machineAtom = createPersistedAtom("tmux-mobile-machine", {
   machineId: "",
 });
 
-// Remembers whether the user last used voice or the text composer. Default voice.
-const composerAtom = createPersistedAtom("tmux-mobile-composer", {
-  textMode: false,
-});
-
-// "/btw mode": when on, voice dictation is sent prefixed with "/btw " — a Claude
-// slash-command for dropping a side note into the session. Persisted so the mode
-// sticks across reloads.
-const btwAtom = createPersistedAtom("tmux-mobile-btw", { on: false });
-
 // "kami" = Japanese washi-paper light theme (default), "dark" = original.
 const themeAtom = createPersistedAtom("tmux-mobile-theme", { theme: "kami" });
 
@@ -59,11 +49,19 @@ const themeAtom = createPersistedAtom("tmux-mobile-theme", { theme: "kami" });
 // bar. Each is { text, enter } — enter:true presses Return after sending (runs a
 // command), enter:false just inserts the text. Seeded with a few defaults the
 // user can edit or delete.
+// Snippets are reusable text that INSERT into the message box (you then Send).
+// Shape is just { text } — there is no per-snippet "send"/"Enter" behavior
+// anymore (everything funnels through the box). Seeded with common replies +
+// command launchers.
 const snippetsAtom = createPersistedAtom("tmux-mobile-snippets", {
   items: [
-    { text: "yes", enter: true },
-    { text: "continue", enter: true },
-    { text: "/clear", enter: true },
+    { text: "yes" },
+    { text: "continue" },
+    { text: "/clear" },
+    { text: "/btw " },
+    { text: "claude" },
+    { text: "codex" },
+    { text: "/goal " },
   ],
 });
 
@@ -263,7 +261,6 @@ const state = {
     sampleTimer: null,
     stream: null,
     status: "idle",
-    textMode: composerAtom.get().textMode,
     waveform: [],
   },
   audio: {
@@ -372,16 +369,12 @@ const els = {
   lineCount: document.querySelector("#lineCount"),
   autoRefresh: document.querySelector("#autoRefresh"),
   snapshotStaleIcon: document.querySelector("#snapshotStaleIcon"),
-  voiceEntry: document.querySelector("#voiceEntry"),
+  inputArea: document.querySelector("#inputArea"),
   voiceButton: document.querySelector("#voiceButton"),
-  btwToggle: document.querySelector("#btwToggle"),
   voiceTitle: document.querySelector("#voiceTitle"),
   voiceSubtitle: document.querySelector("#voiceSubtitle"),
   voiceStatus: document.querySelector("#voiceStatus"),
   voiceStatusRow: document.querySelector("#voiceStatusRow"),
-  keyboardButton: document.querySelector("#keyboardButton"),
-  actionsToggle: document.querySelector("#actionsToggle"),
-  quickActions: document.querySelector("#quickActions"),
   snippetBar: document.querySelector("#snippetBar"),
   snippetChips: document.querySelector("#snippetChips"),
   manageSnippets: document.querySelector("#manageSnippets"),
@@ -390,18 +383,10 @@ const els = {
   closeSnippets: document.querySelector("#closeSnippets"),
   snippetList: document.querySelector("#snippetList"),
   snippetNewText: document.querySelector("#snippetNewText"),
-  snippetNewEnter: document.querySelector("#snippetNewEnter"),
   snippetAdd: document.querySelector("#snippetAdd"),
-  textComposer: document.querySelector("#textComposer"),
+  historyList: document.querySelector("#historyList"),
   textInput: document.querySelector("#textInput"),
   submitText: document.querySelector("#submitText"),
-  cancelText: document.querySelector("#cancelText"),
-  historyText: document.querySelector("#historyText"),
-  historySheet: document.querySelector("#historySheet"),
-  historyBackdrop: document.querySelector("#historyBackdrop"),
-  closeHistory: document.querySelector("#closeHistory"),
-  historyList: document.querySelector("#historyList"),
-  voiceRecordingActions: document.querySelector("#voiceRecordingActions"),
   voiceWaveform: document.querySelector("#voiceWaveform"),
   submitVoice: document.querySelector("#submitVoice"),
   cancelVoice: document.querySelector("#cancelVoice"),
@@ -1115,8 +1100,7 @@ function composerFocus() {
   else els.textInput.focus();
 }
 
-// Replace the composer's contents with `text` and place the caret at the end —
-// used when loading an entry from the history picker.
+// Set the composer's contents to `text` (replace) with the caret at the end.
 function composerSetText(text) {
   const value = String(text || "");
   if (composerEditor) {
@@ -1139,33 +1123,25 @@ function composerSetText(text) {
   els.textInput.classList.toggle("empty", value.length === 0);
 }
 
-function renderComposerMode() {
-  const textMode = state.voice.textMode && state.voice.status === "idle";
-  els.voiceEntry.hidden = textMode || state.voice.status === "recording";
-  els.textComposer.hidden = !textMode;
-  els.keyboardButton.disabled = state.voice.status !== "idle";
-  els.actionsToggle.disabled = state.voice.status !== "idle";
-  const showActions = state.actionsOpen && state.voice.status === "idle" && !textMode;
-  els.quickActions.hidden = !showActions;
-  els.actionsToggle.classList.toggle("active", showActions);
-  els.actionsToggle.setAttribute("aria-expanded", String(showActions));
-}
-
-function showTextComposer() {
-  if (state.voice.status !== "idle") return;
-  state.voice.textMode = true;
-  composerAtom.set({ textMode: true });
-  renderComposerMode();
+// Append `text` to whatever's already in the box (with a separating space if the
+// box is non-empty and not already ending in whitespace), caret to end, focus.
+// This is how snippets, dictation, and recall all land in the box.
+function composerAppendText(text) {
+  const add = String(text || "");
+  if (!add) return;
+  const current = composerGetText();
+  const sep = current && !/\s$/.test(current) ? " " : "";
+  composerSetText(current + sep + add);
   requestAnimationFrame(() => composerFocus());
 }
 
-function hideTextComposer({ clear = false, persist = false } = {}) {
-  state.voice.textMode = false;
-  if (persist) composerAtom.set({ textMode: false });
-  if (clear) {
-    composerClear();
-  }
-  renderComposerMode();
+// The composer has one state toggle now: idle ↔ listening (recording). Drive the
+// listening treatment + control visibility from the voice status.
+function renderComposerMode() {
+  const listening = state.voice.status === "recording";
+  const busy = state.voice.status === "transcribing" || state.voice.status === "sending";
+  els.inputArea?.classList.toggle("listening", listening);
+  els.inputArea?.classList.toggle("busy", busy);
 }
 
 function visibleVoiceStatus(title, subtitle, status) {
@@ -1223,15 +1199,11 @@ async function submitTextComposer(event) {
     return;
   }
 
-  // Optimistic UX: clear the box and keep the composer open in text mode.
-  // The user just pressed Enter — that's an explicit "I want to keep typing"
-  // signal; bouncing them back to voice mode after every send is wrong and
-  // also conflicts with composerAtom's persisted textMode preference. The
-  // Cancel button is the only path that flips back to voice (and persists).
+  // Clear the box and keep it focused for the next message.
   composerClear();
   composerFocus();
   els.submitText.disabled = true;
-  // Remember what was sent so it can be recalled from the history picker.
+  // Remember what was sent so it shows under "Recent" in the Insert picker.
   pushComposerHistory(text);
   try {
     await sendMessage(text, true);
@@ -1242,23 +1214,12 @@ async function submitTextComposer(event) {
   }
 }
 
-// --- Composer history picker ---
-
-function openHistoryPicker() {
-  if (!els.historySheet) return;
-  renderHistoryList();
-  els.historySheet.hidden = false;
-}
-
-function closeHistoryPicker() {
-  if (els.historySheet) els.historySheet.hidden = true;
-}
-
+// Render the auto-collected history (newest first) as tap-to-insert rows in the
+// "Recent" section of the unified Insert picker.
 function renderHistoryList() {
   const list = els.historyList;
   if (!list) return;
   list.innerHTML = "";
-  // Newest first.
   const items = getComposerHistory().slice().reverse();
   if (items.length === 0) {
     const empty = document.createElement("div");
@@ -1271,15 +1232,11 @@ function renderHistoryList() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "history-item";
-    // Preview is one line; full multi-line text still loads into the composer.
     btn.textContent = text;
     btn.title = text;
     btn.addEventListener("click", () => {
-      closeHistoryPicker();
-      // Make sure the text composer is showing, then load the entry for editing.
-      if (!state.voice.textMode) showTextComposer();
-      composerSetText(text);
-      requestAnimationFrame(() => composerFocus());
+      closeSnippetManager();
+      composerAppendText(text);
     });
     list.append(btn);
   }
@@ -1325,10 +1282,10 @@ function setVoiceStatus(status, title, subtitle) {
   // in the tooltip/aria-label only.
   els.voiceStatus.title = visibleVoiceStatus(title, subtitle, status);
   els.voiceStatus.setAttribute("aria-label", els.voiceStatus.title);
-  const buttonLabel = status === "idle" ? "Record voice" : title;
+  const buttonLabel = status === "idle" ? "Dictate" : title;
   els.voiceButton.title = buttonLabel;
   els.voiceButton.setAttribute("aria-label", buttonLabel);
-  els.voiceRecordingActions.hidden = status !== "recording";
+  // Listening controls (Keep ✓ / Discard X) are only active while recording.
   els.submitVoice.disabled = status !== "recording";
   els.cancelVoice.disabled = status !== "recording";
   els.voiceButton.classList.toggle("recording", status === "recording");
@@ -1336,10 +1293,9 @@ function setVoiceStatus(status, title, subtitle) {
     "busy",
     status === "transcribing" || status === "sending",
   );
+  // The mic is disabled while transcribing; usable when idle (and hidden via CSS
+  // while recording, where Keep/Discard take over).
   els.voiceButton.disabled = status !== "idle";
-  if (status !== "idle") {
-    state.voice.textMode = false;
-  }
   renderVoiceRetry();
   renderComposerMode();
 }
@@ -1452,7 +1408,7 @@ async function startVoiceRecording() {
   if (!window.isSecureContext) {
     setVoiceStatus(
       "idle",
-      "Record voice",
+      "Dictate",
       "Microphone needs HTTPS or localhost",
     );
     addChat("system", "Microphone access needs HTTPS or localhost.", "system");
@@ -1495,9 +1451,10 @@ async function startVoiceRecording() {
   });
 
   recorder.start(1000);
-  setVoiceStatus("recording", "Recording", "Submit to send or cancel");
+  setVoiceStatus("recording", "Listening", "Keep (✓) to transcribe, or discard (✕)");
 }
 
+// "Keep" (✓) — stop recording, transcribe, and append the text to the box.
 function submitVoiceRecording() {
   const recorder = state.voice.mediaRecorder;
   if (!recorder || recorder.state !== "recording") return;
@@ -1513,7 +1470,7 @@ function discardVoiceRecording() {
   state.voice.chunks = [];
   state.voice.cancelRequested = false;
   state.voice.mediaRecorder = null;
-  setVoiceStatus("idle", "Record voice", "Tap to record a voice command");
+  setVoiceStatus("idle", "Dictate", "Tap to dictate into the message box");
 }
 
 function cancelVoiceRecording() {
@@ -1540,82 +1497,70 @@ async function finishVoiceRecording() {
   }
 
   rememberPendingVoiceAudio(blob);
-  await sendPendingVoiceWithRetry();
+  await transcribePendingVoiceWithRetry();
 }
 
-async function sendPendingVoiceRecording() {
+// Transcribe the pending audio and APPEND the text to the message box (no send).
+// The user reviews/edits, then taps Send. This is the dictate-into-the-box model.
+async function transcribePendingVoiceRecording() {
   const blob = state.voice.pendingAudio;
   if (!blob) return;
 
   state.voice.pendingError = "";
   renderVoiceRetry();
 
-  if (!state.paneId) {
-    throw new Error("Select a window first.");
-  }
-
-  setVoiceStatus("sending", "Sending", "Sending voice command");
-  const params = new URLSearchParams({
-    paneId: state.paneId,
-    enter: "1",
-    submitNudge: "1",
-  });
-  // /btw mode: prefix the dictation with the Claude side-note slash-command.
-  if (btwAtom.get().on) params.set("prefix", "/btw ");
-  const data = await api(`/api/voice-send?${params}`, {
+  setVoiceStatus("transcribing", "Transcribing", "Converting speech to text");
+  const data = await api("/api/transcribe", {
     method: "POST",
     headers: { "content-type": state.voice.pendingMimeType || "audio/webm" },
     body: blob,
   });
-  // Show the full sent text (incl. any /btw prefix) in the chat log.
-  const sent = String(data.text || "").trim();
-  if (!sent) {
+  const text = String(data.text || "").trim();
+  if (!text) {
     throw new Error("No speech detected");
   }
-  state.voice.pendingTranscript = sent;
-  addChat("user", sent, data.prefix ? "voice /btw" : "voice send");
-  window.setTimeout(() => refreshSnapshot(true), 350);
+  composerAppendText(text);
   clearPendingVoiceAudio();
-  setVoiceStatus("idle", "Ready", "Tap mic to record");
+  setVoiceStatus("idle", "Ready", "Tap mic to dictate");
   stopVoiceAnalysis({ clearWaveform: true });
 }
 
-const VOICE_SEND_MAX_ATTEMPTS = 10;
-const VOICE_SEND_RETRY_DELAY_MS = 1200;
+const VOICE_TRANSCRIBE_MAX_ATTEMPTS = 10;
+const VOICE_TRANSCRIBE_RETRY_DELAY_MS = 1200;
 
 // These fail the same way on every attempt, so retrying is pointless.
 function isRetryableVoiceError(error) {
   const message = (error?.message || "").toLowerCase();
   return !(
     message.includes("no speech") ||
-    message.includes("select a window") ||
-    message.includes("too large")
+    message.includes("too large") ||
+    message.includes("no speech recognized")
   );
 }
 
-// Voice sends usually fail on transient network/agent hiccups, and the user has
-// to resend anyway — so auto-retry up to MAX times before surfacing failure.
-async function sendPendingVoiceWithRetry() {
-  for (let attempt = 1; attempt <= VOICE_SEND_MAX_ATTEMPTS; attempt += 1) {
+// Transcription can fail on transient network hiccups; auto-retry a few times
+// before surfacing failure (the audio is kept for a manual retry).
+async function transcribePendingVoiceWithRetry() {
+  for (let attempt = 1; attempt <= VOICE_TRANSCRIBE_MAX_ATTEMPTS; attempt += 1) {
     try {
-      await sendPendingVoiceRecording();
+      await transcribePendingVoiceRecording();
       return;
     } catch (error) {
-      if (!isRetryableVoiceError(error) || attempt >= VOICE_SEND_MAX_ATTEMPTS) {
+      if (!isRetryableVoiceError(error) || attempt >= VOICE_TRANSCRIBE_MAX_ATTEMPTS) {
         throw error;
       }
       setVoiceStatus(
-        "sending",
+        "transcribing",
         "Retrying",
-        `Send failed, retry ${attempt + 1}/${VOICE_SEND_MAX_ATTEMPTS}`,
+        `Transcribe failed, retry ${attempt + 1}/${VOICE_TRANSCRIBE_MAX_ATTEMPTS}`,
       );
-      await new Promise((resolve) => setTimeout(resolve, VOICE_SEND_RETRY_DELAY_MS));
+      await new Promise((resolve) => setTimeout(resolve, VOICE_TRANSCRIBE_RETRY_DELAY_MS));
     }
   }
 }
 
 function handleVoiceSendError(error) {
-  const message = error.message || "Voice send failed";
+  const message = error.message || "Transcription failed";
   addChat("system", message, "voice error");
   stopVoiceAnalysis({ clearWaveform: true });
   stopVoiceStream();
@@ -1624,16 +1569,16 @@ function handleVoiceSendError(error) {
   state.voice.chunks = [];
   if (state.voice.pendingAudio) {
     state.voice.pendingError = message;
-    setVoiceStatus("idle", "Send failed", "Audio saved for retry");
+    setVoiceStatus("idle", "Transcribe failed", "Audio saved for retry");
     return;
   }
-  setVoiceStatus("idle", "Ready", "Tap mic to record");
+  setVoiceStatus("idle", "Ready", "Tap mic to dictate");
 }
 
 async function retryVoiceRecording() {
   if (state.voice.status !== "idle" || !state.voice.pendingAudio) return;
   try {
-    await sendPendingVoiceWithRetry();
+    await transcribePendingVoiceWithRetry();
   } catch (error) {
     handleVoiceSendError(error);
   }
@@ -1650,8 +1595,8 @@ async function toggleVoiceRecording() {
     state.voice.mediaRecorder = null;
     setVoiceStatus(
       "idle",
-      "Record voice",
-      "Tap to record a voice command",
+      "Dictate",
+      "Tap to dictate into the message box",
     );
     addChat("system", error.message, "voice error");
   }
@@ -3594,14 +3539,9 @@ async function sendKey(key) {
   window.setTimeout(() => refreshSnapshot(true), 350);
 }
 
-async function runActionCommand(command) {
-  await sendMessage(command, true);
-}
+// --- Snippets: reusable text that inserts into the message box ---
 
-// --- Snippets: customizable frequently-used sentences ---
-
-// Render the snippet chips in the bar. Each chip sends its text to the pane on
-// tap (with its own enter behavior); chips marked enter:true get a small ↵ hint.
+// Render the snippet chips in the bar. Each chip inserts its text into the box.
 function renderSnippetChips() {
   if (!els.snippetChips) return;
   const items = getSnippets();
@@ -3618,27 +3558,17 @@ function renderSnippetChips() {
     chip.type = "button";
     chip.className = "snippet-chip";
     chip.dataset.index = String(index);
-    chip.title = item.enter ? `${item.text} (runs)` : item.text;
+    chip.title = `Insert "${item.text}"`;
     chip.textContent = item.text;
-    if (item.enter) {
-      const mark = document.createElement("span");
-      mark.className = "snippet-chip-enter";
-      mark.setAttribute("aria-hidden", "true");
-      mark.textContent = "↵";
-      chip.append(mark);
-    }
     els.snippetChips.append(chip);
   });
 }
 
-async function sendSnippet(index) {
+// Tapping a snippet inserts its text into the message box (no direct send).
+function insertSnippet(index) {
   const item = getSnippets()[index];
   if (!item) return;
-  try {
-    await sendMessage(item.text, Boolean(item.enter));
-  } catch (error) {
-    addChat("system", error.message, "error");
-  }
+  composerAppendText(item.text);
 }
 
 // Render the editable rows in the snippet manager.
@@ -3651,22 +3581,22 @@ function renderSnippetList() {
     row.className = "snippet-row";
     row.dataset.index = String(index);
 
+    const insert = document.createElement("button");
+    insert.type = "button";
+    insert.className = "small-button submit snippet-row-insert";
+    insert.textContent = "Insert";
+    insert.title = `Insert "${item.text}" into the message box`;
+    insert.addEventListener("click", () => {
+      closeSnippetManager();
+      composerAppendText(item.text);
+    });
+
     const text = document.createElement("input");
     text.type = "text";
     text.className = "snippet-row-text";
     text.value = item.text;
     text.setAttribute("aria-label", "Snippet text");
     text.addEventListener("change", () => updateSnippet(index, { text: text.value }));
-
-    const enterLabel = document.createElement("label");
-    enterLabel.className = "snippet-enter-toggle";
-    const enter = document.createElement("input");
-    enter.type = "checkbox";
-    enter.checked = Boolean(item.enter);
-    enter.addEventListener("change", () => updateSnippet(index, { enter: enter.checked }));
-    const enterText = document.createElement("span");
-    enterText.textContent = "Enter";
-    enterLabel.append(enter, enterText);
 
     const up = document.createElement("button");
     up.type = "button";
@@ -3682,7 +3612,7 @@ function renderSnippetList() {
     del.textContent = "Delete";
     del.addEventListener("click", () => removeSnippet(index));
 
-    row.append(text, enterLabel, up, del);
+    row.append(insert, text, up, del);
     els.snippetList.append(row);
   });
 }
@@ -3719,18 +3649,18 @@ function addSnippet() {
     els.snippetNewText.focus();
     return;
   }
-  setSnippets([...getSnippets(), { text, enter: els.snippetNewEnter.checked }]);
+  setSnippets([...getSnippets(), { text }]);
   els.snippetNewText.value = "";
-  els.snippetNewEnter.checked = true;
   renderSnippetList();
   renderSnippetChips();
   els.snippetNewText.focus();
 }
 
+// The unified Insert picker: curated Snippets (editable) + auto Recent history.
 function openSnippetManager() {
   renderSnippetList();
+  renderHistoryList();
   els.snippetSheet.hidden = false;
-  els.snippetNewText.focus();
 }
 
 function closeSnippetManager() {
@@ -4333,49 +4263,11 @@ document.addEventListener("visibilitychange", () => {
     requestScreenWakeLock();
   }
 });
+// Mic: tap to start dictating into the box; while recording the Keep/Discard
+// controls take over (the mic itself is hidden via CSS).
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
-els.keyboardButton.addEventListener("click", showTextComposer);
-
-// /btw mode toggle: when on, voice dictation is sent as a "/btw …" side note.
-function renderBtwToggle() {
-  const on = btwAtom.get().on;
-  els.btwToggle.classList.toggle("active", on);
-  els.btwToggle.setAttribute("aria-pressed", String(on));
-  // Make the state unmistakable in the label itself: a filled dot + "ON" when
-  // active, a hollow dot when off — not just a color change.
-  els.btwToggle.innerHTML = on
-    ? '<span class="btw-dot">●</span>/btw'
-    : '<span class="btw-dot">○</span>/btw';
-  els.btwToggle.title = on
-    ? "/btw mode ON — voice is sent as a /btw side note (tap to turn off)"
-    : "/btw mode off — tap to send voice as a /btw side note";
-}
-els.btwToggle?.addEventListener("click", () => {
-  btwAtom.set({ on: !btwAtom.get().on });
-  renderBtwToggle();
-  setStatus(btwAtom.get().on ? "/btw mode on — voice sends as a side note" : "/btw mode off");
-});
-renderBtwToggle();
-els.actionsToggle.addEventListener("click", () => {
-  state.actionsOpen = !state.actionsOpen;
-  renderComposerMode();
-});
-els.textComposer.addEventListener("submit", submitTextComposer);
-els.cancelText.addEventListener("click", () => hideTextComposer({ persist: true }));
-if (els.historyText) {
-  els.historyText.addEventListener("click", openHistoryPicker);
-}
-if (els.closeHistory) {
-  els.closeHistory.addEventListener("click", closeHistoryPicker);
-}
-if (els.historyBackdrop) {
-  els.historyBackdrop.addEventListener("click", closeHistoryPicker);
-}
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && els.historySheet && !els.historySheet.hidden) {
-    closeHistoryPicker();
-  }
-});
+// Submit: send the box contents to the pane.
+els.submitText.addEventListener("click", submitTextComposer);
 els.textInput.addEventListener("input", () => {
   if (!composerEditor) {
     els.textInput.classList.toggle("empty", els.textInput.innerText.trim().length === 0);
@@ -4439,32 +4331,12 @@ for (const button of document.querySelectorAll("[data-key]")) {
   });
 }
 
-for (const button of document.querySelectorAll("[data-command]")) {
-  button.addEventListener("click", async () => {
-    try {
-      await runActionCommand(button.dataset.command);
-    } catch (error) {
-      addChat("system", error.message, "error");
-    }
-  });
-}
-
-for (const button of document.querySelectorAll("[data-send-text]")) {
-  button.addEventListener("click", async () => {
-    try {
-      await sendMessage(button.dataset.sendText || "", button.dataset.sendEnter === "true");
-    } catch (error) {
-      addChat("system", error.message, "error");
-    }
-  });
-}
-
 // Snippet bar: delegated so dynamically-rendered chips work. Tapping a chip
-// sends its snippet to the active pane.
+// inserts its text into the message box (you then Send).
 els.snippetChips?.addEventListener("click", (event) => {
   const chip = event.target.closest(".snippet-chip");
   if (!chip) return;
-  sendSnippet(Number(chip.dataset.index));
+  insertSnippet(Number(chip.dataset.index));
 });
 els.manageSnippets?.addEventListener("click", openSnippetManager);
 els.closeSnippets?.addEventListener("click", closeSnippetManager);

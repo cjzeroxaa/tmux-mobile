@@ -40,6 +40,12 @@
         <!-- "Needs you" pill: shown when one or more other windows' agents have
              finished (unread) or are waiting on a question. Tap to jump. -->
         <button id="needsAttention" class="needs-attention" type="button" hidden aria-live="polite"></button>
+        <!-- Global action: Read the current window aloud (TTS). Promoted to the
+             topbar from the composer. -->
+        <button id="speakWindow" type="button" class="topbar-read" title="Read current window" aria-label="Read current window">
+          <svg class="icon-idle" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+          <svg class="icon-busy" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="5" y="5" rx="2"/></svg>
+        </button>
         <!-- Four window-management actions folded behind a single "More"
              button so the topbar has room for the full path. -->
         <div class="more-actions">
@@ -164,77 +170,61 @@
       <section class="control-panel">
         <div id="chat" class="chat" hidden></div>
 
-        <!-- Customizable snippets: a horizontally-scrolling bar of frequently
-             used sentences/commands. Tapping a chip sends it to the active pane
-             (each chip carries its own "press Enter" choice). The gear opens the
-             manager. Chips are rendered by app.js from persisted storage. -->
-        <div id="snippetBar" class="snippet-bar" aria-label="Snippets">
-          <div id="snippetChips" class="snippet-chips"></div>
-          <button id="manageSnippets" class="icon-button snippet-manage" type="button" title="Edit snippets" aria-label="Edit snippets">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-          </button>
-        </div>
+        <!-- Composer: everything funnels through the text box. Snippets, voice,
+             and typing all populate it; Submit sends it. Only the direct terminal
+             keys (below) bypass the box. -->
+        <div class="composer">
+          <!-- Tactical snippets: one-tap chips that INSERT into the box. The ✎
+               opens the unified Insert picker (Snippets + Recent). Rendered by
+               app.js from persisted storage. -->
+          <div id="snippetBar" class="snippet-bar" aria-label="Snippets">
+            <div id="snippetChips" class="snippet-chips"></div>
+            <button id="manageSnippets" class="icon-button snippet-manage" type="button" title="Snippets & recent" aria-label="Snippets and recent">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            </button>
+          </div>
 
-        <div id="voiceComposer" class="voice-composer">
-          <div class="voice-actions">
-            <div id="voiceStatusRow" class="voice-status-row" hidden>
-              <div id="voiceStatus" class="voice-status" data-state="idle" role="status" aria-live="polite" title="Ready" aria-label="Ready"></div>
-              <button id="retryVoice" class="icon-button voice-action retry" type="button" hidden title="Retry send" aria-label="Retry send">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          <!-- Transcribe/send status + retry (hidden unless busy or a retry is pending). -->
+          <div id="voiceStatusRow" class="voice-status-row" hidden>
+            <div id="voiceStatus" class="voice-status" data-state="idle" role="status" aria-live="polite" title="Ready" aria-label="Ready"></div>
+            <button id="retryVoice" class="icon-button voice-action retry" type="button" hidden title="Retry transcription" aria-label="Retry transcription">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
+          </div>
+
+          <!-- Input area: a spacious text box (idle) that switches to a
+               listening treatment while recording. Mic + Submit on the right;
+               in listening mode they become Discard (X) + Keep (✓). -->
+          <div id="inputArea" class="input-area">
+            <div id="textInput" class="lexical-editor empty" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Text input" spellcheck="true" data-placeholder="Message, dictate, or tap a snippet…"></div>
+            <div id="voiceWaveform" class="voice-waveform" aria-hidden="true"></div>
+            <div class="input-actions">
+              <!-- Idle controls -->
+              <button id="voiceButton" class="voice-button" type="button" title="Dictate" aria-label="Dictate into the message box">
+                <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg>
+                <span id="voiceTitle" class="sr-only">Dictate</span>
+                <small id="voiceSubtitle" class="sr-only">Tap to dictate into the message box</small>
               </button>
-            </div>
-            <div id="voiceEntry" class="voice-entry">
-              <button id="btwToggle" class="btw-toggle" type="button" aria-pressed="false" title="/btw mode: prefix voice with /btw (side note to Claude)" aria-label="Toggle /btw mode">/btw</button>
-              <button id="voiceButton" class="voice-button" type="button" title="Record voice" aria-label="Record voice">
-                <span class="mic-icon" aria-hidden="true">🎤</span>
-                <span id="voiceTitle" class="sr-only">Record voice</span>
-                <small id="voiceSubtitle" class="sr-only">Tap to record a voice command</small>
-              </button>
-              <button id="speakWindow" type="button" class="read-button" title="Read current window" aria-label="Read current window">
-                <svg class="icon-idle" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
-                <svg class="icon-busy" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="5" y="5" rx="2"/></svg>
-              </button>
-              <button id="keyboardButton" class="keyboard-button" type="button" title="Text input" aria-label="Text input">
-                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M8 12h.01"/><path d="M12 12h.01"/><path d="M16 12h.01"/><path d="M7 16h10"/></svg>
-              </button>
-              <button id="actionsToggle" class="actions-toggle" type="button" title="Quick keys" aria-label="Quick keys" aria-expanded="false">
-                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
-              </button>
-            </div>
-            <form id="textComposer" class="text-composer" hidden>
-              <div id="textInput" class="lexical-editor empty" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Text input" spellcheck="true" data-placeholder="Paste text"></div>
-              <div class="text-composer-actions">
-                <button id="historyText" class="small-button history" type="button" title="Recent messages" aria-label="Recent messages" aria-haspopup="true">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
-                </button>
-                <button id="submitText" class="small-button submit" type="submit">Submit</button>
-                <button id="cancelText" class="small-button cancel" type="button">Voice</button>
-              </div>
-            </form>
-            <div id="voiceRecordingActions" class="voice-recording-actions" hidden>
-              <button id="cancelVoice" class="icon-button voice-action cancel" type="button" title="Cancel" aria-label="Cancel recording">
+              <button id="submitText" class="small-button submit input-submit" type="button" title="Send" aria-label="Send">Send</button>
+              <!-- Listening controls (shown only while recording) -->
+              <button id="cancelVoice" class="icon-button voice-action cancel listen-only" type="button" title="Discard" aria-label="Discard recording">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
-              <div id="voiceWaveform" class="voice-waveform" aria-hidden="true"></div>
-              <button id="submitVoice" class="icon-button voice-action submit" type="button" title="Stop and send" aria-label="Stop and send">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+              <button id="submitVoice" class="icon-button voice-action submit listen-only" type="button" title="Keep (transcribe into box)" aria-label="Keep recording">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
               </button>
             </div>
-            <div id="quickActions" class="quick-action-grid" aria-label="Pane actions" hidden>
-              <button type="button" data-key="Enter" class="action-button quick-action" title="Enter" aria-label="Enter">Ent</button>
-              <button type="button" data-key="q" class="action-button quick-action" title="q" aria-label="q">Q</button>
-              <button type="button" data-key="Escape" class="action-button quick-action" title="Escape" aria-label="Escape">Esc</button>
-              <button type="button" data-key="C-c" class="action-button quick-action danger" title="Control-C" aria-label="Control-C">^C</button>
-              <button type="button" data-key="BSpace" class="action-button quick-action" title="Delete" aria-label="Delete">Del</button>
-              <button type="button" data-command="claude" class="action-button quick-action command" title="Claude" aria-label="Run Claude">Cl</button>
-              <button type="button" data-command="codex" class="action-button quick-action command" title="Codex" aria-label="Run Codex">Cx</button>
-              <button type="button" data-key="Tab" class="action-button quick-action" title="Tab" aria-label="Tab">Tab</button>
-              <button type="button" data-send-text="/goal " data-send-enter="false" class="action-button quick-action agent" title="Insert /goal" aria-label="Insert slash goal">Goal</button>
-              <button type="button" data-send-text="/clear" data-send-enter="true" class="action-button quick-action agent" title="Run /clear" aria-label="Run slash clear">Clear</button>
-              <button type="button" data-key="Up" class="action-button quick-action" title="Up" aria-label="Up">↑</button>
-              <button type="button" data-key="Down" class="action-button quick-action" title="Down" aria-label="Down">↓</button>
-              <button type="button" data-send-text="claude --worktree" data-send-enter="true" class="action-button quick-action command" title="claude --worktree" aria-label="Run claude with worktree">Wt</button>
-            </div>
+          </div>
+
+          <!-- Direct keys: raw terminal signals sent straight to the pane
+               (bypassing the box). -->
+          <div class="direct-keys" aria-label="Direct keys">
+            <button type="button" data-key="Enter" class="direct-key" title="Enter" aria-label="Enter">Ent</button>
+            <button type="button" data-key="Escape" class="direct-key" title="Escape" aria-label="Escape">Esc</button>
+            <button type="button" data-key="C-c" class="direct-key danger" title="Control-C" aria-label="Control-C">^C</button>
+            <button type="button" data-key="Tab" class="direct-key" title="Tab" aria-label="Tab">Tab</button>
+            <button type="button" data-key="Up" class="direct-key" title="Up" aria-label="Up">↑</button>
+            <button type="button" data-key="Down" class="direct-key" title="Down" aria-label="Down">↓</button>
           </div>
         </div>
       </section>
@@ -360,20 +350,24 @@
 
     <!-- Snippet manager: add / edit / remove the frequently-used sentences shown
          in the snippet bar. Rows are rendered by app.js. -->
+    <!-- Unified Insert picker: curated Snippets (editable) + auto-collected
+         Recent history. Both sections insert into the message box. -->
     <div id="snippetSheet" class="settings-sheet" hidden>
-      <button id="snippetBackdrop" class="settings-backdrop" type="button" aria-label="Close snippet editor"></button>
+      <button id="snippetBackdrop" class="settings-backdrop" type="button" aria-label="Close insert picker"></button>
       <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="snippetTitle">
         <div class="settings-panel-header">
-          <h2 id="snippetTitle">Snippets</h2>
+          <h2 id="snippetTitle">Insert</h2>
           <button id="closeSnippets" class="icon-button" type="button" title="Close">X</button>
         </div>
-        <p class="settings-hint">Frequently-used sentences. Tap a chip in the bar to send it to the active pane. "Enter" runs it (presses Return); off just inserts the text.</p>
+        <p class="settings-hint">Tap any item to insert it into the message box; review, then Send. Snippets are curated; Recent is collected from what you've sent.</p>
+        <h3 class="insert-section-title">Snippets</h3>
         <div id="snippetList" class="snippet-list"></div>
         <div class="snippet-add">
           <input id="snippetNewText" type="text" autocomplete="off" placeholder="New snippet text" />
-          <label class="snippet-enter-toggle"><input id="snippetNewEnter" type="checkbox" checked /> <span>Enter</span></label>
           <button id="snippetAdd" class="small-button submit" type="button">Add</button>
         </div>
+        <h3 class="insert-section-title">Recent</h3>
+        <div id="historyList" class="history-list"></div>
       </section>
     </div>
 
@@ -415,19 +409,6 @@
         <div id="askTabs" class="ask-tabs" aria-hidden="true"></div>
         <div id="askBody" class="ask-body"></div>
         <div id="askStatus" class="settings-status" role="status" aria-live="polite"></div>
-      </section>
-    </div>
-
-    <!-- Recent-messages picker for the text composer: tap an entry to load it
-         back into the input for editing/resending. -->
-    <div id="historySheet" class="settings-sheet" hidden>
-      <button id="historyBackdrop" class="settings-backdrop" type="button" aria-label="Close history"></button>
-      <section class="ask-panel" role="dialog" aria-modal="true" aria-labelledby="historyTitle">
-        <div class="settings-panel-header">
-          <h2 id="historyTitle">Recent messages</h2>
-          <button id="closeHistory" class="icon-button" type="button" title="Close">X</button>
-        </div>
-        <div id="historyList" class="history-list"></div>
       </section>
     </div>
 

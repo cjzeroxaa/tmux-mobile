@@ -831,11 +831,6 @@ input {
   background: var(--surface);
 }
 
-.snippet-chip-enter {
-  opacity: 0.55;
-  font-size: 0.8em;
-}
-
 .snippet-empty {
   font-size: 0.82rem;
   opacity: 0.6;
@@ -889,13 +884,17 @@ input {
   font-size: 0.9rem;
 }
 
-.snippet-enter-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+.snippet-row-insert {
   flex: 0 0 auto;
-  font-size: 0.82rem;
-  opacity: 0.85;
+}
+
+.insert-section-title {
+  margin: 12px 0 2px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
 }
 
 .snippet-row-move {
@@ -922,135 +921,233 @@ input {
   font-size: 0.9rem;
 }
 
-.voice-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+/* Composer: snippet row, input area, direct keys. Everything funnels through the
+   text box; only the direct keys send straight to the pane. */
+.composer {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
-.voice-entry {
+/* The input area: a spacious text box with mic + Send. While recording it gets
+   the "listening" treatment (waveform overlay, glowing border, pulsing mic). */
+.input-area {
+  position: relative;
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 64px 48px 48px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--code-bg);
+  padding: 8px;
+}
+
+.input-area .lexical-editor {
+  position: relative;
+  width: 100%;
+  min-height: 66px; /* ~3 rows — the spacious text area */
+  max-height: 36dvh;
+  overflow-y: auto;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: 2px;
+  font-size: 14px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+  cursor: text;
+  text-align: left;
+}
+
+.input-area .lexical-editor p {
+  margin: 0;
+  text-align: left;
+}
+
+.input-area .lexical-editor.empty::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.input-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-end;
   gap: 6px;
 }
 
-/* /btw mode toggle — sits before the mic; lights up when active so voice
-   dictation is sent as a "/btw …" side note to the agent. */
-.btw-toggle {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  height: 48px;
-  min-height: 48px;
-  /* OFF: clearly inactive — dashed outline, dim, no fill. */
-  border: 1.5px dashed rgba(39, 68, 114, 0.35);
-  border-radius: 8px;
-  background: transparent;
-  color: #8a949f;
-  opacity: 0.7;
-  padding: 0;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.01em;
-}
-
-.btw-toggle .btw-dot {
-  font-size: 9px;
-  line-height: 1;
-}
-
-.btw-toggle.active {
-  /* ON: unmistakable — solid accent fill, solid border, full opacity, glow. */
-  background: var(--accent, #35597a);
-  color: #fff;
-  border: 1.5px solid var(--accent, #35597a);
-  opacity: 1;
-  box-shadow: 0 0 0 2px rgba(53, 89, 122, 0.25);
-}
-
-.btw-toggle.active .btw-dot {
-  color: #7dffd0; /* bright accent dot so "on" reads at a glance */
-}
-
+/* Mic (dictate). Round, accent. Hidden while listening (Keep/Discard take over). */
 .voice-button {
   display: grid;
-  width: 100%;
-  height: 48px;
-  min-height: 48px;
+  width: 46px;
+  height: 46px;
   place-items: center;
-  border: 1px solid rgba(0, 0, 0, 0.14);
+  border: 1px solid var(--accent, #35597a);
   border-radius: 999px;
-  background: linear-gradient(#ffffff, #e8ebef);
-  color: #263238;
+  background: var(--accent, #35597a);
+  color: #fff;
   padding: 0;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 1px 2px rgba(15, 20, 24, 0.18);
-  text-align: center;
+  box-shadow: 0 6px 14px rgba(15, 111, 99, 0.18);
 }
 
 .voice-button:active {
-  background: linear-gradient(#dfe3e8, #ffffff);
+  filter: brightness(0.95);
 }
 
-.mic-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
-  line-height: 1;
+.voice-button.busy {
+  opacity: 0.7;
 }
 
-.keyboard-button,
-.read-button,
-.actions-toggle {
-  display: grid;
-  min-width: 0;
-  min-height: 48px;
-  place-items: center;
-  border: 1px solid rgba(39, 68, 114, 0.28);
-  border-radius: 8px;
-  background: #f2f4f7;
-  color: #274472;
-  padding: 0;
-  font-size: 11px;
+.input-submit {
+  min-height: 40px;
+  min-width: 56px;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
   font-weight: 800;
 }
 
-.read-button {
-  border-color: rgba(17, 107, 95, 0.28);
+/* Listening state: swap mic→Keep/Discard, glow the box, animate the waveform. */
+.voice-action.listen-only {
+  display: none;
+}
+
+.input-area.listening {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px rgba(167, 53, 53, 0.18), 0 0 16px rgba(167, 53, 53, 0.22);
+  animation: listen-glow 1.6s ease-in-out infinite;
+}
+
+.input-area.listening .voice-button,
+.input-area.listening .input-submit {
+  display: none;
+}
+
+.input-area.listening .voice-action.listen-only {
+  display: grid;
+  width: 44px;
+  height: 44px;
+}
+
+@keyframes listen-glow {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(167, 53, 53, 0.16), 0 0 12px rgba(167, 53, 53, 0.18); }
+  50% { box-shadow: 0 0 0 2px rgba(167, 53, 53, 0.28), 0 0 22px rgba(167, 53, 53, 0.30); }
+}
+
+/* The waveform sits across the box only while listening. */
+.voice-waveform {
+  display: none;
+}
+
+.input-area.listening .lexical-editor {
+  display: none;
+}
+
+.input-area.listening .voice-waveform {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 66px;
+  overflow: hidden;
+  padding: 0 4px;
+}
+
+.voice-waveform span {
+  width: 3px;
+  height: 3px;
+  flex: 1 1 auto;
+  max-width: 5px;
+  border-radius: 999px;
+  background: var(--danger);
+  transition: height 100ms;
+}
+
+.voice-action {
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  padding: 0;
+}
+
+.voice-action.submit {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.voice-action.cancel {
+  border: 1px solid rgba(167, 53, 53, 0.4);
+  background: var(--surface);
+  color: var(--danger);
+}
+
+.voice-action.retry {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Direct keys: raw terminal signals, high-contrast, sent straight to the pane. */
+.direct-keys {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.direct-key {
+  display: grid;
+  min-width: 0;
+  min-height: 38px;
+  place-items: center;
+  border: 1px solid var(--accent-dark, #2a4863);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  padding: 0;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.direct-key:active {
+  background: var(--surface);
+}
+
+.direct-key.danger {
+  border-color: rgba(167, 53, 53, 0.5);
+  color: var(--danger);
+}
+
+/* Topbar "Read" (TTS) global action. */
+.topbar-read {
+  flex: 0 0 auto;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
   color: var(--accent-dark);
+  padding: 0;
+  box-shadow: var(--shadow);
 }
 
-.actions-toggle.active {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
-}
-
-.read-button.reading {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
-}
-
-.read-button.stopping {
-  opacity: 0.72;
-}
-
-.read-button .icon-busy {
-  display: none;
-}
-
-.read-button.reading .icon-idle {
-  display: none;
-}
-
-.read-button.reading .icon-busy {
-  display: block;
-}
+.topbar-read .icon-busy { display: none; }
+.topbar-read.reading { border-color: var(--accent); background: var(--accent); color: #fff; }
+.topbar-read.reading .icon-idle { display: none; }
+.topbar-read.reading .icon-busy { display: block; }
+.topbar-read.stopping { opacity: 0.72; }
 
 /* Topbar voice status is a single icon; text only in the tooltip/aria-label. */
 .voice-status {
@@ -1131,83 +1228,12 @@ input {
   color: var(--accent-blue);
 }
 
-.text-composer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 82px;
-  gap: 6px;
-}
-
-.text-composer .lexical-editor {
-  position: relative;
-  width: 100%;
-  min-height: 86px;
-  max-height: 36dvh;
-  overflow-y: auto;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--ink);
-  padding: 9px 10px;
-  font-size: 13px;
-  line-height: 1.35;
-  white-space: pre-wrap;
-  word-break: break-word;
-  outline: none;
-  cursor: text;
-  text-align: left;
-}
-
-.text-composer .lexical-editor p {
-  margin: 0;
-  text-align: left;
-}
-
-.text-composer .lexical-editor.empty::before {
-  content: attr(data-placeholder);
-  position: absolute;
-  top: 9px;
-  left: 10px;
-  color: var(--muted);
-  pointer-events: none;
-}
-
-.text-composer-actions {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  gap: 6px;
-}
-
-.text-composer-actions .small-button {
-  min-height: 40px;
-}
-
-.text-composer-actions .submit {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
-}
-
-.text-composer-actions .cancel {
-  border-color: var(--line);
-  color: var(--muted);
-}
-
-/* History (recall) button — compact, icon-only, above Submit/Cancel. */
-.text-composer-actions .history {
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-color: var(--line);
-  color: var(--muted);
-}
-
-/* Recent-messages picker list. */
+/* Insert picker — Recent (history) section rows; also reused for tap-to-insert. */
 .history-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 60dvh;
+  max-height: 36dvh;
   overflow-y: auto;
 }
 
@@ -1238,115 +1264,10 @@ input {
   padding: 8px 2px;
 }
 
-.voice-recording-actions {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 6px;
-  align-items: center;
-}
-
-.voice-waveform {
-  display: flex;
-  min-height: 36px;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: #f8e9e9;
-  padding: 6px 12px;
-}
-
-.voice-waveform span {
-  width: 3px;
-  height: 3px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: var(--danger);
-  transition: height 100ms;
-}
-
-.voice-action {
-  width: 36px;
-  height: 36px;
-}
-
-.voice-action.submit {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
-}
-
-.voice-action.cancel {
-  border-color: rgba(167, 53, 53, 0.36);
-  color: var(--danger);
-}
-
-.quick-action-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 4px;
-}
-
-.action-button {
-  display: grid;
-  min-width: 0;
-  min-height: 32px;
-  place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--ink);
-  padding: 0;
-  overflow: hidden;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.quick-action {
-  height: 32px;
-}
-
 @media (min-width: 600px) {
   .app-shell {
     width: 100vw;
   }
-}
-
-.action-button.danger {
-  border-color: rgba(167, 53, 53, 0.36);
-  color: var(--danger);
-}
-
-.action-button.command {
-  border-color: rgba(17, 107, 95, 0.28);
-  background: #edf5f2;
-  color: var(--accent-dark);
-}
-
-.action-button.agent {
-  border-color: rgba(39, 68, 114, 0.28);
-  background: #f2f4f7;
-  color: #274472;
-  font-size: 10px;
-}
-
-.action-button.audio {
-  border-color: rgba(39, 68, 114, 0.28);
-  background: #eef3fa;
-  color: #23466e;
-  font-size: 11px;
-}
-
-.action-button.audio.reading {
-  border-color: rgba(167, 53, 53, 0.36);
-  background: #fff0ee;
-  color: var(--danger);
-}
-
-.action-button.audio.stopping {
-  opacity: 0.72;
 }
 
 .directory-navigator {
@@ -2311,7 +2232,7 @@ input:focus {
 html:not([data-theme="kami"]) {
 select,
 input,
-.text-composer .lexical-editor {
+.input-area .lexical-editor {
   background: var(--code-bg);
   color: var(--ink);
 }
@@ -2340,60 +2261,18 @@ input,
   color: var(--muted);
 }
 
-.voice-button {
-  border-color: rgba(237, 229, 210, 0.12);
-  background: linear-gradient(var(--surface-soft), var(--surface));
+.input-area {
+  background: var(--code-bg);
+}
+
+.direct-key {
+  background: var(--surface-soft);
   color: var(--ink);
-  box-shadow:
-    inset 0 1px 0 rgba(237, 229, 210, 0.06),
-    0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
-.voice-button:active {
-  background: linear-gradient(var(--surface), var(--surface-soft));
-}
-
-.keyboard-button,
-.action-button.agent {
-  background: #1f2638;
-  color: var(--accent-dark);
-}
-
-.read-button {
-  background: #1f2638;
-  color: var(--accent-dark);
-}
-
-.voice-button.busy {
-  background: #1f2638;
-  color: var(--accent-dark);
-}
-
-.text-composer-actions .cancel {
+.topbar-read {
   background: var(--surface);
-}
-
-.voice-waveform {
-  background: #2e1814;
-}
-
-.action-button {
-  background: var(--surface);
-}
-
-.action-button.command {
-  background: #1f2638;
   color: var(--accent-dark);
-}
-
-.action-button.audio {
-  background: #1f2638;
-  color: var(--accent-dark);
-}
-
-.action-button.audio.reading {
-  background: #2e1814;
-  color: var(--danger);
 }
 
 .directory-navigator {
