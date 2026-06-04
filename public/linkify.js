@@ -61,9 +61,24 @@ export function linkifyEscaped(escaped, opts = {}) {
   return out;
 }
 
-// Matches "PR #1234" / "PR#1234" (case-insensitive), in already-escaped text.
-// Deliberately NOT bare "#1234" — that over-triggers on shell/markdown/diff text.
-const PR_REF_IN_ESCAPED = /\bPR\s*#(\d+)\b/gi;
+// Matches the "#1234" of a "PR #1234" reference and wraps ONLY that token.
+// Deliberately NOT bare "#1234" everywhere — that over-triggers on
+// shell/markdown/diff text; the "PR " prefix is the trigger.
+//
+// The "PR" prefix is matched but kept OUTSIDE the link, because the pane HTML
+// wraps each ANSI color run in <span>…</span> and an agent's status line often
+// colors "PR" and "#1234" in SEPARATE spans (literal text:
+// `PR</span> <span class="…">#1234`). Wrapping the whole "PR #1234" would put an
+// <a> across a span boundary → invalid nesting. So we only wrap `#1234` (which
+// lives inside a single span) and allow HTML tags / whitespace to sit between
+// the "PR" trigger and the "#". The trigger is a non-captured prefix.
+const TAG_OR_SPACE = "(?:<[^>]*>|\\s)";
+// Group 1 = the prefix (PR + any tags/space) we re-emit unchanged; group 2 = the
+// "#1234" token we turn into the link.
+const PR_REF_IN_ESCAPED = new RegExp(
+  `(\\bPR${TAG_OR_SPACE}*)(#${TAG_OR_SPACE}*\\d+)\\b`,
+  "gi",
+);
 
 // Link PR references to the active window's GitHub repo. github.com/owner/repo/
 // issues/N auto-redirects to the PR, so we don't need to distinguish issue vs PR.
@@ -75,9 +90,15 @@ function linkifyPrRefs(html, repo) {
   return parts
     .map((part, i) => {
       if (i % 2 === 1) return part; // inside an <a> — leave it
-      return part.replace(PR_REF_IN_ESCAPED, (match, num) => {
+      return part.replace(PR_REF_IN_ESCAPED, (match, prefix, hashToken) => {
+        // The "#1234" token must live within a single span, or wrapping it in an
+        // <a> would cross a span boundary → invalid nesting. If the token itself
+        // straddles markup (very rare: "#" and digits in different color runs),
+        // leave it unlinked rather than emit broken HTML.
+        if (/<\/?[a-z]/i.test(hashToken)) return match;
+        const num = hashToken.replace(/\D+/g, "");
         const href = `https://${host}/${repo.owner}/${repo.name}/issues/${num}`;
-        return `<a href="${href}" class="pane-link" target="_blank" rel="noopener noreferrer">${match}</a>`;
+        return `${prefix}<a href="${href}" class="pane-link" target="_blank" rel="noopener noreferrer">${hashToken}</a>`;
       });
     })
     .join("");

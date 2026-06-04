@@ -93,13 +93,16 @@ for (const p of ["./demo.webm", "out/clip.mp4", "render/report.html", "~/v.mov"]
 const repo = { host: "github.com", owner: "sycamore-labs", name: "kernel" };
 const renderRepo = (t) => linkifyEscaped(escapeHtml(t), { repo });
 
-// 18. "PR #1234" -> github issues link (auto-redirects to the PR)
+// 18. "PR #1234" -> github issues link (auto-redirects to the PR). Only the
+// "#1234" token is wrapped (so the link can't straddle ANSI <span> boundaries);
+// the "PR" prefix stays outside the anchor.
 out = renderRepo("landed in PR #4877 today");
 assert.ok(
   out.includes('href="https://github.com/sycamore-labs/kernel/issues/4877"'),
   `18 PR link: ${out}`,
 );
-assert.ok(out.includes(">PR #4877</a>"), "18 display text");
+assert.ok(out.includes(">#4877</a>"), `18 display text: ${out}`);
+assert.ok(out.includes("PR <a "), `18 PR prefix kept outside anchor: ${out}`);
 
 // 19. "PR#1234" (no space) also matches
 out = renderRepo("see PR#12");
@@ -108,6 +111,23 @@ assert.ok(out.includes("/issues/12"), `19 PR no-space: ${out}`);
 // 20. bare "#1234" is NOT linked (too noisy)
 out = renderRepo("comment #4877 and item #3");
 assert.ok(!out.includes("<a "), `20 bare # not linked: ${out}`);
+
+// 20a. PR ref split across ANSI color spans (the common statusline case:
+// "PR" and "#1234" colored separately) still links, with VALID nesting — the
+// <a> must not cross a </span> boundary. Regression for an agent statusline
+// rendering "PR #5024" as two spans.
+out = linkifyEscaped(
+  '<span class="c1">PR</span> <span class="c2">#5024</span> for agents',
+  { repo },
+);
+assert.ok(out.includes("/issues/5024"), `20a span-split links: ${out}`);
+const crossesSpan = /<a\b[^>]*>(?:(?!<\/a>).)*<\/span>(?:(?!<\/a>).)*<\/a>/s.test(out);
+assert.ok(!crossesSpan, `20a anchor must not cross a span boundary: ${out}`);
+
+// 20b. a "#" split from its digits across spans is left UNLINKED rather than
+// emitting broken markup.
+out = linkifyEscaped('PR <span>#</span><span>5024</span>', { repo });
+assert.ok(!out.includes("<a "), `20b hash-split not linked: ${out}`);
 
 // 21. without a repo, "PR #1234" is left as plain text
 out = render("PR #4877 with no repo");
