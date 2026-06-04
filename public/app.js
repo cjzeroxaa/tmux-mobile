@@ -257,7 +257,7 @@ function applyTheme(theme) {
 const state = {
   runtimeMode: "local",
   serverRevision: "",
-  cloneUrl: "https://github.com/cjzeroxaa/tmux-mobile.git",
+  cloneUrl: "https://github.com/sycamore-labs/tmux-mobile.git",
   machines: [],
   machineId: machineAtom.get().machineId || "",
   sessions: [],

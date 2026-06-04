@@ -108,7 +108,7 @@ function sanitizeVoicePrefix(raw) {
 // "no machine connected" UI; override for forks/mirrors.
 const CONNECTOR_CLONE_URL =
   process.env.TMUX_MOBILE_CLONE_URL ||
-  "https://github.com/cjzeroxaa/tmux-mobile.git";
+  "https://github.com/sycamore-labs/tmux-mobile.git";
 const WINDOW_BRIEFING_MODEL =
   process.env.OPENAI_WINDOW_BRIEFING_MODEL || "gpt-5.4-mini";
 const AGENT_RESPONSE_EXTRACT_MODEL =
