@@ -12,6 +12,7 @@ import {
   createMetadataCache,
 } from "./lib/window-metadata.mjs";
 import { detectTurn } from "./lib/turn-detection.mjs";
+import { isScrollbackMode } from "./lib/pane-mode.mjs";
 import { isAskQuestion, parseAskQuestion } from "./lib/ask-question.mjs";
 import {
   singleSelectKeys,
@@ -485,15 +486,6 @@ async function sendTextToPane(paneId, text, { enter = false } = {}) {
     return { mode: "paste-buffer", sentEnter: true };
   }
   return { mode: "paste-buffer", sentEnter: false };
-}
-
-// tmux's scrollback pager has TWO mode names that both swallow input: "copy-mode"
-// (interactive copy) and "view-mode" (read-only — what a program's Ctrl+O output
-// expansion / a scroll-up lands in). Either one intercepts keystrokes as pager
-// commands, so input sent while in them never reaches the program (the text sits
-// in the prompt unsubmitted and the window looks dead). Treat both as the pager.
-function isScrollbackMode(mode) {
-  return mode === "copy-mode" || mode === "view-mode";
 }
 
 // Before delivering any input, drop the pane out of the scrollback pager so the
