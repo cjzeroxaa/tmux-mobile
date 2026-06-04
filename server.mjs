@@ -228,7 +228,7 @@ const formats = {
   windows:
     "#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{window_flags}\t#{pane_current_command}\t#{pane_tty}\t#{pane_current_path}\t#{@tm_annotation}",
   panes:
-    "#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_title}",
+    "#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_in_mode}\t#{pane_title}",
   paneInfo:
     "#{session_name}\t#{window_index}\t#{window_name}\t#{pane_index}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_pid}\t#{pane_active}",
 };
@@ -476,6 +476,29 @@ async function sendTextToPane(paneId, text, { enter = false } = {}) {
     return { mode: "paste-buffer", sentEnter: true };
   }
   return { mode: "paste-buffer", sentEnter: false };
+}
+
+// A pane in tmux copy-mode (a.k.a. view-mode — its scrollback pager) intercepts
+// keystrokes as copy-mode commands instead of passing them to the running
+// program. So a paste / Enter sent while copy-mode is active never reaches the
+// app: the text sits in the prompt unsubmitted and the window looks dead. This
+// happens without the mouse (e.g. Claude Code's Ctrl+O output expansion, or a
+// scroll-up). Before we deliver any input, drop the pane out of copy-mode so the
+// keystroke lands on the program. Returns true if it had to exit copy-mode.
+async function exitCopyModeIfNeeded(paneId) {
+  let inMode = "0";
+  try {
+    inMode = (
+      await runTmux(["display-message", "-p", "-t", paneId, "#{pane_in_mode}"])
+    ).trim();
+  } catch {
+    return false; // pane vanished / query failed — let the caller proceed
+  }
+  if (inMode !== "1") return false;
+  // `-X cancel` leaves copy-mode without disturbing the command line (unlike
+  // sending `q`, which the program would receive once we're out of mode).
+  await runTmux(["send-keys", "-t", paneId, "-X", "cancel"]);
+  return true;
 }
 
 function sendSubmitNudge(paneId) {
@@ -729,7 +752,7 @@ async function listPanes(windowId) {
     formats.panes,
   ]);
   return rows(stdout).map(
-    ([id, index, active, command, cwd, width, height, title]) => ({
+    ([id, index, active, command, cwd, width, height, inMode, ...titleParts]) => ({
       id,
       index: Number(index),
       active: active === "1",
@@ -737,7 +760,9 @@ async function listPanes(windowId) {
       cwd,
       width: Number(width || 0),
       height: Number(height || 0),
-      title,
+      inCopyMode: inMode === "1",
+      // pane_title is last and may contain tabs — rejoin any split pieces.
+      title: titleParts.join("\t"),
     }),
   );
 }
@@ -822,6 +847,11 @@ async function getSessionWindowMetadata(sessionId) {
         const panes = await listPanes(win.id);
         const pane = panes.find((p) => p.active) || panes[0];
         if (!pane) return;
+        // Surface copy-mode so the UI can warn that the pane's scrollback pager
+        // is intercepting input (keystrokes won't reach the program until it's
+        // exited). /api/send and /api/key auto-exit it, but a banner makes the
+        // state visible when it happens.
+        base[win.id].inCopyMode = Boolean(pane.inCopyMode);
         const screen = await capturePane(pane.id, "screen");
         const clean = cleanTerminalText(screen);
         base[win.id].contentHash = createHash("sha1")
@@ -2222,6 +2252,10 @@ async function handleApi(req, res, url) {
       return;
     }
 
+    // If the pane is parked in copy-mode, our input would be swallowed by the
+    // scrollback pager — exit it first so the paste/Enter reaches the program.
+    await exitCopyModeIfNeeded(paneId);
+
     let sendResult;
     if (text.length > 0) {
       // Paste + (optionally) Enter in one call so the paste->Enter delay applies
@@ -2446,8 +2480,23 @@ async function handleApi(req, res, url) {
       sendJson(res, 400, { error: "Unsupported key" });
       return;
     }
+    // Exit copy-mode first so the key reaches the program, not the pager. (One
+    // exception: if the user is deliberately sending a navigation key to drive
+    // copy-mode, this would fight them — but the allowed keys here are
+    // submit/edit keys for the app's input, not copy-mode navigation.)
+    await exitCopyModeIfNeeded(paneId);
     await runTmux(["send-keys", "-t", paneId, key]);
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // Explicitly drop a pane out of tmux copy-mode (the "Exit scroll mode" banner
+  // button). Idempotent: a no-op if it isn't in copy-mode.
+  if (req.method === "POST" && url.pathname === "/api/exit-copy-mode") {
+    const body = await readJsonBody(req);
+    const paneId = requireId(body.paneId, "pane");
+    const exited = await exitCopyModeIfNeeded(paneId);
+    sendJson(res, 200, { ok: true, exited });
     return;
   }
 

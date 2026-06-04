@@ -284,6 +284,8 @@ const els = {
   mobileWindows: document.querySelector("#mobileWindows"),
   mobileTargetLabel: document.querySelector("#mobileTargetLabel"),
   needsAttention: document.querySelector("#needsAttention"),
+  copyModeBanner: document.querySelector("#copyModeBanner"),
+  exitCopyMode: document.querySelector("#exitCopyMode"),
   snapshot: document.querySelector("#snapshot"),
   fileViewerSheet: document.querySelector("#fileViewerSheet"),
   fileViewerBackdrop: document.querySelector("#fileViewerBackdrop"),
@@ -2719,6 +2721,33 @@ function updateAttentionIndicators() {
   }
 }
 
+// Show the "scroll mode is on" banner when the viewed window's pane is parked in
+// tmux copy-mode (its scrollback pager), which intercepts input. Sending
+// text/keys auto-exits it server-side, but the banner makes the state visible
+// and offers a one-tap escape.
+function updateCopyModeBanner() {
+  if (!els.copyModeBanner) return;
+  const meta = state.windowId ? state.windowMetadata[state.windowId] : null;
+  els.copyModeBanner.hidden = !meta?.inCopyMode;
+}
+
+async function exitCopyModeNow() {
+  if (!state.paneId) return;
+  try {
+    await api("/api/exit-copy-mode", {
+      method: "POST",
+      body: JSON.stringify({ paneId: state.paneId }),
+    });
+    if (state.windowId && state.windowMetadata[state.windowId]) {
+      state.windowMetadata[state.windowId].inCopyMode = false;
+    }
+    updateCopyModeBanner();
+    refreshSnapshot(true);
+  } catch (error) {
+    setStatus(error.message || "Could not exit scroll mode", false);
+  }
+}
+
 // Jump to the first window that needs attention (tapping the pill). If it's
 // waiting on a question, open the answer overlay straight away.
 function jumpToFirstAttention() {
@@ -2749,6 +2778,7 @@ async function loadWindowMetadata() {
     renderWindows();
     renderTargetLabels();
     updateAttentionIndicators();
+    updateCopyModeBanner();
     // If the active window's repo just became known (or changed), re-render the
     // snapshot so PR references in the visible output get linkified.
     if (JSON.stringify(activeWindowRepo()) !== prevRepo && state.snapshotText != null) {
@@ -2839,6 +2869,7 @@ async function selectWindow(windowId) {
   // Visiting a window clears its "unread" flag: record the content we're now
   // looking at as the seen baseline.
   if (win) markWindowVisited(win);
+  updateCopyModeBanner(); // reflect the new window's state (or hide until known)
   renderWindows();
   updateTargetUrl();
   // Dismiss the picker instantly — don't make the user stare at a half-
@@ -4088,6 +4119,9 @@ els.machineSelect?.addEventListener("change", () => {
 els.openTargetPicker.addEventListener("click", openTargetPicker);
 if (els.needsAttention) {
   els.needsAttention.addEventListener("click", jumpToFirstAttention);
+}
+if (els.exitCopyMode) {
+  els.exitCopyMode.addEventListener("click", exitCopyModeNow);
 }
 els.closeTargetPicker.addEventListener("click", closeTargetPicker);
 els.targetBackdrop.addEventListener("click", closeTargetPicker);
