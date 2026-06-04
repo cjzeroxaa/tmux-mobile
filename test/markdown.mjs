@@ -108,4 +108,54 @@ h = renderMarkdown("| X |\n| - |\n| <img src=x onerror=alert(1)> |");
 assert.ok(!h.includes("<img src=x"), `19 no raw img in cell: ${h}`);
 assert.ok(h.includes("&lt;img"), "19 escaped in cell");
 
+// 20. LOOSE ordered list (blank lines between items) is ONE <ol> numbered
+//     1,2,3 — not three separate <ol>s each restarting at 1 (the reported bug).
+h = renderMarkdown("1. First\n\n2. Second\n\n3. Third");
+assert.equal((h.match(/<ol/g) || []).length, 1, `20 single <ol> for loose list: ${h}`);
+assert.equal((h.match(/<li>/g) || []).length, 3, "20 three items in one list");
+assert.ok(/<li>First<\/li>[\s\S]*<li>Second<\/li>[\s\S]*<li>Third<\/li>/.test(h), "20 items in order");
+
+// 21. ordered list not starting at 1 carries a start attribute
+h = renderMarkdown("3. three\n4. four");
+assert.ok(h.includes('<ol start="3">'), `21 start attr: ${h}`);
+
+// 22. a list starting at 1 has NO start attribute (clean default)
+h = renderMarkdown("1. a\n2. b");
+assert.ok(h.includes("<ol>") && !h.includes("start="), `22 no start for 1: ${h}`);
+
+// 23. nested list: deeper-indented items nest inside the parent item
+h = renderMarkdown("1. Top\n   - sub a\n   - sub b\n2. Next");
+assert.ok(/<li>Top[\s\S]*<ul>[\s\S]*<li>sub a<\/li>[\s\S]*<li>sub b<\/li>[\s\S]*<\/ul>[\s\S]*<\/li>/.test(h), `23 nested ul inside li: ${h}`);
+assert.equal((h.match(/<li>Next<\/li>/g) || []).length, 1, "23 sibling Next stays at top level");
+
+// 24. continuation line (indented, no marker) folds into the current item, not a
+//     stray top-level paragraph
+h = renderMarkdown("1. First item\n   continues here\n2. Second item");
+assert.equal((h.match(/<ol/g) || []).length, 1, `24 single list despite continuation: ${h}`);
+assert.ok(h.includes("continues here"), "24 continuation kept");
+
+// 25. task list renders real (disabled) checkboxes, checked/unchecked
+h = renderMarkdown("- [ ] todo\n- [x] done");
+assert.ok(h.includes('<input type="checkbox" disabled /> todo'), `25 unchecked box: ${h}`);
+assert.ok(h.includes('<input type="checkbox" disabled checked /> done'), "25 checked box");
+
+// 26. strikethrough
+h = renderMarkdown("~~gone~~ stays");
+assert.ok(h.includes("<del>gone</del>"), `26 strikethrough: ${h}`);
+
+// 27. bare URL autolinking, with trailing sentence punctuation kept OUTSIDE the link
+h = renderMarkdown("see https://example.com here.");
+assert.ok(h.includes('<a href="https://example.com" target="_blank" rel="noopener noreferrer">https://example.com</a>'), `27 bare url linked: ${h}`);
+h = renderMarkdown("(visit https://example.com).");
+assert.ok(h.includes(">https://example.com</a>") && !h.includes("example.com).</a"), `27b trailing ). outside link: ${h}`);
+
+// 28. a bare URL inside inline code is NOT autolinked (code is protected)
+h = renderMarkdown("run `curl https://example.com` now");
+assert.ok(h.includes("<code>curl https://example.com</code>"), `28 url in code not linked: ${h}`);
+assert.ok(!/<code>[^<]*<a /.test(h), "28 no anchor inside code");
+
+// 29. unordered + ordered remain distinct adjacent lists (no merge)
+h = renderMarkdown("- a\n- b\n\n1. x\n2. y");
+assert.ok(h.includes("<ul>") && h.includes("<ol>"), `29 both list types: ${h}`);
+
 console.log("markdown unit tests passed");
