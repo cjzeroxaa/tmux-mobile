@@ -243,6 +243,7 @@ const allowedKeys = new Set([
   "q",
   "C-c",
   "C-d",
+  "C-u",
   "C-z",
   "Tab",
   "Escape",
