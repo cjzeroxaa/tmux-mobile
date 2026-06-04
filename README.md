@@ -276,14 +276,19 @@ unread dot.
 
 **"Needs you" indicators.** A window *needs you* when its agent is waiting on a
 question, or its turn ended (idle) and its content changed since you last looked
-(idle + unread). To surface this without opening the picker, the client runs a
-**background metadata poll** (every 5s, 12s when the tab is hidden — kept alive
-even with the picker closed) and reflects the result three ways: an always-visible
-topbar **pill** (`● N waiting`, or a louder pulsing `❓ N needs answer` when any is
-a question) that jumps to the first such window on tap (auto-opening the answer
-overlay for a question); the browser **tab title** (`(N) …`) and a badged
-**favicon** (canvas-drawn dot), so a backgrounded tab/PWA still shows the count;
-and the per-window chip above. The current window never counts itself.
+(idle + unread). This spans **all online machines, not just the focused one**: a
+single `GET /api/attention` (one request per poll regardless of machine count)
+has the controller sweep every machine — for each window it returns
+`turn`/`waitingForInput`/`contentHash` plus the stable identity (machine + session
+name + window index); the client applies its own local unread comparison against
+that hash. The poll runs every 5s (12s when hidden), even with no machine focused.
+It reflects the result three ways: an always-visible topbar **pill** (`● N
+waiting`, or a louder pulsing `❓ N needs answer` when any is a question) that
+**jumps to the first such window on tap — switching machines if it's on another**
+(auto-opening the answer overlay for a question); the browser **tab title**
+(`(N) …`) and a badged **favicon**, so a backgrounded tab/PWA still shows the
+count; and the per-window chip in the picker. The current window never counts
+itself.
 
 The metadata is a small **registry of descriptors** — each field is either `live`
 (computed from the window row) or `cwdScoped` (resolved via the agent + cached),

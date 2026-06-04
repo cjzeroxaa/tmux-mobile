@@ -887,6 +887,50 @@ async function getSessionWindowMetadata(sessionId) {
   return base;
 }
 
+// Attention descriptors for every window on the CURRENT backend's machine: the
+// fields the client needs to decide "needs you" (turn / waitingForInput) plus the
+// stable identity (session name + window index) it keys unread state by, and the
+// contentHash so the client can apply its own unread comparison. Used by the
+// cross-machine /api/attention aggregate. Best-effort: a failing session is
+// skipped rather than failing the whole sweep.
+async function collectMachineAttention() {
+  let sessions = [];
+  try {
+    sessions = rows(await runTmux(["list-sessions", "-F", formats.sessions])).map(
+      sessionFromRow,
+    );
+  } catch (error) {
+    if (isNoServerError(error)) return [];
+    throw error;
+  }
+  const out = [];
+  await Promise.all(
+    sessions.map(async (session) => {
+      let windows;
+      let meta;
+      try {
+        windows = await listWindows(session.id);
+        meta = await getSessionWindowMetadata(session.id);
+      } catch {
+        return; // session vanished mid-sweep
+      }
+      for (const win of windows) {
+        const m = meta[win.id] || {};
+        out.push({
+          sessionName: session.name,
+          windowIndex: win.index,
+          windowName: win.name,
+          agentType: m.agentType || "",
+          turn: m.turn || "",
+          waitingForInput: Boolean(m.waitingForInput),
+          contentHash: m.contentHash || "",
+        });
+      }
+    }),
+  );
+  return out;
+}
+
 // --- AskUserQuestion overlay support (on-demand) ---
 
 // The active pane id for a window (a pane id is also accepted as-is).
@@ -1971,6 +2015,15 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  // Local-mode attention sweep (single machine). In hub mode this is handled
+  // earlier across all machines; here it returns one "local" machine entry so the
+  // client uses the same code path in both modes.
+  if (req.method === "GET" && url.pathname === "/api/attention") {
+    const windows = await collectMachineAttention();
+    sendJson(res, 200, { machines: [{ machineId: "local", hostname: "local", windows }] });
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/sessions") {
     try {
       const stdout = await runTmux(["list-sessions", "-F", formats.sessions]);
@@ -2769,6 +2822,30 @@ if (MODE.kind === "register") {
         if (hub) {
           if (req.method === "GET" && url.pathname === "/api/machines") {
             sendJson(res, 200, hub.listMachines(userId));
+            return;
+          }
+          // Cross-machine attention sweep: per-window turn/waitingForInput/
+          // contentHash for EVERY online machine, so the client's "needs you"
+          // pill/title/favicon span all machines (not just the focused one). One
+          // request per poll regardless of machine count. The client applies its
+          // own (local) unread comparison against contentHash.
+          if (req.method === "GET" && url.pathname === "/api/attention") {
+            const online = hub.listMachines(userId);
+            const machines = await Promise.all(
+              online.map(async (machine) => {
+                let windows = [];
+                try {
+                  windows = await withBackend(
+                    hub.backendFor(userId, machine.id),
+                    () => collectMachineAttention(),
+                  );
+                } catch {
+                  windows = []; // machine hiccup — skip it this tick
+                }
+                return { machineId: machine.id, hostname: machine.hostname, windows };
+              }),
+            );
+            sendJson(res, 200, { machines });
             return;
           }
           if (url.pathname === "/api/health") {

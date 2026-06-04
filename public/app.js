@@ -176,28 +176,45 @@ function windowRecentKey(win) {
   return [state.machineId || "local", sessionName, win.index].join("\u001f");
 }
 
-// Does this window need the user's attention? Two cases, strongest first:
-//   "question" — the agent is blocked on an AskUserQuestion prompt.
-//   "finished" — the agent's turn ended (idle) AND its content changed since you
-//                last looked (unread) — i.e. it finished something you haven't
-//                seen.
-// The currently-viewed window never "needs you" (you're already looking at it).
-// Returns "question" | "finished" | null.
-function windowNeedsAttention(win) {
-  if (!win || win.id === state.windowId) return null;
-  const meta = state.windowMetadata[win.id] || {};
-  if (meta.waitingForInput) return "question";
-  if (meta.turn === "idle" && isWindowUnread(win)) return "finished";
+// Stable identity key for a cross-machine attention descriptor — must match
+// windowRecentKey's format so unread/seen-hashes line up across machines.
+function attentionKey(d) {
+  return [d.machineId || "local", d.sessionName, d.windowIndex].join("");
+}
+
+// The stable key of the window the user is currently looking at (so it never
+// counts as "needs you" — they're already there).
+function activeWindowKey() {
+  const win = selectedWindow();
+  return win ? windowRecentKey(win) : "";
+}
+
+// Does this attention descriptor need the user? Two cases, strongest first:
+//   "question" — the agent is blocked on an AskUserQuestion (or exit-plan) prompt.
+//   "finished" — turn ended (idle) AND content changed since last visit (unread).
+// The currently-viewed window is excluded. Unread is computed client-side against
+// the local seen-hashes baseline, so it works for every machine.
+function descriptorNeedsAttention(d, activeKey) {
+  const key = attentionKey(d);
+  if (key === activeKey) return null;
+  if (d.waitingForInput) return "question";
+  if (d.turn === "idle") {
+    const seen = seenHashesAtom.get().byKey[key];
+    if (seen !== undefined && d.contentHash && seen !== d.contentHash) {
+      return "finished";
+    }
+  }
   return null;
 }
 
-// All windows currently needing attention, with their reason — drives the topbar
-// pill, the tab-title/favicon badge, and lets a tap jump to the first one.
+// All windows (across ALL machines) currently needing attention, with reason —
+// drives the topbar pill, the tab-title/favicon badge, and the jump-on-tap.
 function windowsNeedingAttention() {
+  const activeKey = activeWindowKey();
   const out = [];
-  for (const win of state.windows) {
-    const reason = windowNeedsAttention(win);
-    if (reason) out.push({ win, reason });
+  for (const d of state.attention) {
+    const reason = descriptorNeedsAttention(d, activeKey);
+    if (reason) out.push({ descriptor: d, reason });
   }
   return out;
 }
@@ -248,8 +265,9 @@ const state = {
   windowSummaries: {},
   windowActivity: {},
   windowMetadata: {}, // { [windowId]: { agentType, repo, git: {branch, worktree} } }
+  attention: [], // cross-machine: [{ machineId, sessionName, windowIndex, windowName, agentType, turn, waitingForInput, contentHash }]
   activityTimer: null,
-  metadataTimer: null, // background "needs you" metadata poll
+  metadataTimer: null, // background "needs you" metadata poll (cross-machine)
   summariesLoading: false,
   panes: [],
   sessionId: "",
@@ -468,7 +486,8 @@ function shouldAttachMachineHeader(path) {
     pathname !== "/api/machines" &&
     pathname !== "/api/health" &&
     pathname !== "/api/voice-config" &&
-    pathname !== "/api/voice-preview"
+    pathname !== "/api/voice-preview" &&
+    pathname !== "/api/attention" // spans all machines; not machine-scoped
   );
 }
 
@@ -2689,6 +2708,9 @@ async function refreshTree({
         message,
       );
       setStatus(message.replace(/\.$/, ""), false);
+      // No machine focused, but others may be online and need you — keep the
+      // cross-machine attention poll running so the pill/badge still works.
+      startMetadataPolling();
       if (!state.machineId && state.machines.length > 1) showTargetPicker();
       return;
     }
@@ -2971,15 +2993,35 @@ async function exitCopyModeNow() {
   }
 }
 
-// Jump to the first window that needs attention (tapping the pill). If it's
-// waiting on a question, open the answer overlay straight away.
-function jumpToFirstAttention() {
+// Jump to the first window that needs attention (tapping the pill) — across ALL
+// machines. Questions first; switch machines if the target is elsewhere, then
+// select the window by its stable identity and open the answer overlay for a
+// question.
+async function jumpToFirstAttention() {
   const pending = windowsNeedingAttention();
   if (!pending.length) return;
-  const { win, reason } = pending[0];
-  selectWindow(win.id);
+  // Prefer a question over a finished-unread one.
+  pending.sort((a, b) => (a.reason === "question" ? 0 : 1) - (b.reason === "question" ? 0 : 1));
+  const { descriptor, reason } = pending[0];
+
+  // Switch machines first if needed (hub mode); selectMachine reloads the tree.
+  if (state.runtimeMode === "hub" && descriptor.machineId && descriptor.machineId !== state.machineId) {
+    await selectMachine(descriptor.machineId);
+  }
+  // Resolve the descriptor to a live window on the (now-current) machine by its
+  // stable key, then select it.
+  const targetKey = attentionKey(descriptor);
+  const win = state.windows.find((w) => windowRecentKey(w) === targetKey);
+  if (win) {
+    await selectWindow(win.id);
+  } else {
+    // Couldn't resolve (windows not loaded yet / vanished) — open the picker so
+    // the user can pick it; the attention chip on that machine guides them.
+    showTargetPicker();
+    return;
+  }
   if (reason === "question") {
-    window.setTimeout(() => openAskOverlay(), 350);
+    window.setTimeout(() => openAskOverlay(), 400);
   }
 }
 
@@ -3000,7 +3042,6 @@ async function loadWindowMetadata() {
     if (activeWin) markWindowVisited(activeWin);
     renderWindows();
     renderTargetLabels();
-    updateAttentionIndicators();
     updateCopyModeBanner();
     // If the active window's repo just became known (or changed), re-render the
     // snapshot so PR references in the visible output get linkified.
@@ -3009,6 +3050,29 @@ async function loadWindowMetadata() {
     }
   } catch {
     // ignore transient failures
+  }
+}
+
+// Cross-machine attention sweep: ask the controller for every online machine's
+// per-window turn/waitingForInput/contentHash in one request, flatten into
+// descriptors, and refresh the "needs you" indicators (pill/title/favicon span
+// all machines). Also keep the active window's seen-hash current so it doesn't
+// flag itself as unread.
+async function loadAttention() {
+  try {
+    const data = await api("/api/attention");
+    const descriptors = [];
+    for (const machine of data.machines || []) {
+      for (const w of machine.windows || []) {
+        descriptors.push({ machineId: machine.machineId, ...w });
+      }
+    }
+    state.attention = descriptors;
+    const activeWin = selectedWindow();
+    if (activeWin) markWindowVisited(activeWin);
+    updateAttentionIndicators();
+  } catch {
+    // transient failure — keep the last known attention
   }
 }
 
@@ -3053,13 +3117,24 @@ function metadataPollInterval() {
   return document.hidden ? METADATA_POLL_HIDDEN_MS : METADATA_POLL_VISIBLE_MS;
 }
 
+// One poll tick: refresh the cross-machine attention sweep (always — it spans all
+// machines, even when none is focused), plus the focused machine's picker
+// metadata when there is one.
+async function metadataPollTick() {
+  await loadAttention();
+  if (state.sessions.length > 0) await loadWindowMetadata();
+}
+
 function startMetadataPolling() {
   stopMetadataPolling();
-  if (state.sessions.length === 0) return;
-  loadWindowMetadata(); // immediate first read
+  // Only meaningful once connected: hub mode (>=1 machine) or local with sessions.
+  if (state.runtimeMode === "hub" ? state.machines.length === 0 : state.sessions.length === 0) {
+    return;
+  }
+  metadataPollTick(); // immediate first read
   state.metadataTimer = window.setTimeout(
     async function tick() {
-      await loadWindowMetadata();
+      await metadataPollTick();
       state.metadataTimer = window.setTimeout(tick, metadataPollInterval());
     },
     metadataPollInterval(),
