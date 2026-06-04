@@ -1154,20 +1154,22 @@ input {
   color: #fff;
 }
 
-/* Mode pill: focused agent's current permission mode + effort. Sits just above
-   the direct-keys row; one compact row that hides when no agent is focused. */
+/* Mode pill: focused agent's current permission mode + effort. Lives INSIDE the
+   input control bar (next to attach), filling the free middle space rather than
+   taking its own row. Hidden when no agent is focused — its flex slot collapses,
+   so attach/mic/Send just close up. */
 .mode-bar {
   display: flex;
   align-items: stretch;
   gap: 4px;
-  margin-bottom: 6px;
+  margin-left: 8px; /* nudge off the attach button */
 }
 
 .mode-pill {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 34px;
+  min-height: 36px;
   padding: 0 12px;
   border: 1px solid var(--accent, #35597a);
   border-radius: 999px 8px 8px 999px;
@@ -1175,6 +1177,7 @@ input {
   color: var(--ink);
   font-size: 13px;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .mode-pill::before {
@@ -1193,7 +1196,7 @@ input {
   display: grid;
   place-items: center;
   width: 34px;
-  min-height: 34px;
+  min-height: 36px;
   border: 1px solid var(--accent, #35597a);
   border-left: 0;
   border-radius: 8px 999px 999px 8px;
@@ -1237,11 +1240,17 @@ input {
   filter: brightness(0.97);
 }
 
-/* Direct keys: raw terminal signals, high-contrast, sent straight to the pane. */
+/* Direct keys: raw terminal signals, high-contrast, sent straight to the pane.
+   auto-fit packs as many keys per row as fit at >=72px each, so a wide screen
+   gets all 8 on ONE row and a narrow phone wraps to fewer columns (4, then 2).
+   Capped + centered so they don't stretch to absurd widths. */
 .direct-keys {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
   gap: 5px;
+  width: 100%; /* never exceed the composer; lets auto-fit wrap on narrow widths */
+  max-width: 640px;
+  margin-inline: auto;
 }
 
 .direct-key {

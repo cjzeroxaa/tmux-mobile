@@ -209,6 +209,16 @@
                 <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
               </button>
               <input id="fileInput" type="file" multiple hidden aria-hidden="true" />
+              <!-- Mode pill lives in the control bar's free middle space, next to
+                   attach. Tap label = cycle mode (Shift+Tab); caret = mode/effort
+                   sheet. Hidden when the focused window has no detected agent. -->
+              <div id="modeBar" class="mode-bar" hidden>
+                <button id="modeCycle" class="mode-pill" type="button" aria-label="Cycle agent mode">
+                  <span id="modeLabel" class="mode-pill-label">Mode</span>
+                  <span id="modeEffort" class="mode-pill-effort"></span>
+                </button>
+                <button id="modeMore" class="mode-pill-more" type="button" aria-label="Mode and effort options" title="Mode &amp; effort">⌄</button>
+              </div>
               <!-- Right-aligned cluster: mic + send (and the listening swaps). -->
               <div class="input-actions-right">
                 <button id="voiceButton" class="voice-button" type="button" title="Dictate" aria-label="Dictate into the message box">
@@ -226,18 +236,6 @@
                 </button>
               </div>
             </div>
-          </div>
-
-          <!-- Mode pill: shows the focused agent's current permission mode
-               (and effort). Tap the label to cycle modes (Shift+Tab); tap the
-               caret to open the mode/effort sheet. Hidden when the focused
-               window has no detected agent. -->
-          <div id="modeBar" class="mode-bar" hidden>
-            <button id="modeCycle" class="mode-pill" type="button" aria-label="Cycle agent mode">
-              <span id="modeLabel" class="mode-pill-label">Mode</span>
-              <span id="modeEffort" class="mode-pill-effort"></span>
-            </button>
-            <button id="modeMore" class="mode-pill-more" type="button" aria-label="Mode and effort options" title="Mode &amp; effort">⌄</button>
           </div>
 
           <!-- Direct keys: raw terminal signals sent straight to the pane
