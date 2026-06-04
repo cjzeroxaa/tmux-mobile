@@ -228,6 +228,18 @@
             </div>
           </div>
 
+          <!-- Mode pill: shows the focused agent's current permission mode
+               (and effort). Tap the label to cycle modes (Shift+Tab); tap the
+               caret to open the mode/effort sheet. Hidden when the focused
+               window has no detected agent. -->
+          <div id="modeBar" class="mode-bar" hidden>
+            <button id="modeCycle" class="mode-pill" type="button" aria-label="Cycle agent mode">
+              <span id="modeLabel" class="mode-pill-label">Mode</span>
+              <span id="modeEffort" class="mode-pill-effort"></span>
+            </button>
+            <button id="modeMore" class="mode-pill-more" type="button" aria-label="Mode and effort options" title="Mode &amp; effort">⌄</button>
+          </div>
+
           <!-- Direct keys: raw terminal signals sent straight to the pane
                (bypassing the box). -->
           <div class="direct-keys" aria-label="Direct keys">
@@ -382,6 +394,27 @@
         </div>
         <h3 class="insert-section-title">Recent</h3>
         <div id="historyList" class="history-list"></div>
+      </section>
+    </div>
+
+    <!-- Mode & effort sheet: per-agent. Mode buttons cycle/jump via Shift+Tab;
+         effort (Claude) drives the in-TUI /effort slider. Populated by app.js
+         from the focused window's agentType + parsed current state. -->
+    <div id="modeSheet" class="settings-sheet" hidden>
+      <button id="modeBackdrop" class="settings-backdrop" type="button" aria-label="Close mode options"></button>
+      <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="modeSheetTitle">
+        <div class="settings-panel-header">
+          <h2 id="modeSheetTitle">Mode &amp; effort</h2>
+          <button id="closeMode" class="icon-button" type="button" title="Close">X</button>
+        </div>
+        <p class="settings-hint" id="modeSheetHint">Switch the agent's permission mode. Effort changes the model's reasoning level.</p>
+        <h3 class="insert-section-title">Mode</h3>
+        <div id="modeOptions" class="mode-options"></div>
+        <div id="effortSection" hidden>
+          <h3 class="insert-section-title">Effort</h3>
+          <div id="effortOptions" class="mode-options"></div>
+        </div>
+        <span id="modeStatus" class="settings-status" role="status" aria-live="polite"></span>
       </section>
     </div>
 

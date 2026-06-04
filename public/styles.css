@@ -1154,6 +1154,89 @@ input {
   color: #fff;
 }
 
+/* Mode pill: focused agent's current permission mode + effort. Sits just above
+   the direct-keys row; one compact row that hides when no agent is focused. */
+.mode-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.mode-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--accent, #35597a);
+  border-radius: 999px 8px 8px 999px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mode-pill::before {
+  content: "◆";
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.mode-pill-effort {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.mode-pill-more {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  min-height: 34px;
+  border: 1px solid var(--accent, #35597a);
+  border-left: 0;
+  border-radius: 8px 999px 999px 8px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.mode-pill:active,
+.mode-pill-more:active {
+  background: var(--surface);
+}
+
+/* Mode/effort sheet option buttons — wrap into rows of chips. */
+.mode-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.mode-option {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mode-option.selected {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.mode-option:active {
+  filter: brightness(0.97);
+}
+
 /* Direct keys: raw terminal signals, high-contrast, sent straight to the pane. */
 .direct-keys {
   display: grid;

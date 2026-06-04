@@ -431,6 +431,19 @@ const els = {
   snippetNewText: document.querySelector("#snippetNewText"),
   snippetAdd: document.querySelector("#snippetAdd"),
   historyList: document.querySelector("#historyList"),
+  modeBar: document.querySelector("#modeBar"),
+  modeCycle: document.querySelector("#modeCycle"),
+  modeLabel: document.querySelector("#modeLabel"),
+  modeEffort: document.querySelector("#modeEffort"),
+  modeMore: document.querySelector("#modeMore"),
+  modeSheet: document.querySelector("#modeSheet"),
+  modeBackdrop: document.querySelector("#modeBackdrop"),
+  closeMode: document.querySelector("#closeMode"),
+  modeSheetHint: document.querySelector("#modeSheetHint"),
+  modeOptions: document.querySelector("#modeOptions"),
+  effortSection: document.querySelector("#effortSection"),
+  effortOptions: document.querySelector("#effortOptions"),
+  modeStatus: document.querySelector("#modeStatus"),
   textInput: document.querySelector("#textInput"),
   submitText: document.querySelector("#submitText"),
   voiceWaveform: document.querySelector("#voiceWaveform"),
@@ -566,6 +579,7 @@ function resetTmuxState(message = "Select a window.") {
   renderMachinePicker();
   renderWindows();
   renderTargetLabels();
+  renderModeBar();
   updateAttentionIndicators(); // clears title/favicon/pill
   resetDirectoryNavigator();
   updateSnapshotText(message, { forceScrollBottom: true });
@@ -3042,6 +3056,7 @@ async function loadWindowMetadata() {
     if (activeWin) markWindowVisited(activeWin);
     renderWindows();
     renderTargetLabels();
+    renderModeBar();
     updateCopyModeBanner();
     // If the active window's repo just became known (or changed), re-render the
     // snapshot so PR references in the visible output get linkified.
@@ -3719,6 +3734,179 @@ async function sendKey(key) {
     body: JSON.stringify({ paneId: state.paneId, key }),
   });
   window.setTimeout(() => refreshSnapshot(true), 350);
+}
+
+// --- Agent mode + effort switching ---------------------------------------
+//
+// The focused window's agent (claude/codex) and its parsed current mode/effort
+// arrive in window metadata as `agentType` + `agentMode` (see lib/agent-mode.mjs
+// server-side). The pill shows the live mode; tapping it cycles via Shift+Tab
+// (tmux BTab); the sheet jumps to a specific mode (cycle N times) and, for
+// Claude, sets effort by driving its /effort slider through /api/agent-effort.
+//
+// This UI table mirrors the server's AGENT_MODES for the parts the client needs
+// to RENDER (cycle order + labels + effort levels). Keep in sync with the lib.
+const AGENT_MODE_UI = {
+  claude: {
+    // Cycle order matches Claude's Shift+Tab rotation (normal is the unmarked
+    // default). Used to compute how many BTab presses reach a target.
+    cycle: ["normal", "auto", "acceptEdits", "plan"],
+    labels: {
+      normal: "Normal",
+      auto: "Auto",
+      acceptEdits: "Accept edits",
+      plan: "Plan",
+      bypass: "Bypass",
+    },
+    effortLevels: ["low", "medium", "high", "xhigh", "max", "ultracode"],
+  },
+  codex: {
+    cycle: ["fullAccess", "plan"],
+    labels: {
+      fullAccess: "Full access",
+      plan: "Plan",
+      readOnly: "Read-only",
+      auto: "Auto",
+    },
+    effortLevels: null, // fast-follow
+  },
+};
+
+// The focused window's { agentType, mode, label, effort, model } or null.
+function focusedAgentMode() {
+  const meta = state.windowMetadata[state.windowId];
+  if (!meta || !meta.agentType) return null;
+  const m = meta.agentMode || {};
+  return {
+    agentType: meta.agentType,
+    mode: m.mode || null,
+    label: m.label || "",
+    effort: m.effort || null,
+    model: m.model || null,
+  };
+}
+
+// Show/hide + label the pill from the focused window's agent state. Called on
+// every metadata refresh (cheap; just reads state).
+function renderModeBar() {
+  if (!els.modeBar) return;
+  const a = focusedAgentMode();
+  if (!a || !AGENT_MODE_UI[a.agentType]) {
+    els.modeBar.hidden = true;
+    return;
+  }
+  els.modeBar.hidden = false;
+  els.modeLabel.textContent = a.label || "Mode";
+  els.modeEffort.textContent = a.effort ? `· ${a.effort}` : "";
+  els.modeBar.dataset.agent = a.agentType;
+}
+
+// Tapping the pill cycles the mode one step (Shift+Tab). We don't track which
+// way it lands — the next metadata poll re-parses the real mode and relabels.
+async function cycleAgentMode() {
+  const a = focusedAgentMode();
+  if (!a) return;
+  try {
+    await sendKey("BTab");
+    // Pull fresh metadata sooner than the poll so the pill updates promptly.
+    window.setTimeout(loadWindowMetadata, 500);
+  } catch (error) {
+    addChat("system", error.message, "error");
+  }
+}
+
+function openModeSheet() {
+  const a = focusedAgentMode();
+  if (!a) return;
+  renderModeSheet(a);
+  els.modeSheet.hidden = false;
+}
+
+function closeModeSheet() {
+  if (els.modeSheet) els.modeSheet.hidden = true;
+  if (els.modeStatus) els.modeStatus.textContent = "";
+}
+
+function renderModeSheet(a) {
+  const ui = AGENT_MODE_UI[a.agentType];
+  els.modeSheetHint.textContent =
+    a.agentType === "claude"
+      ? "Switch Claude's permission mode (sent as Shift+Tab). Effort sets the model's reasoning level."
+      : "Switch the agent's permission mode (sent as Shift+Tab).";
+
+  // Mode options: tapping one cycles BTab the right number of times to land on it.
+  els.modeOptions.replaceChildren();
+  for (const mode of ui.cycle) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "mode-option" + (mode === a.mode ? " selected" : "");
+    btn.textContent = ui.labels[mode] || mode;
+    btn.addEventListener("click", () => selectMode(mode));
+    els.modeOptions.append(btn);
+  }
+
+  // Effort options (Claude only).
+  if (ui.effortLevels) {
+    els.effortSection.hidden = false;
+    els.effortOptions.replaceChildren();
+    for (const level of ui.effortLevels) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "mode-option" + (level === a.effort ? " selected" : "");
+      btn.textContent = level;
+      btn.addEventListener("click", () => selectEffort(level));
+      els.effortOptions.append(btn);
+    }
+  } else {
+    els.effortSection.hidden = true;
+  }
+}
+
+// Jump to a specific mode. The server cycles Shift+Tab and re-reads the REAL
+// mode until it lands on the target (the ring order/membership varies by launch
+// flags, so we don't compute a step count client-side).
+async function selectMode(targetMode) {
+  const a = focusedAgentMode();
+  if (!a) return;
+  const ui = AGENT_MODE_UI[a.agentType];
+  if (targetMode === a.mode) {
+    closeModeSheet();
+    return;
+  }
+  els.modeStatus.textContent = `Switching to ${ui.labels[targetMode] || targetMode}…`;
+  try {
+    const r = await api("/api/agent-mode", {
+      method: "POST",
+      body: JSON.stringify({ paneId: state.paneId, agentType: a.agentType, mode: targetMode }),
+    });
+    window.setTimeout(loadWindowMetadata, 400);
+    window.setTimeout(() => refreshSnapshot(true), 400);
+    if (r && r.reached === false) {
+      els.modeStatus.textContent = `Couldn't reach ${ui.labels[targetMode] || targetMode} (now: ${r.mode || "?"})`;
+    } else {
+      closeModeSheet();
+    }
+  } catch (error) {
+    els.modeStatus.textContent = error.message || "Could not switch mode";
+  }
+}
+
+// Set effort by driving the agent's /effort slider server-side.
+async function selectEffort(level) {
+  const a = focusedAgentMode();
+  if (!a) return;
+  els.modeStatus.textContent = `Setting effort to ${level}…`;
+  try {
+    await api("/api/agent-effort", {
+      method: "POST",
+      body: JSON.stringify({ paneId: state.paneId, agentType: a.agentType, level }),
+    });
+    window.setTimeout(loadWindowMetadata, 700);
+    window.setTimeout(() => refreshSnapshot(true), 700);
+    closeModeSheet();
+  } catch (error) {
+    els.modeStatus.textContent = error.message || "Could not set effort";
+  }
 }
 
 // --- Snippets: reusable text that inserts into the message box ---
@@ -4535,6 +4723,12 @@ for (const button of document.querySelectorAll("[data-key]")) {
     }
   });
 }
+
+// Mode pill: tap to cycle, caret to open the mode/effort sheet.
+els.modeCycle?.addEventListener("click", cycleAgentMode);
+els.modeMore?.addEventListener("click", openModeSheet);
+els.closeMode?.addEventListener("click", closeModeSheet);
+els.modeBackdrop?.addEventListener("click", closeModeSheet);
 
 // Snippet bar: delegated so dynamically-rendered chips work. Tapping a chip
 // inserts its text into the message box (you then Send).

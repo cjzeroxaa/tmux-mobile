@@ -12,6 +12,7 @@ import {
   createMetadataCache,
 } from "./lib/window-metadata.mjs";
 import { detectTurn } from "./lib/turn-detection.mjs";
+import { detectAgentMode, AGENT_MODES } from "./lib/agent-mode.mjs";
 import { isScrollbackMode } from "./lib/pane-mode.mjs";
 import { isAskQuestion, parseAskQuestion } from "./lib/ask-question.mjs";
 import {
@@ -246,6 +247,7 @@ const allowedKeys = new Set([
   "C-u",
   "C-z",
   "Tab",
+  "BTab", // Shift+Tab — cycles agent permission mode (Claude + Codex)
   "Escape",
   "BSpace",
   "Up",
@@ -869,9 +871,18 @@ async function getSessionWindowMetadata(sessionId) {
           .slice(0, 16);
         const agentType = base[win.id].agentType;
         if (agentType) {
+          const lines = clean.split("\n");
           base[win.id].turn = detectTurn(agentType, {
             title: pane.title,
-            paneTail: clean.split("\n").slice(-12).join("\n"),
+            paneTail: lines.slice(-12).join("\n"),
+          });
+          // Mode/effort needs a DEEPER tail than turn: the model+effort line and
+          // the mode line sit above a growing input box, so with command history
+          // they can be ~20+ rows up from the bottom. 28 lines reliably spans the
+          // whole footer block without scanning the entire scrollback.
+          base[win.id].agentMode = detectAgentMode(agentType, {
+            title: pane.title,
+            paneTail: lines.slice(-28).join("\n"),
           });
         }
         // Cheap "is this pane blocked on an AskUserQuestion prompt?" check — just
@@ -2586,6 +2597,85 @@ async function handleApi(req, res, url) {
     await exitCopyModeIfNeeded(paneId);
     await runTmux(["send-keys", "-t", paneId, key]);
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // Set a Claude agent's effort level by driving its in-TUI `/effort` slider:
+  // open the slider, step Left/Right from the current level to the target, then
+  // Enter to confirm. The slider levels + command live in the per-agent table;
+  // "current" is read live from the pane footer so we step the right distance
+  // even if the user moved it by hand. This reuses the same sequenced-key
+  // primitive as the AskUserQuestion answer flow (sendAskKeys + a settle poll).
+  if (req.method === "POST" && url.pathname === "/api/agent-effort") {
+    const body = await readJsonBody(req);
+    const paneId = requireId(body.paneId, "pane");
+    const agentType = String(body.agentType || "");
+    const target = String(body.level || "").toLowerCase();
+    const spec = AGENT_MODES[agentType]?.effort;
+    if (!spec) {
+      sendJson(res, 400, { error: `No effort control for agent "${agentType}"` });
+      return;
+    }
+    const targetIdx = spec.levels.indexOf(target);
+    if (targetIdx === -1) {
+      sendJson(res, 400, { error: `Unknown effort level "${target}"` });
+      return;
+    }
+    await exitCopyModeIfNeeded(paneId);
+    // Open the slider, then drive it DETERMINISTICALLY without parsing the
+    // current level (the footer's effort marker is unreliable across levels and
+    // widths — e.g. max/ultracode render differently and may not show "/effort").
+    // The slider clamps at its ends, so: press Left N times to guarantee we're at
+    // the far-left (index 0 = lowest), then Right `targetIdx` times to land on the
+    // target. N = levels.length is always enough to reach the left edge.
+    await sendTextToPane(paneId, spec.command, { enter: true });
+    await delay(ASK_KEY_DELAY_MS * 3); // let the slider render before stepping
+    const keys = [];
+    for (let i = 0; i < spec.levels.length; i++) keys.push("Left"); // clamp to low
+    for (let i = 0; i < targetIdx; i++) keys.push("Right"); // step up to target
+    keys.push("Enter");
+    await sendAskKeys(paneId, keys);
+    sendJson(res, 200, { ok: true, to: target });
+    return;
+  }
+
+  // Set an agent's permission mode by cycling Shift+Tab until the pane's parsed
+  // mode matches the target. We do NOT assume a fixed ring order/membership (it
+  // varies with launch flags) — we step one cycle, re-read the REAL mode, and
+  // stop when it matches or we've made a full loop without finding it.
+  if (req.method === "POST" && url.pathname === "/api/agent-mode") {
+    const body = await readJsonBody(req);
+    const paneId = requireId(body.paneId, "pane");
+    const agentType = String(body.agentType || "");
+    const target = String(body.mode || "");
+    const cfg = AGENT_MODES[agentType];
+    if (!cfg) {
+      sendJson(res, 400, { error: `No mode control for agent "${agentType}"` });
+      return;
+    }
+    await exitCopyModeIfNeeded(paneId);
+    const readMode = async () => {
+      const clean = cleanTerminalText(await capturePane(paneId, "screen"));
+      return detectAgentMode(agentType, {
+        paneTail: clean.split("\n").slice(-12).join("\n"),
+      }).mode;
+    };
+    let current = await readMode();
+    // A whole ring is at most ~6 modes; cap steps generously to avoid spinning.
+    const maxSteps = 8;
+    let steps = 0;
+    while (current !== target && steps < maxSteps) {
+      await runTmux(["send-keys", "-t", paneId, cfg.cycleKey]);
+      await delay(ASK_KEY_DELAY_MS * 2); // let the footer redraw before re-reading
+      current = await readMode();
+      steps++;
+    }
+    sendJson(res, 200, {
+      ok: current === target,
+      mode: current,
+      steps,
+      reached: current === target,
+    });
     return;
   }
 
