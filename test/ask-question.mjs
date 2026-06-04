@@ -246,6 +246,47 @@ assert.ok(
 const PLAN_HEADER_ONLY = "\n Claude has written up a plan and is ready to execute. Would you like to proceed?\n";
 assert.equal(isAskQuestion(PLAN_HEADER_ONLY), false, "plan: header alone -> not active");
 
+// --- false-positive guards (these mark a window "needs you" when wrong) --------
+// Claude's OWN prose discusses plans, reviews, and submitting answers all the
+// time. None of these are live TUI prompts; the detector must not fire on them.
+
+// Plan: the header phrase + a numbered list, but NO ❯ cursor. Prose, not a prompt.
+assert.equal(
+  isAskQuestion(
+    "I have written up a plan and am ready to execute. Would you like me to proceed:\n1. Refactor the parser\n2. Add tests\n3. Ship it",
+  ),
+  false,
+  "fp: plan prose + numbered list (no ❯ cursor) -> not active",
+);
+assert.equal(
+  isAskQuestion("The script is ready to execute. Would you like to proceed?\n1. It takes ~5 minutes to run."),
+  false,
+  "fp: 'ready to execute … proceed?' prose -> not active",
+);
+
+// Review: the header phrase but NO selectable "Submit answers" option. Prose.
+assert.equal(
+  isAskQuestion("Let me review your answers from the form earlier and summarize them below."),
+  false,
+  "fp: 'review your answers' prose -> not active",
+);
+assert.equal(
+  isAskQuestion("The PR is ready to submit your answers to CI once the tests pass."),
+  false,
+  "fp: 'ready to submit your answers' prose -> not active",
+);
+assert.equal(
+  isAskQuestion('  // Render the "Review your answers" header above the submit button\n  renderReview();'),
+  false,
+  "fp: code quoting the review phrase -> not active",
+);
+// But a real review screen (header + the Submit answers option) still fires.
+assert.equal(
+  isAskQuestion("Review your answers\n→ Database: PostgreSQL\n❯ 1. Submit answers"),
+  true,
+  "fp guard keeps real review screen detected",
+);
+
 // --- negative ------------------------------------------------------------------
 
 assert.equal(parseAskQuestion(NOT_A_PROMPT), null, "negative: plain shell -> null");
