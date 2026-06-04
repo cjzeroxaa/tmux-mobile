@@ -196,6 +196,14 @@ or **long-press the pane** (the gesture you reach for when you spot Claude
 waiting). The long-press fires after ~500ms held still and cancels on
 scroll/selection, so it never shadows tapping a link or selecting text.
 
+The same overlay also handles Claude's **exit-plan-mode** confirmation ("Claude
+has written up a plan and is ready to execute. Would you like to proceed?") — a
+numbered single-select with a "Tell Claude what to change" free-form option. It's
+detected separately (no tab bar / no AskUserQuestion footer) but parses into the
+same single-select shape, so the cards + the keystroke driver work unchanged. It
+also counts as `waitingForInput`, so a plan-waiting window shows the ❓ chip and
+the needs-attention indicators.
+
 It is **user-triggered and on-demand** — nothing scans for prompts in the
 background. When you trigger it, the server captures the active pane *once*,
 parses the prompt (`lib/ask-question.mjs`), and renders it: one chip per question

@@ -196,6 +196,56 @@ assert.equal(p.questionText, "Which fruits do you like?", "two: Q2 text");
 p = parseAskQuestion(REVIEW);
 assert.ok(p && p.review === true, "review: flagged as review");
 
+// --- exit-plan-mode prompt -----------------------------------------------------
+
+// Real capture (ANSI stripped): the plan-approval confirmation.
+const PLAN = `
+ Here is Claude's plan:
+ Plan: Create hello.txt
+ 1. Create a file hello.txt in /tmp containing "Hello, world!".
+
+────────────────────────────────────────────────────────────────────────────
+
+ Claude has written up a plan and is ready to execute. Would you like to proceed?
+
+ ❯ 1. Yes, and bypass permissions
+   2. Yes, manually approve edits
+   3. No, refine with Ultraplan on Claude Code on the web
+   4. Tell Claude what to change
+      shift+tab to approve with this feedback
+
+ ctrl-g to edit in  Vim
+`;
+
+assert.equal(isAskQuestion(PLAN), true, "plan: detected");
+p = parseAskQuestion(PLAN);
+assert.ok(p && p.plan === true, "plan: flagged plan");
+assert.equal(p.multiSelect, false, "plan: single-select");
+assert.equal(p.review, false, "plan: not review");
+assert.match(p.questionText, /proceed/i, "plan: question text");
+assert.equal(p.cursorIndex, 0, "plan: cursor on first option");
+assert.deepEqual(
+  p.options.map((o) => o.title),
+  [
+    "Yes, and bypass permissions",
+    "Yes, manually approve edits",
+    "No, refine with Ultraplan on Claude Code on the web",
+    "Tell Claude what to change",
+  ],
+  "plan: option titles",
+);
+// "Tell Claude what to change" is the free-form path; the rest are not.
+assert.equal(p.options[3].isFreeForm, true, "plan: option 4 is free-form");
+assert.ok(
+  p.options.slice(0, 3).every((o) => !o.isFreeForm),
+  "plan: yes/no options are not free-form",
+);
+
+// The plan header text alone (no numbered options yet) must NOT register, so the
+// overlay doesn't fire mid-stream while the plan is still printing.
+const PLAN_HEADER_ONLY = "\n Claude has written up a plan and is ready to execute. Would you like to proceed?\n";
+assert.equal(isAskQuestion(PLAN_HEADER_ONLY), false, "plan: header alone -> not active");
+
 // --- negative ------------------------------------------------------------------
 
 assert.equal(parseAskQuestion(NOT_A_PROMPT), null, "negative: plain shell -> null");
