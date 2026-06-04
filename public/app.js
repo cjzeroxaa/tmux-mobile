@@ -2858,11 +2858,11 @@ function updateAttentionIndicators() {
 }
 
 // Show the "scroll mode is on" banner only when the viewed pane has been parked
-// in tmux copy-mode for longer than a grace period. Entering copy-mode briefly is
-// almost always intentional (scrolling up to read), and sends auto-exit it anyway
-// — so we don't nag immediately. We only warn once the pane has *stayed* in
-// copy-mode past COPY_MODE_GRACE_MS, which signals it's actually parked/stuck.
-const COPY_MODE_GRACE_MS = 6000;
+// in tmux copy-mode for longer than a short grace period. A quick scroll-up to
+// read is intentional (and sends auto-exit copy-mode anyway), so we don't nag
+// instantly — but a genuinely stuck window should get its explanation + Exit
+// button promptly, so the grace is brief.
+const COPY_MODE_GRACE_MS = 2000;
 // When the active window first entered copy-mode (ms epoch), or 0 if it isn't.
 let copyModeSince = 0;
 let copyModeGraceTimer = null;

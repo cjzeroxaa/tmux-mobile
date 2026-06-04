@@ -467,6 +467,11 @@ async function pasteTextToPane(paneId, text) {
 }
 
 async function sendTextToPane(paneId, text, { enter = false } = {}) {
+  // If the pane is parked in copy-mode (scrollback pager), a paste/Enter is
+  // swallowed by the pager and the window looks stuck. Exit it first. Centralized
+  // here so EVERY text-send path is covered (voice-send, /api/send, …), not just
+  // the endpoints that remembered to call it.
+  await exitCopyModeIfNeeded(paneId);
   await pasteTextToPane(paneId, text);
   if (enter) {
     // Wait for the bracketed paste to be fully consumed before the Enter, so the
