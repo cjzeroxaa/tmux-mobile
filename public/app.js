@@ -273,6 +273,12 @@ const state = {
   sessionId: "",
   windowId: "",
   paneId: "",
+  // Reconnect grace: when the focused machine momentarily drops (deploy, wifi
+  // blip, agent restart), we keep the current window on screen and retry fast
+  // for a grace window before falling back to the "no machine" reset.
+  reconnectUntil: 0, // ms epoch deadline; 0 = not in grace
+  reconnectMachineId: "", // the machine we're waiting to come back
+  reconnectTimer: null, // fast-retry timer during grace
   lines: readPersistedLines(),
   autoRefreshTimer: null,
   chat: [],
@@ -352,6 +358,8 @@ const els = {
   mobileTargetLabel: document.querySelector("#mobileTargetLabel"),
   needsAttention: document.querySelector("#needsAttention"),
   copyModeBanner: document.querySelector("#copyModeBanner"),
+  reconnectBanner: document.querySelector("#reconnectBanner"),
+  reconnectBannerText: document.querySelector("#reconnectBannerText"),
   exitCopyMode: document.querySelector("#exitCopyMode"),
   snapshot: document.querySelector("#snapshot"),
   fileViewerSheet: document.querySelector("#fileViewerSheet"),
@@ -567,6 +575,8 @@ function setStatus(text, ok = true) {
 
 function resetTmuxState(message = "Select a window.") {
   stopMetadataPolling();
+  // Any full reset means we're no longer holding a window through a blip.
+  setReconnectingBanner(false);
   state.sessions = [];
   state.windows = [];
   state.windowSummaries = {};
@@ -2705,14 +2715,96 @@ function pruneWindowSummaries() {
   );
 }
 
+// How long to keep the current window on screen and retry before giving up and
+// showing the "no machine" reset. Covers a clean deploy (~1-2s agent re-register)
+// and most of the crash/revision-poll path (~13-16s).
+const RECONNECT_GRACE_MS = 12000;
+// How fast to retry while in the grace window (snappier than the 3s poll so we
+// recover the instant the machine is back).
+const RECONNECT_RETRY_MS = 1000;
+
+// Show/hide the non-destructive "Reconnecting…" banner over the current view.
+function setReconnectingBanner(show, machineId = "") {
+  if (!els.reconnectBanner) return;
+  if (show && els.reconnectBannerText) {
+    els.reconnectBannerText.textContent = machineId
+      ? `Reconnecting to ${machineId}…`
+      : "Reconnecting…";
+  }
+  els.reconnectBanner.hidden = !show;
+}
+
+// True while we're holding the current window during a momentary machine drop.
+function inReconnectGrace() {
+  return state.reconnectUntil > Date.now();
+}
+
+// Clear grace state (machine is back, or we've given up). Stops the fast retry.
+function clearReconnectGrace() {
+  state.reconnectUntil = 0;
+  state.reconnectMachineId = "";
+  if (state.reconnectTimer) {
+    window.clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+  }
+  setReconnectingBanner(false);
+}
+
+// Enter (or extend the deadline of) the grace window for `machineId`, show the
+// non-destructive "Reconnecting…" banner, and schedule one fast retry. The
+// current window/snapshot stay on screen untouched.
+function enterReconnectGrace(machineId) {
+  if (!inReconnectGrace() || state.reconnectMachineId !== machineId) {
+    // Fresh drop (or a different machine): start a new grace deadline.
+    state.reconnectUntil = Date.now() + RECONNECT_GRACE_MS;
+    state.reconnectMachineId = machineId;
+  }
+  setReconnectingBanner(true, machineId);
+  if (!state.reconnectTimer) {
+    state.reconnectTimer = window.setTimeout(() => {
+      state.reconnectTimer = null;
+      refreshTree();
+    }, RECONNECT_RETRY_MS);
+  }
+}
+
 async function refreshTree({
   urlTarget = state.pendingUrlTarget || readUrlTarget(),
   forceUrlTarget = false,
   syncUrl = false,
 } = {}) {
+  // Remember whether we were actively viewing a machine's window BEFORE this
+  // refresh — so a momentary drop (deploy/wifi/agent restart) can be held in a
+  // grace window instead of instantly wiping to "no machine".
+  const wasLive = Boolean(state.windowId);
+  const priorMachineId = state.machineId || state.reconnectMachineId;
   try {
     await loadRuntimeAndMachines();
     if (state.runtimeMode === "hub" && (!state.machineId || !selectedMachineOnline())) {
+      // Was the focused machine just here and now momentarily gone? Hold the
+      // current window and retry, rather than resetting — but only if we were
+      // actually live on it (not the genuine "user hasn't picked a machine yet"
+      // case). The grace also covers `machineId` getting auto-cleared to "" when
+      // /api/machines briefly returns empty during a controller revision swap.
+      const droppedMachine = priorMachineId &&
+        !state.machines.some((m) => m.id === priorMachineId);
+      if (droppedMachine) {
+        if (inReconnectGrace()) {
+          // Still within the grace window — keep the current window, retry soon.
+          enterReconnectGrace(priorMachineId);
+          return;
+        }
+        if (state.reconnectMachineId) {
+          // We were in a grace cycle for this machine and it just EXPIRED — give
+          // up and fall through to the hard reset below.
+          clearReconnectGrace();
+        } else if (wasLive) {
+          // First detection of the drop on a live machine — start the grace
+          // window (don't wipe yet).
+          enterReconnectGrace(priorMachineId);
+          return;
+        }
+      }
       const message = !state.machineId
         ? state.machines.length === 0
           ? "No machines online."
@@ -2728,6 +2820,8 @@ async function refreshTree({
       if (!state.machineId && state.machines.length > 1) showTargetPicker();
       return;
     }
+    // Machine is present/online — if we were in a grace window, we've recovered.
+    if (inReconnectGrace()) clearReconnectGrace();
     state.sessions = await api("/api/sessions");
     await loadWindows({ urlTarget, forceUrlTarget });
     if (state.targetPickerOpen) {
@@ -2746,6 +2840,13 @@ async function refreshTree({
     );
   } catch (error) {
     if (error.silent) return;
+    // The runtime/machines fetch itself failed (controller HTTP blip during a
+    // revision swap, or a network hiccup). If we were live, hold the current
+    // window in the grace window and retry rather than surfacing a raw error.
+    if ((wasLive || inReconnectGrace()) && priorMachineId) {
+      enterReconnectGrace(priorMachineId);
+      return;
+    }
     setStatus(error.message, false);
   }
 }

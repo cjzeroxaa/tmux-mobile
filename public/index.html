@@ -126,6 +126,13 @@
           <span>Scroll mode is on — keys won't reach the program.</span>
           <button id="exitCopyMode" type="button" class="small-button">Exit scroll mode</button>
         </div>
+        <!-- Shown when the focused machine momentarily drops (deploy / wifi blip
+             / agent restart): we keep the current window and retry for a short
+             grace window before falling back to the "no machine" reset. -->
+        <div id="reconnectBanner" class="reconnect-banner" hidden role="status">
+          <span class="reconnect-spinner" aria-hidden="true"></span>
+          <span id="reconnectBannerText">Reconnecting…</span>
+        </div>
         <!-- Shown when the connected machine's agent is running older code than
              this controller (version skew) — newer features silently fail until
              the connector is restarted. -->
