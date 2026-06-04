@@ -82,6 +82,31 @@ const composerHistoryAtom = createPersistedAtom("tmux-mobile-composer-history", 
   items: [],
 });
 
+// Dismissed "connector out of date" warnings, keyed by machine id + the exact set
+// of missing ops. Dismissing hides the banner for that specific skew; if the
+// connector later goes stale in a NEW way (different missing ops) the warning
+// returns, and once it's restarted onto current code it's no longer stale at all.
+const staleDismissAtom = createPersistedAtom("tmux-mobile-stale-dismissed", {
+  keys: [],
+});
+
+function staleDismissKey(machine) {
+  const ops = [...(machine.missingOps || [])].sort().join(",");
+  return `${machine.id}|${ops}`;
+}
+
+function isStaleDismissed(machine) {
+  return staleDismissAtom.get().keys.includes(staleDismissKey(machine));
+}
+
+function dismissStale(machine) {
+  const key = staleDismissKey(machine);
+  const keys = staleDismissAtom.get().keys.filter((k) => k !== key);
+  keys.push(key);
+  // Bound it so it can't grow forever.
+  staleDismissAtom.set({ keys: keys.slice(-50) });
+}
+
 function getComposerHistory() {
   const items = composerHistoryAtom.get().items;
   return Array.isArray(items) ? items : [];
@@ -327,6 +352,7 @@ const els = {
   staleAgentBanner: document.querySelector("#staleAgentBanner"),
   staleAgentDetail: document.querySelector("#staleAgentDetail"),
   staleAgentCmd: document.querySelector("#staleAgentCmd"),
+  staleAgentDismiss: document.querySelector("#staleAgentDismiss"),
   themeToggle: document.querySelector("#themeToggle"),
   moreActionsToggle: document.querySelector("#moreActionsToggle"),
   moreActionsMenu: document.querySelector("#moreActionsMenu"),
@@ -571,11 +597,14 @@ function staleSelectedMachine() {
 function updateStaleAgentBanner() {
   if (!els.staleAgentBanner) return;
   const machine = staleSelectedMachine();
-  if (!machine) {
+  // Hidden when not stale, or when the user dismissed this specific skew.
+  if (!machine || isStaleDismissed(machine)) {
     els.staleAgentBanner.hidden = true;
+    els.staleAgentBanner.dataset.machineKey = "";
     return;
   }
   els.staleAgentBanner.hidden = false;
+  els.staleAgentBanner.dataset.machineKey = staleDismissKey(machine);
   if (els.staleAgentDetail) {
     els.staleAgentDetail.textContent =
       "Some features are disabled until you restart the connector on " +
@@ -3891,6 +3920,15 @@ if (els.staleAgentBanner) {
       selection.removeAllRanges();
       selection.addRange(range);
     }
+  });
+}
+
+// Dismiss the stale-connector warning for the current machine+skew.
+if (els.staleAgentDismiss) {
+  els.staleAgentDismiss.addEventListener("click", () => {
+    const machine = staleSelectedMachine();
+    if (machine) dismissStale(machine);
+    updateStaleAgentBanner();
   });
 }
 

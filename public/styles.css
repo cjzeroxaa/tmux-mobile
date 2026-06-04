@@ -439,6 +439,22 @@ input {
   align-self: center;
 }
 
+.stale-agent-dismiss {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: #7a2618;
+  opacity: 0.75;
+  padding: 0;
+}
+
+.stale-agent-dismiss:active {
+  opacity: 1;
+}
+
 .snapshot {
   min-width: 0;
   min-height: 0;
