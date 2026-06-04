@@ -647,9 +647,8 @@ function renderConnectorHelp() {
 }
 
 function machineLabel(machine) {
-  const parts = [machine.hostname || machine.id];
-  if (machine.os || machine.arch) parts.push([machine.os, machine.arch].filter(Boolean).join("/"));
-  return parts.filter(Boolean).join(" · ");
+  // Just the machine name — the os/arch (e.g. "linux/x64") is noise in the picker.
+  return machine.hostname || machine.id;
 }
 
 async function selectMachine(machineId) {
