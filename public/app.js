@@ -327,6 +327,9 @@ const els = {
   mobileRefresh: document.querySelector("#mobileRefresh"),
   machinePicker: document.querySelector("#machinePicker"),
   machineSelect: document.querySelector("#machineSelect"),
+  staleAgentBanner: document.querySelector("#staleAgentBanner"),
+  staleAgentDetail: document.querySelector("#staleAgentDetail"),
+  staleAgentCmd: document.querySelector("#staleAgentCmd"),
   themeToggle: document.querySelector("#themeToggle"),
   moreActionsToggle: document.querySelector("#moreActionsToggle"),
   moreActionsMenu: document.querySelector("#moreActionsMenu"),
@@ -564,8 +567,41 @@ async function loadRuntimeAndMachines() {
   renderMachinePicker();
 }
 
+// Show the "connector out of date" banner when the connected machine's agent is
+// running older code than this controller (it advertises fewer ops than the
+// controller knows — see hub.listMachines `stale`). Newer features (e.g. agent
+// detection via PANECMD) silently fail until the connector restarts. Only
+// meaningful in hub/controller mode; local mode has no separate agent.
+function staleSelectedMachine() {
+  if (state.runtimeMode !== "hub") return null;
+  // The machine we're talking to: the explicitly-selected one, else the sole one.
+  const machine =
+    selectedMachine() ||
+    (state.machines.length === 1 ? state.machines[0] : null);
+  return machine?.stale ? machine : null;
+}
+
+function updateStaleAgentBanner() {
+  if (!els.staleAgentBanner) return;
+  const machine = staleSelectedMachine();
+  if (!machine) {
+    els.staleAgentBanner.hidden = true;
+    return;
+  }
+  els.staleAgentBanner.hidden = false;
+  if (els.staleAgentDetail) {
+    els.staleAgentDetail.textContent =
+      "Some features are disabled until you restart the connector on " +
+      `${machine.hostname || machine.id}.`;
+  }
+  if (els.staleAgentCmd) {
+    els.staleAgentCmd.textContent = `node server.mjs --register ${window.location.origin}`;
+  }
+}
+
 function renderMachinePicker() {
   renderConnectorHelp();
+  updateStaleAgentBanner();
   if (!els.machinePicker || !els.machineSelect) return;
   const show = state.runtimeMode === "hub";
   els.machinePicker.hidden = !show;
@@ -3852,6 +3888,29 @@ els.voiceSettingsBackdrop.addEventListener("click", closeVoiceSettings);
 els.saveVoiceSettings.addEventListener("click", saveVoiceSettings);
 els.previewSpeechVoice.addEventListener("click", () => previewVoice(els.previewSpeechVoice));
 els.previewRealtimeVoice.addEventListener("click", () => previewVoice(els.previewRealtimeVoice));
+
+// Copy the restart command from the stale-connector banner.
+if (els.staleAgentBanner) {
+  els.staleAgentBanner.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-copy]");
+    if (!button || !els.staleAgentCmd) return;
+    const text = els.staleAgentCmd.textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      const previous = button.textContent;
+      button.textContent = "Copied";
+      setTimeout(() => {
+        button.textContent = previous;
+      }, 1200);
+    } catch {
+      const range = document.createRange();
+      range.selectNodeContents(els.staleAgentCmd);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  });
+}
 
 // Copy buttons in the connector-help panel: copy the referenced <code> text.
 if (els.connectorHelp) {

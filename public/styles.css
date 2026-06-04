@@ -399,6 +399,46 @@ input {
   color: #fff;
 }
 
+/* "Connector out of date" (version-skew) banner. */
+.stale-agent-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 6px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: #fde4e1;
+  color: #7a2618;
+  border: 1px solid #e8a99e;
+  font-size: 12.5px;
+}
+
+.stale-agent-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stale-agent-text strong {
+  font-weight: 800;
+}
+
+.stale-agent-banner .connector-cmd {
+  font-size: 11px;
+  opacity: 0.85;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.stale-agent-banner .small-button {
+  flex: 0 0 auto;
+  background: #7a2618;
+  color: #fff;
+  align-self: center;
+}
+
 .snapshot {
   min-width: 0;
   min-height: 0;

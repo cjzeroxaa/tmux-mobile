@@ -120,6 +120,17 @@
           <span>Scroll mode is on — keys won't reach the program.</span>
           <button id="exitCopyMode" type="button" class="small-button">Exit scroll mode</button>
         </div>
+        <!-- Shown when the connected machine's agent is running older code than
+             this controller (version skew) — newer features silently fail until
+             the connector is restarted. -->
+        <div id="staleAgentBanner" class="stale-agent-banner" hidden role="status">
+          <div class="stale-agent-text">
+            <strong>Connector out of date</strong>
+            <span id="staleAgentDetail">Restart it to enable newer features.</span>
+            <code id="staleAgentCmd" class="connector-cmd"></code>
+          </div>
+          <button id="staleAgentCopy" type="button" class="small-button" data-copy="staleAgentCmd">Copy restart cmd</button>
+        </div>
         <pre id="snapshot" class="snapshot">Select a window.</pre>
         <input id="paneInput" class="pane-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Pane keyboard input" tabindex="-1" />
 

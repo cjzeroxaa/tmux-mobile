@@ -341,6 +341,18 @@ changes, migrating itself onto the new revision (env: `AGENT_REVISION_POLL_MS`,
 default 15000; set `0` to disable). The controller also closes agent sockets on
 SIGTERM as a secondary path, for the cases where the old instance is torn down.
 
+That handles the *controller* updating. The other skew is the **connector process
+itself** running older code than the controller — e.g. the agent was started
+before a new op (`PANECMD`) existed, so it can't answer that request and newer
+features (here, agent-type detection for interpreter-launched agents) silently
+fail. The agent advertises its supported ops in the hello frame; the controller
+compares them against its current `AGENT_OPS` and marks the machine **stale**
+(with the missing ops) in `GET /api/machines`. The web app shows a "Connector out
+of date" banner with the restart command when the connected machine is stale; it
+clears automatically once the connector is restarted on current code. (Restarting
+the connector is also the fix — the running process keeps its old code until then;
+the on-disk checkout being current isn't enough.)
+
 ## Scope
 
 - Uses a mobile-only attached-window layout.

@@ -38,4 +38,30 @@ const legacyHello = { t: "hello", v: 1, machine: "m" };
 assert.equal(agentSupportsOp(legacyHello, OP.READFILE), false, "4 legacy no readfile");
 assert.equal(agentSupportsOp(legacyHello, OP.TMUX), true, "4 legacy still has tmux");
 
+// 5. Version-skew "stale" computation (mirror of lib/hub.mjs listMachines): a
+//    machine is stale when its advertised ops miss any current AGENT_OP.
+function staleness(info) {
+  const advertised = Array.isArray(info?.ops) ? info.ops : LEGACY_AGENT_OPS;
+  const missingOps = AGENT_OPS.filter((op) => !advertised.includes(op));
+  return { stale: missingOps.length > 0, missingOps };
+}
+
+// current agent -> not stale, nothing missing.
+let s = staleness(helloFrame({ machine: "m" }));
+assert.equal(s.stale, false, "5 current agent not stale");
+assert.deepEqual(s.missingOps, [], "5 current agent missing nothing");
+
+// legacy agent (no ops) -> stale, missing the post-legacy ops (incl. PANECMD).
+s = staleness({ t: "hello", v: 1, machine: "m" });
+assert.equal(s.stale, true, "5 legacy agent stale");
+assert.ok(s.missingOps.includes(OP.PANECMD), "5 legacy missing panecmd");
+assert.ok(s.missingOps.includes(OP.READFILE), "5 legacy missing readfile");
+
+// agent that has everything EXCEPT the newest op (the exact codex-skew case:
+// it predates PANECMD) -> stale, missing only that op.
+const almostCurrent = AGENT_OPS.filter((op) => op !== OP.PANECMD);
+s = staleness({ ops: almostCurrent, machine: "m" });
+assert.equal(s.stale, true, "5 missing-one stale");
+assert.deepEqual(s.missingOps, [OP.PANECMD], "5 missing only panecmd");
+
 console.log("agent-caps unit tests passed");
