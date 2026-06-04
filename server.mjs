@@ -487,13 +487,17 @@ async function sendTextToPane(paneId, text, { enter = false } = {}) {
   return { mode: "paste-buffer", sentEnter: false };
 }
 
-// A pane in tmux copy-mode (a.k.a. view-mode — its scrollback pager) intercepts
-// keystrokes as copy-mode commands instead of passing them to the running
-// program. So a paste / Enter sent while copy-mode is active never reaches the
-// app: the text sits in the prompt unsubmitted and the window looks dead. This
-// happens without the mouse (e.g. Claude Code's Ctrl+O output expansion, or a
-// scroll-up). Before we deliver any input, drop the pane out of copy-mode so the
-// keystroke lands on the program. Returns true if it had to exit copy-mode.
+// tmux's scrollback pager has TWO mode names that both swallow input: "copy-mode"
+// (interactive copy) and "view-mode" (read-only — what a program's Ctrl+O output
+// expansion / a scroll-up lands in). Either one intercepts keystrokes as pager
+// commands, so input sent while in them never reaches the program (the text sits
+// in the prompt unsubmitted and the window looks dead). Treat both as the pager.
+function isScrollbackMode(mode) {
+  return mode === "copy-mode" || mode === "view-mode";
+}
+
+// Before delivering any input, drop the pane out of the scrollback pager so the
+// keystroke lands on the program. Returns true if it had to exit.
 async function exitCopyModeIfNeeded(paneId) {
   let mode = "";
   try {
@@ -503,9 +507,8 @@ async function exitCopyModeIfNeeded(paneId) {
   } catch {
     return false; // pane vanished / query failed — let the caller proceed
   }
-  // Only exit scrollback copy-mode; don't cancel a program's own pane mode.
-  if (mode !== "copy-mode") return false;
-  // `-X cancel` leaves copy-mode without disturbing the command line (unlike
+  if (!isScrollbackMode(mode)) return false;
+  // `-X cancel` leaves the pager without disturbing the command line (unlike
   // sending `q`, which the program would receive once we're out of mode).
   await runTmux(["send-keys", "-t", paneId, "-X", "cancel"]);
   return true;
@@ -770,10 +773,10 @@ async function listPanes(windowId) {
       cwd,
       width: Number(width || 0),
       height: Number(height || 0),
-      // Only scrollback copy-mode swallows input the way the UI warns about; other
-      // pane modes (e.g. a program's own mode) shouldn't trip the "scroll mode"
-      // banner. `pane_mode` is "" when not in a mode, "copy-mode" for scrollback.
-      inCopyMode: mode === "copy-mode",
+      // The scrollback pager (copy-mode OR view-mode — see isScrollbackMode)
+      // swallows input; that's what the "scroll mode" banner warns about.
+      // `pane_mode` is "" when not in a mode.
+      inCopyMode: isScrollbackMode(mode),
       // pane_title is last and may contain tabs — rejoin any split pieces.
       title: titleParts.join("\t"),
     }),
