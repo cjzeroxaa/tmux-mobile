@@ -2081,43 +2081,76 @@ input {
   background: #e9f3ef;
 }
 
-.item-title {
+/* Identity header: name (prominent) + compact inline branch/wt/cwd meta, with
+   the agent icon + live badge pushed to the right. One row instead of three. */
+.item-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
-  font-weight: 800;
-  font-size: 13px;
-  line-height: 1.25;
+  line-height: 1.2;
 }
 
-.item-title span:first-child {
+.item-name {
+  flex: 0 1 auto;
+  min-width: 2.5em; /* keep at least the "NN:" visible before truncating */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.item-head .item-branch {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--accent-dark);
 }
 
+.item-head .item-cwd {
+  flex: 0 2 auto; /* cwd yields first when space is tight */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.item-wt {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 1px 6px;
+  background: rgba(53, 89, 122, 0.14);
+  color: var(--accent-dark);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Spacer pushes the agent icon + badge to the right edge. */
+.item-head-spacer {
+  flex: 1 1 auto;
+  min-width: 4px;
+}
+
+/* The activity summary — supporting line below the identity header. */
 .item-meta {
-  margin-top: 4px;
+  margin-top: 5px;
   color: var(--muted);
   font-size: 11px;
   line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.item-branch {
-  margin-top: 3px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
-  font-weight: 700;
-  color: var(--accent-dark);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* Solid indigo chip in the topbar — sits at the START of the label so it
@@ -2158,29 +2191,17 @@ input {
   vertical-align: middle;
 }
 
-.item-cwd {
-  margin-top: 3px;
-  color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
-  line-height: 1.3;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  direction: rtl;
-  text-align: left;
-}
-
 .item-meta.summary {
   display: -webkit-box;
   overflow: hidden;
   color: #3d4c49;
-  font-size: 10.5px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
   text-overflow: clip;
   white-space: normal;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
 }
 
 .badge {
@@ -2247,9 +2268,8 @@ input {
   line-height: 1;
 }
 
-.item.unread .item-title > span:nth-of-type(1),
-.item.unread .item-title span:first-of-type {
-  font-weight: 800;
+.item.unread .item-name {
+  color: var(--accent-dark);
 }
 
 .empty {

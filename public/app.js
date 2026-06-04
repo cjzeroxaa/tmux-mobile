@@ -737,27 +737,33 @@ function itemButton({
   const agentChip = agentType
     ? `<span class="agent-chip agent-${escapeHtml(agentType)} turn-${escapeHtml(turnState)}" title="${escapeHtml(agentType)}" aria-label="${escapeHtml(agentType)}">${agentIcon(agentType)}${turnSuffix}</span>`
     : "";
-  // Unread dot: this window changed since you last visited it.
+  // Unread dot: this window changed since you last visited it. A left-rail dot so
+  // the column scans vertically.
   const unreadDot = unread ? `<span class="unread-dot" title="New since last visit" aria-label="unread">●</span>` : "";
-  // Combine branch + worktree on a single line. Show ↳ wt chip only when the
-  // window is actually in a linked git worktree (not the main checkout).
-  const worktreeChip = worktree
-    ? ` <span class="item-worktree-chip">↳ wt</span>`
+  // Compact inline identity metadata (branch + worktree chip + cwd), all on the
+  // header row so it doesn't cost three stacked lines. The ↳wt chip only shows
+  // for a linked git worktree; cwd only when it differs from the branch (the
+  // caller already decides that).
+  const worktreeChip = worktree ? `<span class="item-wt">↳ wt</span>` : "";
+  const branchBit = branch
+    ? `<span class="item-branch" title="${escapeHtml(branch)}${worktree ? " (linked worktree)" : ""}">⎇ ${escapeHtml(branch)}</span>`
     : "";
-  const branchLine = branch
-    ? `<div class="item-branch" title="${escapeHtml(branch)}${worktree ? " (linked worktree)" : ""}">⎇ ${escapeHtml(branch)}${worktreeChip}</div>`
-    : worktree
-      ? `<div class="item-branch">${worktreeChip.trim()}</div>`
-      : "";
+  const cwdBit = cwd
+    ? `<span class="item-cwd" title="${escapeHtml(cwd)}">${escapeHtml(cwd)}</span>`
+    : "";
+  // Identity line: name is the prominent title; branch/wt/cwd are compact meta
+  // after it; agent icon + live badge sit at the right.
   button.innerHTML = `
-    <div class="item-title">
+    <div class="item-head">
       ${unreadDot}
-      <span>${escapeHtml(title)}</span>
+      <span class="item-name">${escapeHtml(title)}</span>
+      ${branchBit}
+      ${worktreeChip}
+      ${cwdBit}
+      <span class="item-head-spacer"></span>
       ${agentChip}
       ${badge ? `<span class="badge ${badgeGreen ? "green" : ""}">${escapeHtml(badge)}</span>` : ""}
     </div>
-    ${branchLine}
-    ${cwd ? `<div class="item-cwd" title="${escapeHtml(cwd)}">${escapeHtml(cwd)}</div>` : ""}
     ${meta ? `<div class="item-meta ${escapeHtml(metaClassName)}">${escapeHtml(meta)}</div>` : ""}
   `;
   button.addEventListener("click", onClick);
