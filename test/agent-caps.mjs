@@ -18,11 +18,16 @@ assert.ok(Array.isArray(hello.ops), "1 ops present");
 assert.ok(hello.ops.includes(OP.READFILE), "1 advertises readfile");
 assert.deepEqual(hello.ops, AGENT_OPS, "1 ops === AGENT_OPS");
 
-// 2. legacy op set does NOT include readfile (the skew case).
+// 1b. helloFrame also advertises writefile (the upload op).
+assert.ok(hello.ops.includes(OP.WRITEFILE), "1b advertises writefile");
+
+// 2. legacy op set does NOT include readfile/writefile (the skew cases).
 assert.ok(!LEGACY_AGENT_OPS.includes(OP.READFILE), "2 legacy lacks readfile");
+assert.ok(!LEGACY_AGENT_OPS.includes(OP.WRITEFILE), "2 legacy lacks writefile");
 
 // 3. localBackend reports supportsOp(true) for everything (runs current code).
 assert.equal(localBackend.supportsOp(OP.READFILE), true, "3 local supports readfile");
+assert.equal(localBackend.supportsOp(OP.WRITEFILE), true, "3 local supports writefile");
 assert.equal(localBackend.supportsOp(OP.TMUX), true, "3 local supports tmux");
 
 // 4. Simulate the hub's agentSupportsOp logic for a current vs. legacy agent.

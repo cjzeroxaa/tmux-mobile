@@ -34,11 +34,15 @@ const publicDir = path.join(__dirname, "public");
 loadLocalEnv(path.join(__dirname, ".env"));
 
 const PORT = Number(process.env.PORT || 3737);
-const APP_TITLE = process.env.TMUX_MOBILE_APP_TITLE || os.hostname() || "tmux Mobile";
+// Browser tab / PWA name. Defaults to a clean product name rather than the host
+// name (which on Cloud Run / local shows unhelpful values like "localhost").
+// Override with TMUX_MOBILE_APP_TITLE.
+const APP_TITLE = process.env.TMUX_MOBILE_APP_TITLE || "tmux Mobile";
 const APP_REVISION =
   process.env.K_REVISION || process.env.TMUX_MOBILE_REVISION || "dev";
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const MAX_TEXT_BYTES = 64 * 1024;
 const MAX_CAPTURE_LINES = 5000;
 // Voice models (transcription / realtime / TTS) are now runtime-configurable
@@ -2222,6 +2226,43 @@ async function handleApi(req, res, url) {
       size: result.size,
       truncated: result.truncated,
     });
+    return;
+  }
+
+  // Upload a file to a temp directory on the target machine; the client inserts
+  // the returned path into the composer. Body is the raw file bytes; the filename
+  // is the `name` query param. Routes through the backend seam, so a controller
+  // brokers it to the registered agent (file rides as base64 in the frame).
+  if (req.method === "POST" && url.pathname === "/api/upload") {
+    requireId(url.searchParams.get("paneId"), "pane");
+    const backend = currentBackend();
+    if (typeof backend.supportsOp === "function" && !backend.supportsOp(OP.WRITEFILE)) {
+      sendJson(res, 501, {
+        error:
+          "This machine's connector is out of date — restart it (node server.mjs --register …) to upload files.",
+      });
+      return;
+    }
+    const bytes = await readRequestBuffer(req, MAX_UPLOAD_BYTES);
+    if (bytes.length === 0) {
+      sendJson(res, 400, { error: "No file received" });
+      return;
+    }
+    const name = url.searchParams.get("name") || "upload";
+    let result;
+    try {
+      result = await backend.writeTempFile(name, bytes.toString("base64"));
+    } catch (error) {
+      if (/unknown op/i.test(error.message) || error instanceof TypeError) {
+        sendJson(res, 501, {
+          error: "This machine's connector is out of date — restart it to upload files.",
+        });
+        return;
+      }
+      sendJson(res, 500, { error: error.message || "Could not save the file" });
+      return;
+    }
+    sendJson(res, 200, { path: result.path, name: result.name });
     return;
   }
 

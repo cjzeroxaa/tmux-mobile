@@ -386,6 +386,12 @@ recent history all populate the box; you review, then **Send** it to the pane.
   the Insert picker's **Recent** section; tap to insert for edit/resend.
 - **Direct keys** — a high-contrast row (`Ent Esc ^C Tab ↑ ↓`) that sends raw
   terminal signals straight to the pane (the only controls that bypass the box).
+- **File upload (📎)** — attach a file from your phone; it's written to a temp
+  directory on the **target machine** (`$TMUX_MOBILE_UPLOAD_DIR`, or
+  `<os tmpdir>/tmux-mobile-uploads` by default) and its absolute path is inserted
+  into the box to reference. Goes through `POST /api/upload` → the backend seam's
+  `writeTempFile` (a new `WRITEFILE` agent op, so a controller brokers it to the
+  registered machine; capped at 25 MiB; the filename is sanitized to a basename).
 - **Global actions** in the topbar: **Read** (TTS of the window) and the
   **needs-attention** pill.
 

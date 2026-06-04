@@ -370,6 +370,8 @@ const els = {
   autoRefresh: document.querySelector("#autoRefresh"),
   snapshotStaleIcon: document.querySelector("#snapshotStaleIcon"),
   inputArea: document.querySelector("#inputArea"),
+  attachButton: document.querySelector("#attachButton"),
+  fileInput: document.querySelector("#fileInput"),
   voiceButton: document.querySelector("#voiceButton"),
   voiceTitle: document.querySelector("#voiceTitle"),
   voiceSubtitle: document.querySelector("#voiceSubtitle"),
@@ -1150,6 +1152,38 @@ function composerAppendText(text) {
   const sep = current && !/\s$/.test(current) ? " " : "";
   composerSetText(current + sep + add);
   requestAnimationFrame(() => composerFocus());
+}
+
+// Upload the selected file(s) to a temp dir on the target machine and insert
+// each returned absolute path into the message box. Files go to /api/upload as
+// raw bytes; the server writes them via the backend seam (local or brokered to
+// the agent) and returns the path.
+async function uploadFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  if (!state.paneId) {
+    addChat("system", "Select a window first.", "system");
+    return;
+  }
+  if (els.attachButton) els.attachButton.disabled = true;
+  setStatus(files.length === 1 ? "Uploading…" : `Uploading ${files.length} files…`);
+  try {
+    for (const file of files) {
+      const params = new URLSearchParams({ paneId: state.paneId, name: file.name });
+      const data = await api(`/api/upload?${params}`, {
+        method: "POST",
+        headers: { "content-type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      if (data.path) composerAppendText(data.path);
+    }
+    setStatus("file uploaded");
+  } catch (error) {
+    addChat("system", error.message || "Upload failed", "upload error");
+    setStatus(error.message || "Upload failed", false);
+  } finally {
+    if (els.attachButton) els.attachButton.disabled = false;
+  }
 }
 
 // The composer has one state toggle now: idle ↔ listening (recording). Drive the
@@ -4282,6 +4316,17 @@ document.addEventListener("visibilitychange", () => {
     requestScreenWakeLock();
   }
 });
+// Attach: open the file picker; on selection, upload + insert the temp path(s).
+if (els.attachButton && els.fileInput) {
+  els.attachButton.addEventListener("click", () => els.fileInput.click());
+  els.fileInput.addEventListener("change", async () => {
+    // Snapshot the files into an array BEFORE clearing the input — fileInput.files
+    // is live, so resetting .value would empty it out from under the async upload.
+    const files = Array.from(els.fileInput.files || []);
+    els.fileInput.value = ""; // reset so picking the same file re-fires change
+    await uploadFiles(files);
+  });
+}
 // Mic: tap to start dictating into the box; while recording the Keep/Discard
 // controls take over (the mic itself is hidden via CSS).
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
