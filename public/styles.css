@@ -859,12 +859,14 @@ input {
 }
 
 /* Snippet manager rows. */
+/* Both the Snippets and Recent lists flow naturally inside the panel, which is
+   the single scroll container (.settings-panel: max-height 92dvh, overflow-y
+   auto). Giving each list its OWN max-height + overflow made them fight the panel
+   and squeezed the Recent section off the bottom. */
 .snippet-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 50dvh;
-  overflow-y: auto;
 }
 
 .snippet-row {
@@ -1233,8 +1235,9 @@ input {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 36dvh;
-  overflow-y: auto;
+  /* No own max-height/overflow — flows inside the scrolling .settings-panel so
+     Recent always has room (the whole sheet scrolls as one). */
+  padding-bottom: 4px;
 }
 
 .history-item {
