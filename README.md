@@ -351,6 +351,17 @@ SIGTERM as a secondary path, for the cases where the old instance is torn down.
 - Encodes the selected session/window in the URL as `?session=<name>&window=<index>`.
 - Auto refresh is enabled by default for the selected window view.
 
+## Text composer history
+
+The text composer (keyboard button → Lexical contenteditable) keeps a **history
+of sent messages** in browser localStorage (`tmux-mobile-composer-history`,
+bounded to 100, shared across windows since it's about what *you* typed). A
+**↺ history button** in the composer actions opens a "Recent messages" picker
+(newest first); tapping an entry loads it back into the input for editing or
+resending. Re-sending an existing entry moves it to most-recent rather than
+duplicating, so the list stays clean. History is recorded on each successful
+send and survives reloads.
+
 ## Voice transcription
 
 Voice mode uses the OpenAI transcription API from the local server. Set an API key before starting the server:

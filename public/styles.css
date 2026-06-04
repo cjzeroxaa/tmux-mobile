@@ -1133,7 +1133,7 @@ input {
 
 .text-composer-actions {
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: auto 1fr auto;
   gap: 6px;
 }
 
@@ -1150,6 +1150,52 @@ input {
 .text-composer-actions .cancel {
   border-color: var(--line);
   color: var(--muted);
+}
+
+/* History (recall) button — compact, icon-only, above Submit/Cancel. */
+.text-composer-actions .history {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+/* Recent-messages picker list. */
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 60dvh;
+  overflow-y: auto;
+}
+
+.history-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: inherit;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.history-item:hover {
+  border-color: var(--accent, #6c88a6);
+}
+
+.history-empty {
+  font-size: 0.9rem;
+  opacity: 0.7;
+  padding: 8px 2px;
 }
 
 .voice-recording-actions {

@@ -76,6 +76,33 @@ function setSnippets(items) {
   snippetsAtom.set({ items });
 }
 
+// Text-composer send history, oldest-first, persisted in localStorage so it
+// survives reloads and is recallable via the composer's history picker. Shared
+// across windows (it's about what you've typed, useful everywhere). Bounded.
+const COMPOSER_HISTORY_MAX = 100;
+const composerHistoryAtom = createPersistedAtom("tmux-mobile-composer-history", {
+  items: [],
+});
+
+function getComposerHistory() {
+  const items = composerHistoryAtom.get().items;
+  return Array.isArray(items) ? items : [];
+}
+
+// Append a sent message. Skips blanks and collapses an immediate repeat of the
+// most-recent entry (re-sending "yes" twice shouldn't bloat the list); a repeat
+// that isn't the latest moves to the end (most-recent) instead of duplicating.
+function pushComposerHistory(text) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return;
+  const items = getComposerHistory().filter((t) => t !== trimmed);
+  items.push(trimmed);
+  if (items.length > COMPOSER_HISTORY_MAX) {
+    items.splice(0, items.length - COMPOSER_HISTORY_MAX);
+  }
+  composerHistoryAtom.set({ items });
+}
+
 // Most-recently-used windows, newest first, for quick switching. Keyed by a
 // stable identity (machine + session name + window index) rather than the
 // ephemeral tmux window id (@N), which changes across tmux/server restarts.
@@ -366,6 +393,11 @@ const els = {
   textInput: document.querySelector("#textInput"),
   submitText: document.querySelector("#submitText"),
   cancelText: document.querySelector("#cancelText"),
+  historyText: document.querySelector("#historyText"),
+  historySheet: document.querySelector("#historySheet"),
+  historyBackdrop: document.querySelector("#historyBackdrop"),
+  closeHistory: document.querySelector("#closeHistory"),
+  historyList: document.querySelector("#historyList"),
   voiceRecordingActions: document.querySelector("#voiceRecordingActions"),
   voiceWaveform: document.querySelector("#voiceWaveform"),
   submitVoice: document.querySelector("#submitVoice"),
@@ -1048,6 +1080,30 @@ function composerFocus() {
   else els.textInput.focus();
 }
 
+// Replace the composer's contents with `text` and place the caret at the end —
+// used when loading an entry from the history picker.
+function composerSetText(text) {
+  const value = String(text || "");
+  if (composerEditor) {
+    const { editor, lexical } = composerEditor;
+    editor.update(() => {
+      const root = lexical.$getRoot();
+      root.clear();
+      // Preserve newlines: one paragraph per line.
+      const lines = value.split("\n");
+      for (const line of lines) {
+        const p = lexical.$createParagraphNode();
+        if (line) p.append(lexical.$createTextNode(line));
+        root.append(p);
+      }
+      root.selectEnd();
+    });
+  } else {
+    els.textInput.textContent = value;
+  }
+  els.textInput.classList.toggle("empty", value.length === 0);
+}
+
 function renderComposerMode() {
   const textMode = state.voice.textMode && state.voice.status === "idle";
   els.voiceEntry.hidden = textMode || state.voice.status === "recording";
@@ -1140,12 +1196,57 @@ async function submitTextComposer(event) {
   composerClear();
   composerFocus();
   els.submitText.disabled = true;
+  // Remember what was sent so it can be recalled from the history picker.
+  pushComposerHistory(text);
   try {
     await sendMessage(text, true);
   } catch (error) {
     addChat("system", error.message, "send error");
   } finally {
     els.submitText.disabled = false;
+  }
+}
+
+// --- Composer history picker ---
+
+function openHistoryPicker() {
+  if (!els.historySheet) return;
+  renderHistoryList();
+  els.historySheet.hidden = false;
+}
+
+function closeHistoryPicker() {
+  if (els.historySheet) els.historySheet.hidden = true;
+}
+
+function renderHistoryList() {
+  const list = els.historyList;
+  if (!list) return;
+  list.innerHTML = "";
+  // Newest first.
+  const items = getComposerHistory().slice().reverse();
+  if (items.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "history-empty";
+    empty.textContent = "No recent messages yet.";
+    list.append(empty);
+    return;
+  }
+  for (const text of items) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "history-item";
+    // Preview is one line; full multi-line text still loads into the composer.
+    btn.textContent = text;
+    btn.title = text;
+    btn.addEventListener("click", () => {
+      closeHistoryPicker();
+      // Make sure the text composer is showing, then load the entry for editing.
+      if (!state.voice.textMode) showTextComposer();
+      composerSetText(text);
+      requestAnimationFrame(() => composerFocus());
+    });
+    list.append(btn);
   }
 }
 
@@ -4167,6 +4268,20 @@ els.actionsToggle.addEventListener("click", () => {
 });
 els.textComposer.addEventListener("submit", submitTextComposer);
 els.cancelText.addEventListener("click", () => hideTextComposer({ persist: true }));
+if (els.historyText) {
+  els.historyText.addEventListener("click", openHistoryPicker);
+}
+if (els.closeHistory) {
+  els.closeHistory.addEventListener("click", closeHistoryPicker);
+}
+if (els.historyBackdrop) {
+  els.historyBackdrop.addEventListener("click", closeHistoryPicker);
+}
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && els.historySheet && !els.historySheet.hidden) {
+    closeHistoryPicker();
+  }
+});
 els.textInput.addEventListener("input", () => {
   if (!composerEditor) {
     els.textInput.classList.toggle("empty", els.textInput.innerText.trim().length === 0);

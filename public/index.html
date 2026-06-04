@@ -193,6 +193,9 @@
             <form id="textComposer" class="text-composer" hidden>
               <div id="textInput" class="lexical-editor empty" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Text input" spellcheck="true" data-placeholder="Paste text"></div>
               <div class="text-composer-actions">
+                <button id="historyText" class="small-button history" type="button" title="Recent messages" aria-label="Recent messages" aria-haspopup="true">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+                </button>
                 <button id="submitText" class="small-button submit" type="submit">Submit</button>
                 <button id="cancelText" class="small-button cancel" type="button">Voice</button>
               </div>
@@ -401,6 +404,19 @@
         <div id="askTabs" class="ask-tabs" aria-hidden="true"></div>
         <div id="askBody" class="ask-body"></div>
         <div id="askStatus" class="settings-status" role="status" aria-live="polite"></div>
+      </section>
+    </div>
+
+    <!-- Recent-messages picker for the text composer: tap an entry to load it
+         back into the input for editing/resending. -->
+    <div id="historySheet" class="settings-sheet" hidden>
+      <button id="historyBackdrop" class="settings-backdrop" type="button" aria-label="Close history"></button>
+      <section class="ask-panel" role="dialog" aria-modal="true" aria-labelledby="historyTitle">
+        <div class="settings-panel-header">
+          <h2 id="historyTitle">Recent messages</h2>
+          <button id="closeHistory" class="icon-button" type="button" title="Close">X</button>
+        </div>
+        <div id="historyList" class="history-list"></div>
       </section>
     </div>
 
