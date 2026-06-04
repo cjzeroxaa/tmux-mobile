@@ -1156,59 +1156,100 @@ input {
 
 /* Mode pill: focused agent's current permission mode + effort. Lives INSIDE the
    input control bar (next to attach), filling the free middle space rather than
-   taking its own row. Hidden when no agent is focused — its flex slot collapses,
-   so attach/mic/Send just close up. */
+   taking its own row; hidden when no agent is focused so attach/mic/Send close
+   up. The pill + caret are ONE integrated control (shared border, a thin divider
+   between them) — no gap, no mismatched corners. Color encodes the mode by RISK,
+   escalating from quiet (Plan/Normal) to a loud solid red (Bypass), via the
+   per-mode rules below keyed off data-mode on #modeBar. */
 .mode-bar {
-  display: flex;
+  display: inline-flex;
   align-items: stretch;
-  gap: 4px;
   margin-left: 8px; /* nudge off the attach button */
+  height: 36px;
+  border: 1px solid var(--mode-line, var(--line));
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--mode-bg, var(--surface-soft));
+  color: var(--mode-fg, var(--ink));
 }
 
 .mode-pill {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 36px;
   padding: 0 12px;
-  border: 1px solid var(--accent, #35597a);
-  border-radius: 999px 8px 8px 999px;
-  background: var(--surface-soft);
-  color: var(--ink);
+  border: 0;
+  background: transparent;
+  color: inherit;
   font-size: 13px;
   font-weight: 700;
   white-space: nowrap;
 }
 
-.mode-pill::before {
-  content: "◆";
-  color: var(--accent);
-  font-size: 11px;
-}
-
 .mode-pill-effort {
-  color: var(--muted);
   font-weight: 600;
-  font-size: 12px;
+  font-size: 11px;
+  opacity: 0.8;
 }
 
 .mode-pill-more {
   display: grid;
   place-items: center;
-  width: 34px;
-  min-height: 36px;
-  border: 1px solid var(--accent, #35597a);
-  border-left: 0;
-  border-radius: 8px 999px 999px 8px;
-  background: var(--surface-soft);
-  color: var(--muted);
-  font-size: 14px;
+  width: 30px;
+  border: 0;
+  border-left: 1px solid var(--mode-divider, var(--line));
+  background: transparent;
+  color: inherit;
+  opacity: 0.85;
+  font-size: 12px;
   font-weight: 800;
 }
 
 .mode-pill:active,
 .mode-pill-more:active {
-  background: var(--surface);
+  background: rgba(0, 0, 0, 0.14);
+}
+
+/* ── Risk palette: quiet until risky ──────────────────────────────────────
+   Plan/Normal stay neutral (subtle); danger ramps amber → orange → solid red.
+   Each rule sets the three vars the .mode-bar reads. */
+.mode-bar[data-mode="plan"] {
+  --mode-bg: rgba(95, 191, 143, 0.14);
+  --mode-fg: #6fc99a;
+  --mode-line: rgba(95, 191, 143, 0.55);
+  --mode-divider: rgba(95, 191, 143, 0.35);
+}
+.mode-bar[data-mode="normal"] {
+  --mode-bg: var(--surface-soft);
+  --mode-fg: var(--ink);
+  --mode-line: var(--line);
+  --mode-divider: var(--line);
+}
+.mode-bar[data-mode="readOnly"] {
+  --mode-bg: rgba(95, 191, 143, 0.14);
+  --mode-fg: #6fc99a;
+  --mode-line: rgba(95, 191, 143, 0.55);
+  --mode-divider: rgba(95, 191, 143, 0.35);
+}
+.mode-bar[data-mode="acceptEdits"] {
+  --mode-bg: rgba(224, 177, 90, 0.18);
+  --mode-fg: #e6bd6a;
+  --mode-line: rgba(224, 177, 90, 0.6);
+  --mode-divider: rgba(224, 177, 90, 0.4);
+}
+.mode-bar[data-mode="auto"] {
+  --mode-bg: rgba(224, 138, 74, 0.2);
+  --mode-fg: #ec9a5a;
+  --mode-line: rgba(224, 138, 74, 0.65);
+  --mode-divider: rgba(224, 138, 74, 0.45);
+}
+/* Highest risk — solid fill you can't miss. */
+.mode-bar[data-mode="bypass"],
+.mode-bar[data-mode="fullAccess"] {
+  --mode-bg: #cf5f5f;
+  --mode-fg: #2a1010;
+  --mode-line: #cf5f5f;
+  --mode-divider: rgba(0, 0, 0, 0.22);
 }
 
 /* Mode/effort sheet option buttons — wrap into rows of chips. */

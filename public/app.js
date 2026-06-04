@@ -3799,6 +3799,9 @@ function renderModeBar() {
   els.modeLabel.textContent = a.label || "Mode";
   els.modeEffort.textContent = a.effort ? `· ${a.effort}` : "";
   els.modeBar.dataset.agent = a.agentType;
+  // data-mode drives the risk-escalating color (CSS keys off it). Fall back to
+  // "normal" styling when the mode is unknown so the pill is never unstyled.
+  els.modeBar.dataset.mode = a.mode || "normal";
 }
 
 // Tapping the pill cycles the mode one step (Shift+Tab). We don't track which
