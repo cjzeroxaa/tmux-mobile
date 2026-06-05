@@ -35,7 +35,9 @@ Tailscale HTTPS URL.
 Controller mode removes the Tailscale requirement for browser access. The same
 A short screen recording of the core flow (window switching, snippet send, PR
 links, the smart content viewer rendering a Mermaid diagram) is at
-[`docs/demo.mp4`](docs/demo.mp4).
+[`docs/demo.mp4`](docs/demo.mp4). A captioned walkthrough focused on the
+AskUserQuestion answer flow, quick snippets, and the notification sound is at
+[`docs/demo-walkthrough.mp4`](docs/demo-walkthrough.mp4).
 
 `server.mjs` runs in three roles, chosen by flags:
 
