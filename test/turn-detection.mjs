@@ -73,6 +73,19 @@ assert.deepEqual(
   { state: "working", confidence: "high" },
   "codex approval prompt -> not idle",
 );
+// FALSE-NEGATIVE GUARD: a tail carrying a STALE "Worked for" summary from a prior
+// step AND a live interrupt hint below it (codex still streaming) must read
+// WORKING, not idle — the live cue is checked before the idle/"Worked for" rule,
+// so a currently-working pane is never misreported as finished just because an old
+// "Worked for" line is still on screen. This is the main false-negative risk of
+// reclassifying "Worked for" as idle; this test pins the ordering that prevents it.
+assert.deepEqual(
+  detectTurn("codex", {
+    paneTail: "─ Worked for 2m 10s ──\n• Now adding tests\n◦ Working (4s • esc to interrupt)",
+  }),
+  { state: "working", confidence: "high" },
+  "codex stale 'Worked for' + live interrupt hint -> working (not a false idle)",
+);
 // Footer present but unrecognized, and no footer at all: both unverified.
 assert.deepEqual(
   detectTurn("codex", { paneTail: "nothing relevant here" }),

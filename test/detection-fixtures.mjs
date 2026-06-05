@@ -94,4 +94,16 @@ const fixture = (name) => readFileSync(join(here, "fixtures", name), "utf8");
   );
 }
 
+// --- codex, update/notice prompt (real capture) ------------------------------
+// Uses a "Press enter to continue" footer (not "confirm") — was still a false
+// negative until the footer regex was broadened. A real blocking prompt.
+{
+  const screen = fixture("codex-update-prompt.txt");
+  assert.deepEqual(
+    detectAskQuestion(screen),
+    { waiting: true, confidence: "high" },
+    "fixture codex-update-prompt: 'Press enter to continue' -> waiting/high",
+  );
+}
+
 console.log("detection-fixtures: all assertions passed");
