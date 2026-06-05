@@ -57,4 +57,41 @@ const fixture = (name) => readFileSync(join(here, "fixtures", name), "utf8");
   );
 }
 
+// --- codex, blocked on an approval prompt (real capture) ---------------------
+// Codex's approval prompt was a false NEGATIVE (read as idle/finished) until the
+// attention-watch shadow run surfaced it. Now: a confident waiting, and turn must
+// not read as a calm idle.
+{
+  const screen = fixture("codex-approval-prompt.txt");
+  assert.deepEqual(
+    detectAskQuestion(screen),
+    { waiting: true, confidence: "high" },
+    "fixture codex-approval: waiting/high (was a false negative)",
+  );
+  const tail = screen.split("\n").slice(-12).join("\n");
+  assert.notEqual(
+    detectTurn("codex", { paneTail: tail }).state,
+    "idle",
+    "fixture codex-approval: turn is NOT idle while blocked",
+  );
+}
+
+// --- codex, idle with a persistent "Worked for" summary (real capture) -------
+// "Worked for <time>" persists in the footer after a turn ends, so this settled
+// pane must read idle, NOT working (the bug the shadow run corrected).
+{
+  const screen = fixture("codex-idle-worked-for.txt");
+  const tail = screen.split("\n").slice(-12).join("\n");
+  assert.deepEqual(
+    detectTurn("codex", { paneTail: tail }),
+    { state: "idle", confidence: "high" },
+    "fixture codex-idle-worked-for: persistent 'Worked for' -> idle/high",
+  );
+  assert.deepEqual(
+    detectAskQuestion(screen),
+    { waiting: false, confidence: "high" },
+    "fixture codex-idle-worked-for: not a prompt",
+  );
+}
+
 console.log("detection-fixtures: all assertions passed");

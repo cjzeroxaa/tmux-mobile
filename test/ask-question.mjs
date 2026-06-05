@@ -329,4 +329,49 @@ assert.deepEqual(
   "detect: prose numbered list (no cursor/no tab bar) -> not waiting",
 );
 
+// --- codex approval prompts (real captures from the attention-watch run) ------
+// Codex blocks on approval with a `›`-cursor numbered list + a fixed confirm
+// footer. This was a false NEGATIVE before (read as idle/finished). Now: a
+// confident waiting.
+const CODEX_EDIT_APPROVAL = `  Would you like to make the following edits?
+  Reason: command failed; retry without sandbox?
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for these files (a)
+  3. No, and tell Codex what to do differently (esc)
+  Press enter to confirm or esc to cancel`;
+const CODEX_CMD_APPROVAL = `  $ python3 fib.py
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with \`python3 fib.py\` (p)
+  3. No, and tell Codex what to do differently (esc)
+  Press enter to confirm or esc to cancel`;
+assert.equal(isAskQuestion(CODEX_EDIT_APPROVAL), true, "codex edit-approval -> detected");
+assert.equal(isAskQuestion(CODEX_CMD_APPROVAL), true, "codex command-approval -> detected");
+assert.deepEqual(
+  detectAskQuestion(CODEX_EDIT_APPROVAL),
+  { waiting: true, confidence: "high" },
+  "detect: codex edit-approval -> waiting/high",
+);
+assert.deepEqual(
+  detectAskQuestion(CODEX_CMD_APPROVAL),
+  { waiting: true, confidence: "high" },
+  "detect: codex command-approval -> waiting/high",
+);
+// Codex IDLE (the "Worked for" summary + bare `›` placeholder, NO confirm footer)
+// must NOT register as a prompt — the discriminator is the confirm footer.
+const CODEX_IDLE = `─ Worked for 1m 48s ──
+› Implement {feature}
+  gpt-5.5 xhigh · Context 97% left · /tmp/x · gpt-5.5`;
+assert.deepEqual(
+  detectAskQuestion(CODEX_IDLE),
+  { waiting: false, confidence: "high" },
+  "detect: codex idle (no confirm footer) -> not waiting",
+);
+// The confirm footer ALONE (e.g. quoted in scrollback) without a `›`-cursor
+// option must not fire — both signals required.
+assert.deepEqual(
+  detectAskQuestion("see the prompt that says Press enter to confirm or esc to cancel"),
+  { waiting: false, confidence: "high" },
+  "detect: codex confirm-footer phrase alone -> not waiting",
+);
+
 console.log("ask-question.mjs: all assertions passed");

@@ -250,12 +250,14 @@ try {
   }
   endRender(T);
 
-  // === CASE 7: Codex working — "Worked for" / interrupt hint ================
-  renderBody(T, ["─ Worked for 1m 12s ──", "Esc to interrupt"], "Worked for");
+  // === CASE 7: Codex working — live interrupt hint =========================
+  // The LIVE working cue is the interrupt hint / "Working (…)", NOT "Worked for"
+  // (that's a past-tense summary that persists when idle — see turn-detection).
+  renderBody(T, ["◦ Working (3s • esc to interrupt)", "› Implement {feature}"], "esc to interrupt");
   {
     const p = readPane(T);
     const tail = codexTail(p.body);
-    check("codex working (Worked for)", detectTurn("codex", { paneTail: tail }), {
+    check("codex working (esc to interrupt)", detectTurn("codex", { paneTail: tail }), {
       state: "working",
       confidence: "high",
     });

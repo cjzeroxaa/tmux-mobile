@@ -48,10 +48,30 @@ assert.deepEqual(
   { state: "idle", confidence: "high" },
   "codex goal-achieved footer -> idle/high",
 );
+// LIVE working cue: the interrupt hint shown while streaming.
+assert.deepEqual(
+  detectTurn("codex", { paneTail: "◦ Working (3s • esc to interrupt)\n› Implement {feature}" }),
+  { state: "working", confidence: "high" },
+  "codex 'esc to interrupt' -> working/high",
+);
+// "Worked for <time>" is PAST-tense: it persists in the footer AFTER the turn
+// ends (a completed-work summary), so a settled pane showing it + the bare `›`
+// placeholder is IDLE, not working. (Corrected from a synthetic assumption after
+// the attention-watch shadow run showed real idle panes carrying "Worked for".)
 assert.deepEqual(
   detectTurn("codex", { paneTail: "─ Worked for 9m 18s ───\n› Use /skills to list available skills" }),
+  { state: "idle", confidence: "high" },
+  "codex 'Worked for' summary + bare prompt -> idle/high",
+);
+// Codex blocked on an approval prompt: the confirm footer + a `›`-cursor option.
+// turn must NOT read idle (it's waiting on the user). waitingForInput is the real
+// signal, but turn stays honest (working, not a calm 'finished').
+assert.deepEqual(
+  detectTurn("codex", {
+    paneTail: "› 1. Yes, proceed (y)\n  2. No (esc)\nPress enter to confirm or esc to cancel",
+  }),
   { state: "working", confidence: "high" },
-  "codex 'Worked for' -> working/high",
+  "codex approval prompt -> not idle",
 );
 // Footer present but unrecognized, and no footer at all: both unverified.
 assert.deepEqual(
