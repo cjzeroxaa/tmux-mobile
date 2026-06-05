@@ -70,12 +70,20 @@ const IMAGE_EXTS = new Map([
 ]);
 const MARKDOWN_EXTS = new Set([".md", ".markdown", ".mdown", ".mkd"]);
 // Types opened in an external browser tab (not rendered in the in-app modal):
-// video and standalone HTML. The browser handles playback/rendering natively.
+// video, audio, and standalone HTML. The browser handles playback/rendering
+// natively (audio opens with built-in <audio> controls in the new tab).
 const EXTERNAL_EXTS = new Map([
   [".webm", "video/webm"],
   [".mp4", "video/mp4"],
   [".m4v", "video/mp4"],
   [".mov", "video/quicktime"],
+  // Audio — served inline so the browser tab plays it with native controls.
+  [".wav", "audio/wav"],
+  [".mp3", "audio/mpeg"],
+  [".ogg", "audio/ogg"],
+  [".m4a", "audio/mp4"],
+  [".aac", "audio/aac"],
+  [".flac", "audio/flac"],
   [".html", "text/html; charset=utf-8"],
   [".htm", "text/html; charset=utf-8"],
 ]);

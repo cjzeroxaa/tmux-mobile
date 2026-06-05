@@ -89,6 +89,13 @@ for (const p of ["./demo.webm", "out/clip.mp4", "render/report.html", "~/v.mov"]
   assert.ok(out.includes(`data-file-path="${p}"`), `17 detects ${p}: ${out}`);
 }
 
+// 17b. audio paths are detected too (open in an external tab; browser plays them
+// with native <audio> controls). Kept in sync with server EXTERNAL_EXTS.
+for (const p of ["./tone.wav", "out/voice.mp3", "clips/a.ogg", "~/rec.m4a", "x/y.aac", "d/s.flac"]) {
+  out = render(`saved ${p} now`);
+  assert.ok(out.includes(`data-file-path="${p}"`), `17b detects audio ${p}: ${out}`);
+}
+
 // --- PR reference linking (needs an active-window repo) ---
 const repo = { host: "github.com", owner: "sycamore-labs", name: "kernel" };
 const renderRepo = (t) => linkifyEscaped(escapeHtml(t), { repo });
