@@ -46,10 +46,11 @@ const machineAtom = createPersistedAtom("tmux-mobile-machine", {
 const themeAtom = createPersistedAtom("tmux-mobile-theme", { theme: "kami" });
 
 // Notification sound: play a chime when a window NEWLY needs an answer / finishes.
-// enabled (default on), sound id (see notify-sound.js). Rate-limited to once per
-// NOTIFY_SOUND_MIN_INTERVAL_MS regardless of how many windows fire at once.
+// enabled (default OFF — opt-in via settings), sound id (see notify-sound.js).
+// Rate-limited to once per NOTIFY_SOUND_MIN_INTERVAL_MS regardless of how many
+// windows fire at once.
 const notifySoundAtom = createPersistedAtom("tmux-mobile-notify-sound", {
-  enabled: true,
+  enabled: false,
   sound: DEFAULT_NOTIFY_SOUND,
 });
 const NOTIFY_SOUND_MIN_INTERVAL_MS = 10_000;
@@ -3079,7 +3080,7 @@ function maybeChimeForAttention(pending) {
   const cfg = notifySoundAtom.get();
   const items = pending.map((p) => ({ key: attentionKey(p.descriptor), reason: p.reason }));
   const result = shouldChime(chimeState, items, {
-    enabled: cfg.enabled !== false,
+    enabled: cfg.enabled === true, // opt-in: off unless explicitly enabled
     now: Date.now(),
     minIntervalMs: NOTIFY_SOUND_MIN_INTERVAL_MS,
   });
@@ -4397,7 +4398,7 @@ function openNotifySettings() {
       els.notifySoundSelect.append(opt);
     }
   }
-  els.notifySoundEnabled.checked = cfg.enabled !== false;
+  els.notifySoundEnabled.checked = cfg.enabled === true;
   els.notifySoundSelect.value = cfg.sound || DEFAULT_NOTIFY_SOUND;
   els.notifySettingsStatus.textContent = "";
   els.notifySettingsSheet.hidden = false;
