@@ -174,3 +174,35 @@ again if we extend the harness or touch pane-format parsing.
 - **Watch the loosened ask heuristic for false positives in the wild.** It's
   conservative (low-confidence only), but if real panes trip it often, tighten the
   signatures rather than promoting it to high confidence.
+
+## The attention-watch shadow tool & its first findings (2026-06-05)
+
+`tools/attention-watch.mjs` runs the same `lib/` detection against local tmux and
+logs rising-edge attention events with full pane captures (see its header). A
+15-min run driving **real claude + codex** through long-running interactions
+(`~/.config/tmux-mobile/attention-watch/2026-06-05T02-24-43*`) surfaced two real
+detection bugs, now fixed (commit `85a513a`):
+
+1. **Codex approval prompts were a FALSE NEGATIVE (high impact).** Codex blocks on
+   approval to edit a file / run a command / delete, rendered as a `›`-cursor
+   numbered list + `Press enter to confirm or esc to cancel`. Detection only knew
+   Claude's grammar, so every codex approval read as `idle/finished` — a blocked
+   agent the pill would never surface. Fix: `isCodexApprovalPrompt` (confirm footer
+   AND `›`-cursor option, both required) → confident `waiting/high`. These prompts
+   are FREQUENT in codex's workflow, so this was hiding real blocks constantly.
+
+2. **`Worked for <time>` caused a FALSE IDLE→working misread.** It's past-tense and
+   persists in the footer after a turn ends, but `detectCodexTurn` treated it as a
+   working cue → settled idle panes read as working. Fix: working = LIVE cues only
+   (`esc to interrupt` / `Working (…)` / `Thinking`); `Worked for` summary = idle.
+
+The Claude side validated as a correct control (real AskUserQuestion → `question`;
+one inline "How is Claude doing this session?" rating list correctly produced a
+low-confidence `unverified`, not a false confident question — the conservative
+design working as intended). Fixtures from this run: `test/fixtures/
+codex-approval-prompt.txt`, `codex-idle-worked-for.txt`.
+
+**Method note:** driving real agents through the shadow is the highest-yield way
+to find detection gaps — both bugs were invisible to synthetic tests (one test
+even *encoded* the wrong `Worked for→working` assumption). Re-run the shadow after
+any agent CLI upgrade, since prompt/footer grammar can change.
