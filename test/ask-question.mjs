@@ -4,7 +4,7 @@
 // one Claude actually renders.
 
 import assert from "node:assert/strict";
-import { isAskQuestion, parseAskQuestion } from "../lib/ask-question.mjs";
+import { isAskQuestion, detectAskQuestion, parseAskQuestion } from "../lib/ask-question.mjs";
 
 // --- Fixtures (verbatim captures, trailing pane chrome trimmed) ----------------
 
@@ -291,5 +291,42 @@ assert.equal(
 
 assert.equal(parseAskQuestion(NOT_A_PROMPT), null, "negative: plain shell -> null");
 assert.equal(parseAskQuestion(""), null, "negative: empty -> null");
+
+// --- detectAskQuestion: { waiting, confidence } (HONEST STATE, Wave 1) ---------
+// Every screen the STRICT detector confirms is high-confidence waiting.
+for (const [name, fx] of [["MULTI", MULTI], ["SINGLE", SINGLE], ["TWO", TWO], ["REVIEW", REVIEW], ["PLAN", PLAN]]) {
+  assert.deepEqual(
+    detectAskQuestion(fx),
+    { waiting: true, confidence: "high" },
+    `detect: ${name} -> waiting/high`,
+  );
+}
+
+// Confidently NOT a prompt: plain shell / empty.
+assert.deepEqual(detectAskQuestion(NOT_A_PROMPT), { waiting: false, confidence: "high" }, "detect: plain shell -> not waiting");
+assert.deepEqual(detectAskQuestion(""), { waiting: false, confidence: "high" }, "detect: empty -> not waiting");
+
+// AMBIGUOUS -> low confidence (visible as unverified, never a confident ❓).
+// A checkbox tab bar with NO footer (mid-redraw): structure present, confirming
+// footer missing. Likely a prompt, but we cannot be sure.
+assert.deepEqual(
+  detectAskQuestion("←  ☐ Testing tools  ✔ Submit  →\n\nWhich testing tools do you use?"),
+  { waiting: true, confidence: "low" },
+  "detect: tab bar, no footer -> low confidence",
+);
+// A cursor-bearing numbered option with no footer / no plan header.
+assert.deepEqual(
+  detectAskQuestion("Choose one:\n❯ 1. PostgreSQL\n  2. SQLite"),
+  { waiting: true, confidence: "low" },
+  "detect: cursor option, no footer -> low confidence",
+);
+
+// The loosened branch must STILL not fire on Claude's prose: a numbered list with
+// NO cursor and NO checkbox tab bar is not a prompt at any confidence.
+assert.deepEqual(
+  detectAskQuestion("Here is the plan:\n1. Refactor the parser\n2. Add tests\n3. Ship it"),
+  { waiting: false, confidence: "high" },
+  "detect: prose numbered list (no cursor/no tab bar) -> not waiting",
+);
 
 console.log("ask-question.mjs: all assertions passed");
