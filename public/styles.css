@@ -1820,6 +1820,22 @@ input {
   font-size: 0.95rem;
 }
 
+/* A checkbox + label on one row (e.g. the notification-sound on/off toggle). */
+.settings-field-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+}
+.settings-field-inline > span {
+  opacity: 1;
+  font-weight: 600;
+}
+.settings-field-inline input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+}
+
 .settings-field-row {
   display: flex;
   align-items: center;
