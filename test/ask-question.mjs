@@ -387,4 +387,26 @@ assert.deepEqual(
   "detect: codex confirm-footer phrase alone -> not waiting",
 );
 
+// FALSE-POSITIVE GUARD: Claude's optional inline session-rating survey is NOT a
+// blocking prompt. It renders a numbered list but with COLONS ("1: Bad"), no `❯`
+// cursor, no checkbox tab bar, and no footer — so it must read NOT waiting at any
+// confidence. (It was raised as a concern; the colon vs. dot + missing cursor is
+// what keeps it from tripping the loosened CURSOR_OPTION heuristic.)
+const CLAUDE_SESSION_SURVEY = `● How is Claude doing this session? (optional)
+  1: Bad    2: Fine   3: Good   0: Dismiss
+────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────
+  ~/g/tmux-mobile  main  Opus 4.8 (1M context)`;
+assert.deepEqual(
+  detectAskQuestion(CLAUDE_SESSION_SURVEY),
+  { waiting: false, confidence: "high" },
+  "detect: Claude session-rating survey -> not waiting (not a blocking prompt)",
+);
+assert.equal(
+  isAskQuestion(CLAUDE_SESSION_SURVEY),
+  false,
+  "strict: Claude session-rating survey is not a prompt",
+);
+
 console.log("ask-question.mjs: all assertions passed");
