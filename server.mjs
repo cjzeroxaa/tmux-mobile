@@ -16,7 +16,7 @@ import { detectAgentMode, AGENT_MODES } from "./lib/agent-mode.mjs";
 import { isScrollbackMode } from "./lib/pane-mode.mjs";
 import { renderMarkdown } from "./public/markdown.js";
 import { escapeHtml as escapeHtmlShared } from "./public/linkify.js";
-import { isAskQuestion, parseAskQuestion } from "./lib/ask-question.mjs";
+import { detectAskQuestion, parseAskQuestion } from "./lib/ask-question.mjs";
 import {
   singleSelectKeys,
   multiSelectKeys,
@@ -993,10 +993,16 @@ async function getSessionWindowMetadata(sessionId) {
         const agentType = base[win.id].agentType;
         if (agentType) {
           const lines = clean.split("\n");
-          base[win.id].turn = detectTurn(agentType, {
+          // detectTurn returns { state, confidence }. Store the state in `turn`
+          // (back-compat wire field) and the confidence separately so the client
+          // can rank a low-confidence "unverified" window below confirmed items
+          // rather than trusting or dropping it (honest-state, Wave 1).
+          const t = detectTurn(agentType, {
             title: pane.title,
             paneTail: lines.slice(-12).join("\n"),
           });
+          base[win.id].turn = t ? t.state : "";
+          base[win.id].turnConfidence = t ? t.confidence : "";
           // Mode/effort needs a DEEPER tail than turn: the model+effort line and
           // the mode line sit above a growing input box, so with command history
           // they can be ~20+ rows up from the bottom. 28 lines reliably spans the
@@ -1011,7 +1017,12 @@ async function getSessionWindowMetadata(sessionId) {
         // the full parse, which stays on-demand via /api/ask-question). This lets
         // the UI flag a window as "waiting for your answer" distinctly from a
         // turn that merely ended.
-        base[win.id].waitingForInput = isAskQuestion(clean);
+        // detectAskQuestion returns { waiting, confidence }. A low-confidence
+        // "maybe blocked" (ambiguous prompt chrome, mid-redraw) is still surfaced
+        // — ranked as unverified by the client — rather than silently dropped.
+        const ask = detectAskQuestion(clean);
+        base[win.id].waitingForInput = ask.waiting;
+        base[win.id].waitingConfidence = ask.confidence;
       } catch {
         // pane vanished / capture failed — leave turn & contentHash unset
       }
@@ -1055,7 +1066,9 @@ async function collectMachineAttention() {
           windowName: win.name,
           agentType: m.agentType || "",
           turn: m.turn || "",
+          turnConfidence: m.turnConfidence || "",
           waitingForInput: Boolean(m.waitingForInput),
+          waitingConfidence: m.waitingConfidence || "",
           contentHash: m.contentHash || "",
         });
       }
