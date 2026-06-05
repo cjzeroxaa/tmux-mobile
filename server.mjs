@@ -2840,6 +2840,7 @@ const contentTypes = new Map([
   [".js", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
   [".webmanifest", "application/manifest+json; charset=utf-8"],
+  [".wav", "audio/wav"], // bundled notification chime (public/sounds/notify.wav)
 ]);
 
 async function serveStatic(req, res, url) {

@@ -3,7 +3,7 @@
 // at most once every 10s, suppressed when disabled, and never for unverified.
 
 import assert from "node:assert/strict";
-import { shouldChime, NOTIFY_SOUNDS, DEFAULT_NOTIFY_SOUND } from "../public/notify-sound.js";
+import { shouldChime } from "../public/notify-sound.js";
 
 const OPTS = (over = {}) => ({ enabled: true, now: 0, minIntervalMs: 10000, ...over });
 const fresh = () => ({ keys: new Set(), lastAt: null });
@@ -73,13 +73,5 @@ const item = (key, reason) => ({ key, reason });
   const r3 = shouldChime(r2, [item("z", "question")], OPTS({ now: 22000 }));
   assert.equal(r3.chime, true, "window returning after clearing -> chimes again");
 }
-
-// --- sound catalog sanity -----------------------------------------------------
-assert.ok(NOTIFY_SOUNDS.some((s) => s.id === DEFAULT_NOTIFY_SOUND), "default is in the catalog");
-assert.deepEqual(
-  NOTIFY_SOUNDS.map((s) => s.id),
-  ["ding", "wolf", "frog", "train"],
-  "expected sound ids (incl. wolf/frog/train)",
-);
 
 console.log("notify-sound.mjs: all assertions passed");

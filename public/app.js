@@ -1,5 +1,5 @@
 import { escapeHtml, linkifyEscaped } from "./linkify.js";
-import { NOTIFY_SOUNDS, DEFAULT_NOTIFY_SOUND, playNotifySound, shouldChime } from "./notify-sound.js";
+import { playNotifySound, shouldChime } from "./notify-sound.js";
 
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
@@ -45,13 +45,12 @@ const machineAtom = createPersistedAtom("tmux-mobile-machine", {
 // "kami" = Japanese washi-paper light theme (default), "dark" = original.
 const themeAtom = createPersistedAtom("tmux-mobile-theme", { theme: "kami" });
 
-// Notification sound: play a chime when a window NEWLY needs an answer / finishes.
-// enabled (default OFF — opt-in via settings), sound id (see notify-sound.js).
-// Rate-limited to once per NOTIFY_SOUND_MIN_INTERVAL_MS regardless of how many
-// windows fire at once.
+// Notification sound: play a chime (the bundled Ubuntu notification sound) when a
+// window NEWLY needs an answer / finishes. enabled (default OFF — opt-in via
+// settings). Rate-limited to once per NOTIFY_SOUND_MIN_INTERVAL_MS regardless of
+// how many windows fire at once.
 const notifySoundAtom = createPersistedAtom("tmux-mobile-notify-sound", {
   enabled: false,
-  sound: DEFAULT_NOTIFY_SOUND,
 });
 const NOTIFY_SOUND_MIN_INTERVAL_MS = 10_000;
 
@@ -411,7 +410,6 @@ const els = {
   saveNotifySettings: document.querySelector("#saveNotifySettings"),
   notifySettingsStatus: document.querySelector("#notifySettingsStatus"),
   notifySoundEnabled: document.querySelector("#notifySoundEnabled"),
-  notifySoundSelect: document.querySelector("#notifySoundSelect"),
   previewNotifySound: document.querySelector("#previewNotifySound"),
   openVoiceSettings: document.querySelector("#openVoiceSettings"),
   voiceSettingsSheet: document.querySelector("#voiceSettingsSheet"),
@@ -3085,7 +3083,7 @@ function maybeChimeForAttention(pending) {
     minIntervalMs: NOTIFY_SOUND_MIN_INTERVAL_MS,
   });
   chimeState = { keys: result.keys, lastAt: result.lastAt };
-  if (result.chime) playNotifySound(cfg.sound || DEFAULT_NOTIFY_SOUND);
+  if (result.chime) playNotifySound();
 }
 
 function updateAttentionIndicators() {
@@ -4388,18 +4386,7 @@ els.previewRealtimeVoice.addEventListener("click", () => previewVoice(els.previe
 function openNotifySettings() {
   // The More menu auto-closes on .more-actions-item click (see the delegated
   // handler), so no explicit close is needed here.
-  const cfg = notifySoundAtom.get();
-  // Populate the sound dropdown once (idempotent).
-  if (els.notifySoundSelect.options.length === 0) {
-    for (const s of NOTIFY_SOUNDS) {
-      const opt = document.createElement("option");
-      opt.value = s.id;
-      opt.textContent = s.label;
-      els.notifySoundSelect.append(opt);
-    }
-  }
-  els.notifySoundEnabled.checked = cfg.enabled === true;
-  els.notifySoundSelect.value = cfg.sound || DEFAULT_NOTIFY_SOUND;
+  els.notifySoundEnabled.checked = notifySoundAtom.get().enabled === true;
   els.notifySettingsStatus.textContent = "";
   els.notifySettingsSheet.hidden = false;
 }
@@ -4407,10 +4394,7 @@ function closeNotifySettings() {
   els.notifySettingsSheet.hidden = true;
 }
 function saveNotifySettings() {
-  notifySoundAtom.set({
-    enabled: els.notifySoundEnabled.checked,
-    sound: els.notifySoundSelect.value || DEFAULT_NOTIFY_SOUND,
-  });
+  notifySoundAtom.set({ enabled: els.notifySoundEnabled.checked });
   els.notifySettingsStatus.textContent = "Saved";
   setTimeout(closeNotifySettings, 500);
 }
@@ -4418,11 +4402,9 @@ els.openNotifySettings.addEventListener("click", openNotifySettings);
 els.closeNotifySettings.addEventListener("click", closeNotifySettings);
 els.notifySettingsBackdrop.addEventListener("click", closeNotifySettings);
 els.saveNotifySettings.addEventListener("click", saveNotifySettings);
-// Preview plays the CURRENTLY-SELECTED sound (also serves as the user gesture
-// that unlocks the audio context for later auto-chimes).
-els.previewNotifySound.addEventListener("click", () =>
-  playNotifySound(els.notifySoundSelect.value || DEFAULT_NOTIFY_SOUND),
-);
+// Preview plays the chime — also the user gesture that unlocks browser audio
+// playback for later auto-chimes.
+els.previewNotifySound.addEventListener("click", () => playNotifySound());
 
 // Copy the restart command from the stale-connector banner.
 if (els.staleAgentBanner) {

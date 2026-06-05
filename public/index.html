@@ -381,20 +381,16 @@
           <button id="closeNotifySettings" class="icon-button" type="button" title="Close">X</button>
         </div>
 
-        <p class="settings-hint">Off by default. Turn it on to play a sound when an agent newly needs you (a question or a finished turn). Limited to once every 10 seconds. Saved on this device.</p>
+        <p class="settings-hint">Off by default. Turn it on to play the Ubuntu notification sound when an agent newly needs you (a question or a finished turn). Limited to once every 10 seconds. Saved on this device.</p>
 
         <label class="settings-field settings-field-inline">
           <input id="notifySoundEnabled" type="checkbox" />
           <span>Play a sound for new notifications</span>
         </label>
 
-        <label class="settings-field">
-          <span>Sound</span>
-          <div class="settings-field-row">
-            <select id="notifySoundSelect"></select>
-            <button id="previewNotifySound" class="small-button voice-preview" type="button" title="Play a sample" aria-label="Play a sample of this sound">▶ Sample</button>
-          </div>
-        </label>
+        <div class="settings-field-row">
+          <button id="previewNotifySound" class="small-button voice-preview" type="button" title="Play a sample" aria-label="Play a sample of the notification sound">▶ Sample sound</button>
+        </div>
 
         <div class="settings-actions">
           <span id="notifySettingsStatus" class="settings-status" role="status" aria-live="polite"></span>
