@@ -356,6 +356,19 @@ assert.deepEqual(
   { waiting: true, confidence: "high" },
   "detect: codex command-approval -> waiting/high",
 );
+// Codex UPDATE/notice prompt uses "Press enter to continue" (not "confirm").
+const CODEX_UPDATE_PROMPT = `  ✨ Update available! 0.136.0 -> 0.137.0
+  Release notes: https://github.com/openai/codex/releases/latest
+› 1. Update now (runs \`npm install -g @openai/codex\`)
+  2. Skip
+  3. Skip until next version
+  Press enter to continue`;
+assert.deepEqual(
+  detectAskQuestion(CODEX_UPDATE_PROMPT),
+  { waiting: true, confidence: "high" },
+  "detect: codex update prompt (Press enter to continue) -> waiting/high",
+);
+
 // Codex IDLE (the "Worked for" summary + bare `›` placeholder, NO confirm footer)
 // must NOT register as a prompt — the discriminator is the confirm footer.
 const CODEX_IDLE = `─ Worked for 1m 48s ──
