@@ -188,6 +188,15 @@ h3 {
   animation: agentPulse 1.4s ease-in-out infinite;
 }
 
+/* HONEST STATE: the set is only unverified windows — a hedge, not a confirmed
+ * need. Muted/outlined so it never masquerades as a confident "needs answer". */
+.needs-attention.unverified {
+  background: transparent;
+  color: var(--accent, #35597a);
+  border-style: dashed;
+  font-weight: 700;
+}
+
 /* "More" overflow menu in the topbar. The trigger is just an icon-button;
  * the dropdown is absolutely positioned below it, right-anchored so it stays
  * on-screen on narrow phones. */
@@ -2228,6 +2237,14 @@ input {
   background: #fde8e8;
   color: #b3261e;
   animation: agentPulse 1.4s ease-in-out infinite;
+}
+/* HONEST STATE: detection is uncertain (low-confidence turn or "maybe blocked").
+ * Neutral + dashed outline reads as "unconfirmed" without the alarm of a red ask
+ * or the false calm of a dimmed idle. Never pulses (no urgency it can't justify).*/
+.agent-chip.turn-unverified {
+  opacity: 0.85;
+  border: 1px dashed currentColor;
+  border-radius: 5px;
 }
 @keyframes agentPulse {
   0%, 100% { opacity: 1; }

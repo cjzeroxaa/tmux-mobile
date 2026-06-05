@@ -188,23 +188,40 @@ function activeWindowKey() {
   return win ? windowRecentKey(win) : "";
 }
 
-// Does this attention descriptor need the user? Two cases, strongest first:
-//   "question" — the agent is blocked on an AskUserQuestion (or exit-plan) prompt.
-//   "finished" — turn ended (idle) AND content changed since last visit (unread).
+// Does this attention descriptor need the user? Reasons, strongest first:
+//   "question"   — agent confidently blocked on an AskUserQuestion / exit-plan.
+//   "finished"   — turn confidently ended (idle) AND content changed (unread).
+//   "unverified" — HONEST STATE (Wave 1): detection is UNCERTAIN. Either a
+//                  low-confidence "maybe blocked" prompt, or an unverified turn
+//                  whose content changed since last visit. We never hide it and
+//                  never show false confidence — it's surfaced, ranked LAST.
 // The currently-viewed window is excluded. Unread is computed client-side against
 // the local seen-hashes baseline, so it works for every machine.
+//
+// Back-compat: a descriptor from an older agent has no *Confidence fields. A
+// missing waitingConfidence on a waitingForInput=true descriptor is treated as
+// "high" (the old behavior — it only ever set waitingForInput when isAskQuestion
+// fired strictly), so we don't regress confident questions to unverified.
 function descriptorNeedsAttention(d, activeKey) {
   const key = attentionKey(d);
   if (key === activeKey) return null;
-  if (d.waitingForInput) return "question";
-  if (d.turn === "idle") {
-    const seen = seenHashesAtom.get().byKey[key];
-    if (seen !== undefined && d.contentHash && seen !== d.contentHash) {
-      return "finished";
-    }
+  if (d.waitingForInput) {
+    // Low-confidence "maybe blocked" → unverified, not a confident question.
+    return d.waitingConfidence === "low" ? "unverified" : "question";
   }
+  const seen = seenHashesAtom.get().byKey[key];
+  const unread = seen !== undefined && d.contentHash && seen !== d.contentHash;
+  if (d.turn === "idle" && unread) return "finished";
+  // Turn couldn't be confirmed but the content changed: we can't claim it
+  // finished, but something happened we haven't seen — surface as unverified.
+  if (d.turn === "unverified" && unread) return "unverified";
   return null;
 }
+
+// Rank order for attention reasons (lower = more urgent). Drives which window the
+// pill jumps to and how the pill summarizes the set. "unverified" is always last:
+// honest hedge, never ranked above a confirmed need.
+const ATTENTION_RANK = { question: 0, finished: 1, unverified: 2 };
 
 // All windows (across ALL machines) currently needing attention, with reason —
 // drives the topbar pill, the tab-title/favicon badge, and the jump-on-tap.
@@ -754,6 +771,7 @@ function itemButton({
   turn = "",
   unread = false,
   waitingForInput = false,
+  waitingConfidence = "",
 }) {
   const button = document.createElement("button");
   button.type = "button";
@@ -763,16 +781,30 @@ function itemButton({
   // "working" pulses, "idle" is muted (turn ended). A window blocked on an
   // AskUserQuestion prompt gets a distinct "❓ ask" state — the strongest
   // "needs you" signal. The turn glyph trails the icon.
-  const turnState = waitingForInput ? "ask" : turn || "unknown";
-  const turnSuffix = waitingForInput
+  //
+  // HONEST STATE (Wave 1): a low-confidence "maybe blocked" (waitingConfidence
+  // low) or an unverified turn renders as a distinct "unverified" chip with a
+  // "?" hedge — never the confident ❓/✓, so the chip can't claim certainty the
+  // detector doesn't have.
+  const lowConfidenceWaiting = waitingForInput && waitingConfidence === "low";
+  const confidentWaiting = waitingForInput && !lowConfidenceWaiting;
+  const turnState = confidentWaiting
+    ? "ask"
+    : lowConfidenceWaiting || turn === "unverified"
+      ? "unverified"
+      : turn || "unknown";
+  const turnSuffix = confidentWaiting
     ? " ❓"
-    : turn === "working"
-      ? " ●"
-      : turn === "idle"
-        ? " ✓"
-        : "";
+    : lowConfidenceWaiting || turn === "unverified"
+      ? " ?"
+      : turn === "working"
+        ? " ●"
+        : turn === "idle"
+          ? " ✓"
+          : "";
+  const chipLabel = turnState === "unverified" ? `${agentType} (unverified)` : agentType;
   const agentChip = agentType
-    ? `<span class="agent-chip agent-${escapeHtml(agentType)} turn-${escapeHtml(turnState)}" title="${escapeHtml(agentType)}" aria-label="${escapeHtml(agentType)}">${agentIcon(agentType)}${turnSuffix}</span>`
+    ? `<span class="agent-chip agent-${escapeHtml(agentType)} turn-${escapeHtml(turnState)}" title="${escapeHtml(chipLabel)}" aria-label="${escapeHtml(chipLabel)}">${agentIcon(agentType)}${turnSuffix}</span>`
     : "";
   // Unread dot: this window changed since you last visited it. A left-rail dot so
   // the column scans vertically.
@@ -927,6 +959,7 @@ function renderWindows() {
       const agentType = meta.agentType || "";
       const turn = meta.turn || "";
       const waitingForInput = Boolean(meta.waitingForInput) && win.id !== state.windowId;
+      const waitingConfidence = meta.waitingConfidence || "";
       const unread = isWindowUnread(win) && win.id !== state.windowId;
       // Show the cwd's basename only when it carries new info — i.e. when it
       // differs from the branch name. With `git worktree add ../foo foo` the
@@ -950,6 +983,7 @@ function renderWindows() {
           turn,
           unread,
           waitingForInput,
+          waitingConfidence,
         }),
       );
       els.mobileWindows.append(windowAnnotationRow(win));
@@ -3017,6 +3051,13 @@ function updateAttentionIndicators() {
   const pending = windowsNeedingAttention();
   const count = pending.length;
   const anyQuestion = pending.some((p) => p.reason === "question");
+  // HONEST STATE (Wave 1): split confident needs from unverified hedges. The pill
+  // headline must not claim certainty the detector lacks, so the label is driven
+  // by the CONFIRMED count, with unverified shown as a separate "+N unverified"
+  // suffix. They still count toward the badge so nothing that might need you is
+  // hidden — they're just never misrepresented as confirmed.
+  const unverifiedCount = pending.filter((p) => p.reason === "unverified").length;
+  const confirmedCount = count - unverifiedCount;
 
   // Tab title + favicon badge.
   document.title = count > 0 ? `(${count}) ${BASE_DOCUMENT_TITLE}` : BASE_DOCUMENT_TITLE;
@@ -3025,14 +3066,27 @@ function updateAttentionIndicators() {
   // Topbar pill.
   if (els.needsAttention) {
     if (count > 0) {
-      const icon = anyQuestion ? "❓" : "●";
-      const noun = anyQuestion ? "needs answer" : count === 1 ? "waiting" : "waiting";
+      // Only-unverified set: a pure hedge — neutral copy, no false "needs answer".
+      const onlyUnverified = confirmedCount === 0;
+      const icon = anyQuestion ? "❓" : onlyUnverified ? "?" : "●";
+      const noun = onlyUnverified
+        ? unverifiedCount === 1
+          ? "unverified"
+          : "unverified"
+        : anyQuestion
+          ? "needs answer"
+          : "waiting";
+      const headline = onlyUnverified ? unverifiedCount : confirmedCount;
+      const suffix = !onlyUnverified && unverifiedCount > 0 ? ` +${unverifiedCount} unverified` : "";
       els.needsAttention.hidden = false;
       els.needsAttention.classList.toggle("question", anyQuestion);
-      els.needsAttention.innerHTML = `<span class="needs-dot" aria-hidden="true">${icon}</span>${count} ${noun}`;
+      els.needsAttention.classList.toggle("unverified", onlyUnverified);
+      els.needsAttention.innerHTML = `<span class="needs-dot" aria-hidden="true">${icon}</span>${headline} ${noun}${suffix}`;
       els.needsAttention.setAttribute(
         "aria-label",
-        `${count} window${count === 1 ? "" : "s"} ${anyQuestion ? "waiting for an answer" : "finished and unread"}`,
+        onlyUnverified
+          ? `${unverifiedCount} window${unverifiedCount === 1 ? "" : "s"} with unverified state — open to check`
+          : `${confirmedCount} window${confirmedCount === 1 ? "" : "s"} ${anyQuestion ? "waiting for an answer" : "finished and unread"}${unverifiedCount > 0 ? `, plus ${unverifiedCount} unverified` : ""}`,
       );
     } else {
       els.needsAttention.hidden = true;
@@ -3109,8 +3163,10 @@ async function exitCopyModeNow() {
 async function jumpToFirstAttention() {
   const pending = windowsNeedingAttention();
   if (!pending.length) return;
-  // Prefer a question over a finished-unread one.
-  pending.sort((a, b) => (a.reason === "question" ? 0 : 1) - (b.reason === "question" ? 0 : 1));
+  // Rank: question → finished → unverified (honest hedge, jumped to last).
+  pending.sort(
+    (a, b) => (ATTENTION_RANK[a.reason] ?? 9) - (ATTENTION_RANK[b.reason] ?? 9),
+  );
   const { descriptor, reason } = pending[0];
 
   // Switch machines first if needed (hub mode); selectMachine reloads the tree.
