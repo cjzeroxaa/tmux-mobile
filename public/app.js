@@ -205,6 +205,7 @@ const els = {
   voiceStatusRow: document.querySelector("#voiceStatusRow"),
   keyboardButton: document.querySelector("#keyboardButton"),
   actionsToggle: document.querySelector("#actionsToggle"),
+  textActionsToggle: document.querySelector("#textActionsToggle"),
   quickActions: document.querySelector("#quickActions"),
   textComposer: document.querySelector("#textComposer"),
   textInput: document.querySelector("#textInput"),
@@ -633,12 +634,16 @@ function renderComposerMode() {
   const textMode = state.voice.textMode && state.voice.status === "idle";
   els.voiceEntry.hidden = textMode || state.voice.status === "recording";
   els.textComposer.hidden = !textMode;
+  els.textActionsToggle.hidden = !textMode;
   els.keyboardButton.disabled = state.voice.status !== "idle";
   els.actionsToggle.disabled = state.voice.status !== "idle";
-  const showActions = state.actionsOpen && state.voice.status === "idle" && !textMode;
+  els.textActionsToggle.disabled = state.voice.status !== "idle";
+  const showActions = state.actionsOpen && state.voice.status === "idle";
   els.quickActions.hidden = !showActions;
   els.actionsToggle.classList.toggle("active", showActions);
+  els.textActionsToggle.classList.toggle("active", showActions);
   els.actionsToggle.setAttribute("aria-expanded", String(showActions));
+  els.textActionsToggle.setAttribute("aria-expanded", String(showActions));
 }
 
 function showTextComposer() {
@@ -2403,6 +2408,24 @@ async function runActionCommand(command) {
   await sendMessage(command, true);
 }
 
+async function forkAgentWindow() {
+  if (!state.paneId) {
+    setStatus("Select a window first", false);
+    return;
+  }
+  const data = await api("/api/fork-agent-window", {
+    method: "POST",
+    body: JSON.stringify({ paneId: state.paneId }),
+  });
+  if (!data.forked) return;
+
+  await refreshTree();
+  if (data.window?.id) {
+    await selectWindow(data.window.id);
+  }
+  setStatus(`forked ${data.agent}`);
+}
+
 function setAutoRefresh(enabled) {
   if (state.autoRefreshTimer) {
     window.clearInterval(state.autoRefreshTimer);
@@ -2588,10 +2611,12 @@ document.addEventListener("visibilitychange", () => {
 });
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
 els.keyboardButton.addEventListener("click", showTextComposer);
-els.actionsToggle.addEventListener("click", () => {
+function toggleQuickActions() {
   state.actionsOpen = !state.actionsOpen;
   renderComposerMode();
-});
+}
+els.actionsToggle.addEventListener("click", toggleQuickActions);
+els.textActionsToggle.addEventListener("click", toggleQuickActions);
 els.textComposer.addEventListener("submit", submitTextComposer);
 els.cancelText.addEventListener("click", () => hideTextComposer({ persist: true }));
 els.textInput.addEventListener("input", () => {
@@ -2661,6 +2686,16 @@ for (const button of document.querySelectorAll("[data-command]")) {
   button.addEventListener("click", async () => {
     try {
       await runActionCommand(button.dataset.command);
+    } catch (error) {
+      addChat("system", error.message, "error");
+    }
+  });
+}
+
+for (const button of document.querySelectorAll("[data-agent-fork]")) {
+  button.addEventListener("click", async () => {
+    try {
+      await forkAgentWindow();
     } catch (error) {
       addChat("system", error.message, "error");
     }

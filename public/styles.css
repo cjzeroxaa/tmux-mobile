@@ -673,6 +673,29 @@ input {
   color: var(--muted);
 }
 
+.text-actions-toggle {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  width: max-content;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.text-actions-toggle.active {
+  border-color: rgba(17, 107, 95, 0.28);
+  background: #edf5f2;
+  color: var(--accent-dark);
+}
+
 .voice-recording-actions {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -1446,6 +1469,12 @@ input,
 }
 
 .action-button.command {
+  background: #1f2638;
+  color: var(--accent-dark);
+}
+
+.text-actions-toggle,
+.text-actions-toggle.active {
   background: #1f2638;
   color: var(--accent-dark);
 }
