@@ -409,4 +409,48 @@ assert.equal(
   "strict: Claude session-rating survey is not a prompt",
 );
 
+// FALSE-POSITIVE GUARD (loosened path): a stray checkbox glyph MID-SENTENCE in
+// prose must NOT trip the low-confidence tab-bar heuristic. An agent explaining
+// detection ("...no checkbox tab bar (☐)...") was self-flagging its own window as
+// maybe-waiting -> a spurious "unverified". The loosened path now requires the box
+// at LINE START (as the real TUI renders it), so mid-prose boxes are ignored.
+const PROSE_WITH_CHECKBOX = `Here is how detection works:
+  - No checkbox tab bar (☐), no footer.
+  - The ☐ glyph means unchecked; ☒ means answered.
+❯ `;
+assert.deepEqual(
+  detectAskQuestion(PROSE_WITH_CHECKBOX),
+  { waiting: false, confidence: "high" },
+  "detect: prose with mid-sentence checkbox glyph -> not waiting (not unverified)",
+);
+// But a REAL tab bar (box at line start, no footer yet / mid-redraw) still yields
+// the low-confidence hedge — we tightened against prose without re-hiding prompts.
+assert.deepEqual(
+  detectAskQuestion("←  ☐ Testing tools  ✔ Submit  →\n\nWhich testing tools do you use?"),
+  { waiting: true, confidence: "low" },
+  "detect: real line-start tab bar, no footer -> still low-confidence",
+);
+
+// FALSE-POSITIVE GUARD (strict path / confident "needs answer"): a diff or source
+// view that QUOTES a tab-bar example on one line and footer-like words on another
+// must NOT fire a confident prompt. The loose footer+anybox combo would BOTH match
+// from unrelated scattered text (e.g. an agent editing this very detector); the
+// line-anchored tab bar is what prevents the confident false positive. This is the
+// higher-severity sibling of the prose-checkbox case — it produced a wrong
+// "needs answer", not just an unverified hedge.
+const DIFF_SELF_MATCH = `   27 +// real TUI renders it ("←  ☐ Testing tools  ✔ Submit  →" or " ☐ Database").
+   28 +// rejects a stray ☐/☒/☑ that appears MID-SENTENCE in prose.
+the FOOTER_RE matches "... to navigate · Esc to cancel" near the end.
+❯ `;
+assert.equal(
+  isAskQuestion(DIFF_SELF_MATCH),
+  false,
+  "strict: diff/source quoting tab-bar + footer text is NOT a confident prompt",
+);
+assert.deepEqual(
+  detectAskQuestion(DIFF_SELF_MATCH),
+  { waiting: false, confidence: "high" },
+  "detect: diff/source self-match -> not waiting (no false needs-answer)",
+);
+
 console.log("ask-question.mjs: all assertions passed");
