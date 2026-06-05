@@ -206,3 +206,41 @@ codex-approval-prompt.txt`, `codex-idle-worked-for.txt`.
 to find detection gaps — both bugs were invisible to synthetic tests (one test
 even *encoded* the wrong `Worked for→working` assumption). Re-run the shadow after
 any agent CLI upgrade, since prompt/footer grammar can change.
+
+### Run 2 (2026-06-05, 20 min, 3 agents, post-fix)
+
+Second run with the fixes active, driving 2 claude + 1 codex through ~14 prompts
+(`…/2026-06-05T02-46-15*`). Headline: **codex prompts went from 0 detected
+(run 1) → 9 detected, all 9 genuine (100% precision), 0 false positives** across
+206 events. Setup surfaced one more variant — codex's update/notice prompt uses
+`Press enter to continue` (not `confirm`) — fixed by broadening the footer regex
+to `(confirm|continue)` (commit `041a5cb`).
+
+| reason | run 1 (pre-fix) | run 2 (post-fix) |
+|---|---|---|
+| codex question | 0 (all missed) | 9 (all genuine) |
+| codex finished | 5 | 4 |
+| claude question | 1 | 3 |
+| claude finished | 8 | 190\* |
+| suspect FPs | 1 | 0 |
+
+\* The high claude-finished count is a TEST-HARNESS artifact, not a detection
+fault: the driver re-tasked the claude windows every ~8s, so their scrollback
+genuinely changed each time. It did expose a real adjacent issue ↓.
+
+### Open finding: Claude's idle status line flaps the contentHash
+
+Claude animates its idle footer with rotating whimsical verbs
+(`✻ Worked for 5s` → `Sautéed for 3s` → `Baked for 1s` → `Cooked` → `Brewed`)
+plus a live token/ctx counter. These change on every redraw with NO real
+activity, so the `contentHash` (which drives "unread / finished-unread") changes
+on cosmetic redraws alone. In a quiet idle window this would re-fire
+"finished/unread" repeatedly even after the user has looked — pill noise that
+erodes trust. The `turn`/`waiting` detectors are unaffected (they read the title/
+footer text, not the hash); this is an **unread-layer** issue.
+
+Recommended fix (next iteration, not yet done): strip the volatile status line
+(the `✻ <verb> for <n>s` line + the model/ctx/token footer) from the text that
+feeds `contentHash`, so unread reflects real output change, not animation. Lives
+in the controller's `getSessionWindowMetadata` contentHash computation —
+parallel to, but separate from, detection.
