@@ -103,6 +103,10 @@ const state = {
   sessionId: "",
   windowId: "",
   paneId: "",
+  // "codex" | "claude" | null. null = current pane is not running a known
+  // agent, so the Read buttons stay disabled (Read only does anything when
+  // there's a structured transcript to lift the last response from).
+  currentAgentKind: null,
   lines: readPersistedLines(),
   autoRefreshTimer: null,
   chat: [],
@@ -1135,13 +1139,15 @@ function audioBytesFromBase64(base64) {
 function setSpeakWindowBusy(busy) {
   state.audio.busy = busy;
   syncScreenWakeLock();
+  renderReadButtonsEnabled();
   const stopping = busy && state.audio.stopRequested;
-  els.speakWindow.disabled = false;
   els.speakWindow.title = stopping
     ? "Stopping reading"
     : busy
       ? "Stop reading"
-      : "Read current window";
+      : els.speakWindow.disabled
+        ? "Read is only available on Codex or Claude windows"
+        : "Read current window";
   els.speakWindow.setAttribute(
     "aria-label",
     stopping
@@ -1155,6 +1161,36 @@ function setSpeakWindowBusy(busy) {
   els.fullscreenRead.textContent = busy ? "Stop" : "Read";
   els.fullscreenRead.classList.toggle("reading", busy);
   els.fullscreenRead.classList.toggle("stopping", stopping);
+}
+
+// Both Read buttons (toolbar + composer) are only meaningful on Codex or
+// Claude panes — where there's a structured transcript to lift the last
+// response out of. While reading is in progress (`state.audio.busy`) the
+// buttons MUST stay enabled so the user can hit Stop.
+function renderReadButtonsEnabled() {
+  const allowed = state.audio.busy || Boolean(state.currentAgentKind);
+  els.speakWindow.disabled = !allowed;
+  els.fullscreenRead.disabled = !allowed;
+}
+
+// Detect the running agent (if any) in the current pane and stash it on
+// state so the Read buttons can render their enabled state. Best-effort:
+// any error keeps the buttons disabled, which is the conservative default.
+async function refreshAgentDetection() {
+  if (!state.paneId) {
+    state.currentAgentKind = null;
+    renderReadButtonsEnabled();
+    return;
+  }
+  try {
+    const data = await api(
+      `/api/agent-session?paneId=${encodeURIComponent(state.paneId)}`,
+    );
+    state.currentAgentKind = data?.result?.kind || null;
+  } catch {
+    state.currentAgentKind = null;
+  }
+  renderReadButtonsEnabled();
 }
 
 function isCurrentAudioRead(readId) {
@@ -2284,6 +2320,11 @@ async function loadPanes() {
   loadChat();
   renderTargetLabels();
   renderChat();
+  // Conservatively disable Read until detection comes back; otherwise a
+  // half-second of network can land the user mid-tap on a stale Enabled.
+  state.currentAgentKind = null;
+  renderReadButtonsEnabled();
+  refreshAgentDetection();
   await loadDirectories({ clear: state.paneId !== previousPaneId });
   await refreshSnapshot(false, { forceScrollBottom: state.paneId !== previousPaneId });
 }
@@ -2776,6 +2817,9 @@ window.addEventListener("popstate", () => {
 
 renderComposerMode();
 initComposerEditor();
+// Start with Read disabled — refreshAgentDetection in loadPanes() will
+// turn it on for Codex/Claude panes once the first window loads.
+renderReadButtonsEnabled();
 
 refreshTree({
   urlTarget: state.pendingUrlTarget,

@@ -956,72 +956,49 @@ async function buildBriefingInputForPane({ windowInfo, pane, lineCount }) {
     REALTIME_WINDOW_BRIEFING_MAX_CAPTURE_LINES,
   );
 
-  // Fast path: if the pane is running Codex or Claude Code, those CLIs write
-  // a structured JSONL transcript to disk and we already know how to find
-  // and parse it. Lift the latest assistant message out verbatim — no
-  // capture-pane, no LLM extract, no guessing about where the response
-  // started and ended. Falls back to the original path when no agent is
-  // detected (regular shell, vim, build process, etc.).
+  // Read is only meaningful when we have a structured agent transcript to
+  // lift the exact last assistant message from. For any other pane (plain
+  // shell, vim, build output, …) the previous capture-pane + LLM-extract
+  // path was too unreliable for the productivity payoff, so the button
+  // is intentionally a no-op on the UI side and the endpoint refuses
+  // server-side as a defense-in-depth.
   const agentInfo = await safeAgentLastResponse(pane);
-  if (agentInfo?.text) {
-    const readableOutput = agentInfo.text;
-    const chunkOutputs = splitRealtimeBriefingOutput(readableOutput);
-    const inputChunks = chunkOutputs.length > 0
-      ? chunkOutputs
-      : [textExcerpt(readableOutput, 10000)];
-    return {
-      lines: 0,
-      input: textExcerpt(readableOutput, 10000),
-      inputChunks,
-      rawChars: readableOutput.length,
-      extractedChars: readableOutput.length,
-      extractionModel: `transcript:${agentInfo.kind}`,
-      paneId: pane?.id || "",
-      windowId: windowInfo.windowId || "",
-      agentSession: {
-        kind: agentInfo.kind,
-        sessionId: agentInfo.sessionId,
-        transcriptPath: agentInfo.transcriptPath,
-      },
-    };
+  if (!agentInfo?.kind) {
+    const error = new Error(
+      "Read is only available on Codex or Claude windows — this pane isn't running a known agent.",
+    );
+    error.status = 400;
+    error.code = "no_agent";
+    throw error;
+  }
+  if (!agentInfo.text) {
+    const error = new Error(
+      `${agentInfo.kind} is running but hasn't written an assistant message yet.`,
+    );
+    error.status = 400;
+    error.code = "no_agent_message";
+    throw error;
   }
 
-  const text = pane ? await capturePane(pane.id, "tail", lines) : "";
-  const cleanedOutput = cleanTerminalText(text);
-  const extractedOutput = await extractLatestAgentResponse({
-    windowInfo,
-    pane,
-    lines,
-    output: cleanedOutput,
-  });
-  const readableOutput = extractedOutput || tailTextExcerpt(cleanedOutput, 10000);
-  const sample = {
-    ...windowInfo,
-    paneIndex: pane?.index ?? null,
-    paneId: pane?.id || "",
-    command: pane?.command || "",
-    cwd: pane?.cwd || "",
-    capturedLines: lines,
-    extractionModel: AGENT_RESPONSE_EXTRACT_MODEL,
-    output: textExcerpt(readableOutput, 10000),
-  };
+  const readableOutput = agentInfo.text;
   const chunkOutputs = splitRealtimeBriefingOutput(readableOutput);
-  const inputChunks =
-    chunkOutputs.length > 0
-      ? chunkOutputs
-      : [
-          sample.output || "No readable agent response is visible.",
-        ];
-
+  const inputChunks = chunkOutputs.length > 0
+    ? chunkOutputs
+    : [textExcerpt(readableOutput, 10000)];
   return {
-    lines,
-    input: sample.output,
+    lines: 0,
+    input: textExcerpt(readableOutput, 10000),
     inputChunks,
-    rawChars: cleanedOutput.length,
+    rawChars: readableOutput.length,
     extractedChars: readableOutput.length,
-    extractionModel: AGENT_RESPONSE_EXTRACT_MODEL,
+    extractionModel: `transcript:${agentInfo.kind}`,
     paneId: pane?.id || "",
     windowId: windowInfo.windowId || "",
+    agentSession: {
+      kind: agentInfo.kind,
+      sessionId: agentInfo.sessionId,
+      transcriptPath: agentInfo.transcriptPath,
+    },
   };
 }
 
