@@ -189,6 +189,13 @@ const els = {
   fontSizeDecrease: document.querySelector("#fontSizeDecrease"),
   fontSizeIncrease: document.querySelector("#fontSizeIncrease"),
   fontSizeValue: document.querySelector("#fontSizeValue"),
+  showLastResponse: document.querySelector("#showLastResponse"),
+  agentSessionSheet: document.querySelector("#agentSessionSheet"),
+  agentSessionBackdrop: document.querySelector("#agentSessionBackdrop"),
+  closeAgentSession: document.querySelector("#closeAgentSession"),
+  agentSessionTitle: document.querySelector("#agentSessionTitle"),
+  agentSessionMeta: document.querySelector("#agentSessionMeta"),
+  agentSessionBody: document.querySelector("#agentSessionBody"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
   fullscreenRead: document.querySelector("#fullscreenRead"),
@@ -2532,6 +2539,54 @@ els.fontSizeDecrease.addEventListener("click", (event) => {
 els.fontSizeIncrease.addEventListener("click", (event) => {
   event.stopPropagation();
   stepSnapshotFontSize(+1);
+});
+
+// Debug sheet: shows /api/agent-session output for the current pane so the
+// user can compare the *structured* last assistant message (read from the
+// agent's own JSONL on disk via lsof) to the streamed tmux capture in the
+// snapshot panel underneath. Verifies the new transcript protocol.
+function hideAgentSessionSheet() {
+  els.agentSessionSheet.hidden = true;
+}
+async function showAgentLastResponse() {
+  if (!state.paneId) {
+    addChat("system", "Select a window first.", "system");
+    return;
+  }
+  els.agentSessionTitle.textContent = "Last response";
+  els.agentSessionMeta.textContent = "Loading transcript…";
+  els.agentSessionBody.textContent = "";
+  els.agentSessionSheet.hidden = false;
+  try {
+    const data = await api(`/api/agent-session?paneId=${encodeURIComponent(state.paneId)}`);
+    const result = data.result;
+    if (!result) {
+      els.agentSessionTitle.textContent = "Last response · none";
+      els.agentSessionMeta.textContent =
+        "No Codex or Claude agent detected in this pane's process tree.";
+      els.agentSessionBody.textContent = "";
+      return;
+    }
+    els.agentSessionTitle.textContent = `Last response · ${result.kind}`;
+    const metaLines = [
+      `session  ${result.sessionId || "(none)"}`,
+      `file     ${result.transcriptPath || "(none)"}`,
+      `chars    ${(result.text || "").length}`,
+    ];
+    els.agentSessionMeta.textContent = metaLines.join("\n");
+    els.agentSessionBody.textContent =
+      result.text || "(transcript located but no assistant message found)";
+  } catch (error) {
+    els.agentSessionTitle.textContent = "Last response · error";
+    els.agentSessionMeta.textContent = error.message || String(error);
+    els.agentSessionBody.textContent = "";
+  }
+}
+els.showLastResponse.addEventListener("click", showAgentLastResponse);
+els.agentSessionBackdrop.addEventListener("click", hideAgentSessionSheet);
+els.closeAgentSession.addEventListener("click", hideAgentSessionSheet);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !els.agentSessionSheet.hidden) hideAgentSessionSheet();
 });
 els.refreshSnapshot.addEventListener("click", () => refreshSnapshot());
 els.fullscreenSnapshot.addEventListener("click", () => {

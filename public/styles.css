@@ -1040,6 +1040,81 @@ input {
   z-index: 40;
 }
 
+/* Agent-session debug sheet — centered modal, not a bottom sheet, so the
+ * snapshot stays visible behind the backdrop for side-by-side compare. */
+.agent-session-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.agent-session-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+
+.agent-session-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: 80dvh;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.agent-session-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.agent-session-header h2 {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.agent-session-meta {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.agent-session-body {
+  flex: 1;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: var(--snapshot-font-size);
+  line-height: 1.42;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .directory-sheet {
   z-index: 42;
 }

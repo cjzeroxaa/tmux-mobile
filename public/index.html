@@ -66,6 +66,10 @@
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor" stroke="none"/></svg>
               <span>Toggle theme</span>
             </button>
+            <button id="showLastResponse" class="more-actions-item" type="button" role="menuitem" title="Show last assistant response from the agent's own transcript">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+              <span>Last response (debug)</span>
+            </button>
             <div class="more-actions-row" role="group" aria-label="Terminal font size">
               <span>Terminal font</span>
               <div class="font-size-controls">
@@ -226,6 +230,23 @@
             <div id="mobileWindows" class="list mobile-list"></div>
           </section>
         </div>
+      </section>
+    </div>
+
+    <!-- Debug sheet: shows /api/agent-session output for the current pane so
+         the user can compare the structured transcript (lifted from the
+         agent's JSONL via lsof) to the streamed tmux capture in the
+         snapshot panel underneath. Centered modal, not a bottom sheet, so
+         the snapshot remains visible behind the backdrop. -->
+    <div id="agentSessionSheet" class="agent-session-sheet" hidden>
+      <button id="agentSessionBackdrop" class="agent-session-backdrop" type="button" aria-label="Close last response"></button>
+      <section class="agent-session-panel" role="dialog" aria-modal="true" aria-labelledby="agentSessionTitle">
+        <div class="agent-session-header">
+          <h2 id="agentSessionTitle">Last response</h2>
+          <button id="closeAgentSession" class="icon-button" type="button" title="Close">X</button>
+        </div>
+        <div id="agentSessionMeta" class="agent-session-meta">Loading…</div>
+        <pre id="agentSessionBody" class="agent-session-body"></pre>
       </section>
     </div>
 
