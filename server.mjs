@@ -955,6 +955,37 @@ async function buildBriefingInputForPane({ windowInfo, pane, lineCount }) {
     parseLines(lineCount || WINDOW_BRIEFING_LINES),
     REALTIME_WINDOW_BRIEFING_MAX_CAPTURE_LINES,
   );
+
+  // Fast path: if the pane is running Codex or Claude Code, those CLIs write
+  // a structured JSONL transcript to disk and we already know how to find
+  // and parse it. Lift the latest assistant message out verbatim — no
+  // capture-pane, no LLM extract, no guessing about where the response
+  // started and ended. Falls back to the original path when no agent is
+  // detected (regular shell, vim, build process, etc.).
+  const agentInfo = await safeAgentLastResponse(pane);
+  if (agentInfo?.text) {
+    const readableOutput = agentInfo.text;
+    const chunkOutputs = splitRealtimeBriefingOutput(readableOutput);
+    const inputChunks = chunkOutputs.length > 0
+      ? chunkOutputs
+      : [textExcerpt(readableOutput, 10000)];
+    return {
+      lines: 0,
+      input: textExcerpt(readableOutput, 10000),
+      inputChunks,
+      rawChars: readableOutput.length,
+      extractedChars: readableOutput.length,
+      extractionModel: `transcript:${agentInfo.kind}`,
+      paneId: pane?.id || "",
+      windowId: windowInfo.windowId || "",
+      agentSession: {
+        kind: agentInfo.kind,
+        sessionId: agentInfo.sessionId,
+        transcriptPath: agentInfo.transcriptPath,
+      },
+    };
+  }
+
   const text = pane ? await capturePane(pane.id, "tail", lines) : "";
   const cleanedOutput = cleanTerminalText(text);
   const extractedOutput = await extractLatestAgentResponse({
@@ -992,6 +1023,21 @@ async function buildBriefingInputForPane({ windowInfo, pane, lineCount }) {
     paneId: pane?.id || "",
     windowId: windowInfo.windowId || "",
   };
+}
+
+// Wrapper that never throws — agent transcript lookup is a best-effort
+// optimization, so any failure (lsof missing, file rotated, perms, cloud
+// agent doesn't implement the op yet) must drop us back into the
+// capture-pane path rather than break Read entirely.
+async function safeAgentLastResponse(pane) {
+  if (!pane?.pid) return null;
+  const backend = currentBackend();
+  if (typeof backend.agentLastResponse !== "function") return null;
+  try {
+    return await backend.agentLastResponse(pane.pid);
+  } catch {
+    return null;
+  }
 }
 
 async function buildWindowBriefingInput(windowId, lineCount) {
@@ -1315,6 +1361,18 @@ async function handleApi(req, res, url) {
     const body = await readJsonBody(req);
     const paneId = requireId(body.paneId, "pane");
     sendJson(res, 200, await forkAgentWindow(paneId));
+    return;
+  }
+
+  // Inspection endpoint: returns {kind, sessionId, transcriptPath, text} for
+  // panes running Codex / Claude Code, or {result: null} otherwise. Used to
+  // debug the structured-read path and (later) to show "this is a Codex
+  // window" chips in the UI.
+  if (req.method === "GET" && url.pathname === "/api/agent-session") {
+    const paneId = requireId(url.searchParams.get("paneId"), "pane");
+    const { pane } = await getPaneContext(paneId);
+    const result = await safeAgentLastResponse(pane);
+    sendJson(res, 200, { result });
     return;
   }
 
