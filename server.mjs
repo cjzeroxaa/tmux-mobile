@@ -1034,7 +1034,13 @@ async function safeAgentLastResponse(pane) {
   const backend = currentBackend();
   if (typeof backend.agentLastResponse !== "function") return null;
   try {
-    return await backend.agentLastResponse(pane.pid);
+    // Pass cwd so Claude Code's filesystem fallback can find the right
+    // transcript — its CLI doesn't keep the JSONL file open so lsof alone
+    // returns nothing.
+    return await backend.agentLastResponse({
+      rootPid: pane.pid,
+      cwd: pane.cwd || "",
+    });
   } catch {
     return null;
   }
