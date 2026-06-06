@@ -193,13 +193,13 @@ const els = {
   fontSizeDecrease: document.querySelector("#fontSizeDecrease"),
   fontSizeIncrease: document.querySelector("#fontSizeIncrease"),
   fontSizeValue: document.querySelector("#fontSizeValue"),
-  showLastResponse: document.querySelector("#showLastResponse"),
-  agentSessionSheet: document.querySelector("#agentSessionSheet"),
-  agentSessionBackdrop: document.querySelector("#agentSessionBackdrop"),
-  closeAgentSession: document.querySelector("#closeAgentSession"),
-  agentSessionTitle: document.querySelector("#agentSessionTitle"),
-  agentSessionMeta: document.querySelector("#agentSessionMeta"),
-  agentSessionBody: document.querySelector("#agentSessionBody"),
+  showTranscript: document.querySelector("#showTranscript"),
+  agentTranscriptSheet: document.querySelector("#agentTranscriptSheet"),
+  agentTranscriptBackdrop: document.querySelector("#agentTranscriptBackdrop"),
+  closeAgentTranscript: document.querySelector("#closeAgentTranscript"),
+  agentTranscriptTitle: document.querySelector("#agentTranscriptTitle"),
+  agentTranscriptMeta: document.querySelector("#agentTranscriptMeta"),
+  agentTranscriptBody: document.querySelector("#agentTranscriptBody"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
   fullscreenRead: document.querySelector("#fullscreenRead"),
@@ -2582,52 +2582,89 @@ els.fontSizeIncrease.addEventListener("click", (event) => {
   stepSnapshotFontSize(+1);
 });
 
-// Debug sheet: shows /api/agent-session output for the current pane so the
-// user can compare the *structured* last assistant message (read from the
-// agent's own JSONL on disk via lsof) to the streamed tmux capture in the
-// snapshot panel underneath. Verifies the new transcript protocol.
-function hideAgentSessionSheet() {
-  els.agentSessionSheet.hidden = true;
+// Transcript view: every user prompt + assistant final response from the
+// agent's own JSONL, filtered to clean dialogue (no tool calls, no system
+// reminders). The first useful thing on top of the structured-read
+// protocol — purpose-built so future features (jump-to-turn, fork-from-
+// turn, diff between sessions, etc.) can hang off this same view.
+function hideAgentTranscriptSheet() {
+  els.agentTranscriptSheet.hidden = true;
 }
-async function showAgentLastResponse() {
+function setAgentTranscriptEmpty(message) {
+  els.agentTranscriptBody.innerHTML = "";
+  const note = document.createElement("div");
+  note.className = "agent-transcript-empty";
+  note.textContent = message;
+  els.agentTranscriptBody.append(note);
+}
+function renderAgentTranscriptTurns(turns) {
+  els.agentTranscriptBody.innerHTML = "";
+  for (const turn of turns) {
+    const row = document.createElement("div");
+    row.className = `agent-turn agent-turn-${turn.role}`;
+    const role = document.createElement("span");
+    role.className = "agent-turn-role";
+    role.textContent = turn.role === "user" ? "USER" : "ASSISTANT";
+    const text = document.createElement("div");
+    text.className = "agent-turn-text";
+    text.textContent = turn.text;
+    row.append(role, text);
+    els.agentTranscriptBody.append(row);
+  }
+  // Latest turn at the bottom — scroll there so the user lands on "what
+  // just happened" by default.
+  requestAnimationFrame(() => {
+    els.agentTranscriptBody.scrollTop = els.agentTranscriptBody.scrollHeight;
+  });
+}
+async function showAgentTranscript() {
   if (!state.paneId) {
     addChat("system", "Select a window first.", "system");
     return;
   }
-  els.agentSessionTitle.textContent = "Last response";
-  els.agentSessionMeta.textContent = "Loading transcript…";
-  els.agentSessionBody.textContent = "";
-  els.agentSessionSheet.hidden = false;
+  els.agentTranscriptTitle.textContent = "Transcript";
+  els.agentTranscriptMeta.textContent = "Loading transcript…";
+  setAgentTranscriptEmpty("Loading…");
+  els.agentTranscriptSheet.hidden = false;
   try {
-    const data = await api(`/api/agent-session?paneId=${encodeURIComponent(state.paneId)}`);
+    const data = await api(
+      `/api/agent-transcript?paneId=${encodeURIComponent(state.paneId)}`,
+    );
     const result = data.result;
     if (!result) {
-      els.agentSessionTitle.textContent = "Last response · none";
-      els.agentSessionMeta.textContent =
+      els.agentTranscriptTitle.textContent = "Transcript · none";
+      els.agentTranscriptMeta.textContent =
         "No Codex or Claude agent detected in this pane's process tree.";
-      els.agentSessionBody.textContent = "";
+      setAgentTranscriptEmpty("Nothing to show.");
       return;
     }
-    els.agentSessionTitle.textContent = `Last response · ${result.kind}`;
-    const metaLines = [
+    els.agentTranscriptTitle.textContent = `Transcript · ${result.kind}`;
+    const turns = Array.isArray(result.turns) ? result.turns : [];
+    els.agentTranscriptMeta.textContent = [
       `session  ${result.sessionId || "(none)"}`,
       `file     ${result.transcriptPath || "(none)"}`,
-      `chars    ${(result.text || "").length}`,
-    ];
-    els.agentSessionMeta.textContent = metaLines.join("\n");
-    els.agentSessionBody.textContent =
-      result.text || "(transcript located but no assistant message found)";
+      `turns    ${turns.length}`,
+    ].join("\n");
+    if (turns.length === 0) {
+      setAgentTranscriptEmpty(
+        "Transcript located but no user/assistant turns parsed yet.",
+      );
+      return;
+    }
+    renderAgentTranscriptTurns(turns);
   } catch (error) {
-    els.agentSessionTitle.textContent = "Last response · error";
-    els.agentSessionMeta.textContent = error.message || String(error);
-    els.agentSessionBody.textContent = "";
+    els.agentTranscriptTitle.textContent = "Transcript · error";
+    els.agentTranscriptMeta.textContent = error.message || String(error);
+    setAgentTranscriptEmpty("Failed to load.");
   }
 }
-els.showLastResponse.addEventListener("click", showAgentLastResponse);
-els.agentSessionBackdrop.addEventListener("click", hideAgentSessionSheet);
-els.closeAgentSession.addEventListener("click", hideAgentSessionSheet);
+els.showTranscript.addEventListener("click", showAgentTranscript);
+els.agentTranscriptBackdrop.addEventListener("click", hideAgentTranscriptSheet);
+els.closeAgentTranscript.addEventListener("click", hideAgentTranscriptSheet);
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !els.agentSessionSheet.hidden) hideAgentSessionSheet();
+  if (event.key === "Escape" && !els.agentTranscriptSheet.hidden) {
+    hideAgentTranscriptSheet();
+  }
 });
 els.refreshSnapshot.addEventListener("click", () => refreshSnapshot());
 els.fullscreenSnapshot.addEventListener("click", () => {

@@ -1023,6 +1023,20 @@ async function safeAgentLastResponse(pane) {
   }
 }
 
+async function safeAgentTranscript(pane) {
+  if (!pane?.pid) return null;
+  const backend = currentBackend();
+  if (typeof backend.agentTranscript !== "function") return null;
+  try {
+    return await backend.agentTranscript({
+      rootPid: pane.pid,
+      cwd: pane.cwd || "",
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function buildWindowBriefingInput(windowId, lineCount) {
   requireId(windowId, "window");
   const [windowInfo, panes] = await Promise.all([
@@ -1348,13 +1362,25 @@ async function handleApi(req, res, url) {
   }
 
   // Inspection endpoint: returns {kind, sessionId, transcriptPath, text} for
-  // panes running Codex / Claude Code, or {result: null} otherwise. Used to
-  // debug the structured-read path and (later) to show "this is a Codex
-  // window" chips in the UI.
+  // panes running Codex / Claude Code, or {result: null} otherwise. Used by
+  // the client to enable/disable the Read buttons (Read only fires on
+  // panes with a structured transcript to lift the last response from).
   if (req.method === "GET" && url.pathname === "/api/agent-session") {
     const paneId = requireId(url.searchParams.get("paneId"), "pane");
     const { pane } = await getPaneContext(paneId);
     const result = await safeAgentLastResponse(pane);
+    sendJson(res, 200, { result });
+    return;
+  }
+
+  // Structured transcript: every user/assistant turn from the agent's own
+  // JSONL, filtered to clean dialogue (tool calls/results, system
+  // reminders, environment context dropped). Capped at the last
+  // MAX_TRANSCRIPT_TURNS on the backend so the response stays bounded.
+  if (req.method === "GET" && url.pathname === "/api/agent-transcript") {
+    const paneId = requireId(url.searchParams.get("paneId"), "pane");
+    const { pane } = await getPaneContext(paneId);
+    const result = await safeAgentTranscript(pane);
     sendJson(res, 200, { result });
     return;
   }

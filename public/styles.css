@@ -1115,6 +1115,63 @@ input {
   word-break: break-word;
 }
 
+/* Transcript view body: stacked user/assistant turns. Distinct surfaces so
+ * the eye can follow turn boundaries even on a long scroll. */
+.agent-transcript-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  overflow: auto;
+  background: var(--surface-soft);
+}
+
+.agent-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.agent-turn-user {
+  background: var(--surface);
+}
+
+.agent-turn-assistant {
+  background: var(--code-bg);
+  color: var(--code-ink);
+}
+
+.agent-turn-role {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.agent-turn-assistant .agent-turn-role {
+  color: var(--accent-dark);
+}
+
+.agent-turn-text {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: var(--snapshot-font-size);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agent-transcript-empty {
+  margin: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .directory-sheet {
   z-index: 42;
 }
