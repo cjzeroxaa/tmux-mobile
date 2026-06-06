@@ -1,0 +1,271 @@
+/* Command Center — a separate top-level page that lists every Codex /
+ * Claude Code agent the local tmux server is hosting. Visually consistent
+ * with the main app (reuses the kami / dark palette tokens from styles.css)
+ * but structurally independent: no shared JS state, no shared DOM. */
+
+.command-center-body {
+  /* The main app overrides html/body to overflow: hidden because its grid
+   * manages all scrolling. Command Center wants the page to scroll
+   * normally on mobile so a long list of agents is reachable with thumb
+   * scroll rather than a constrained inner scroll. */
+  overflow: auto;
+  background: var(--bg);
+}
+
+.cc-shell {
+  width: min(100vw, 720px);
+  min-height: 100dvh;
+  margin: 0 auto;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 12px;
+  padding: 12px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+}
+
+.cc-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.cc-title-block {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cc-title {
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.cc-status {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cc-icon-button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.cc-icon-button:active {
+  background: var(--surface-soft);
+}
+
+.cc-link {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-dark);
+  text-decoration: none;
+  flex: 0 0 auto;
+}
+
+.cc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cc-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.cc-card.is-running {
+  border-color: rgba(53, 89, 122, 0.42);
+}
+
+.cc-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cc-card-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cc-card-session {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.cc-kind-chip {
+  display: inline-block;
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(53, 89, 122, 0.14);
+  color: var(--accent-dark);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cc-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cc-status-pill::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.cc-status-pill.is-running {
+  background: rgba(53, 89, 122, 0.16);
+  color: var(--accent-dark);
+}
+
+.cc-status-pill.is-running::before {
+  /* Subtle pulse on the dot so a sweep of cards reads "this one's still
+   * waiting on the agent" at a glance. */
+  animation: cc-pulse 1.6s ease-in-out infinite;
+  opacity: 1;
+}
+
+@keyframes cc-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50%      { opacity: 1;    transform: scale(1); }
+}
+
+.cc-card-cwd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cc-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cc-section-label {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.cc-section.user .cc-section-text {
+  background: var(--surface-soft);
+}
+
+.cc-section.assistant .cc-section-text {
+  background: var(--code-bg);
+  color: var(--code-ink);
+}
+
+.cc-section-text {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11.5px;
+  line-height: 1.42;
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* Clamp long messages so a single talky agent doesn't bury the rest of
+   * the dashboard. Tap the body to toggle full text. */
+  max-height: 7.2em;
+  overflow: hidden;
+  position: relative;
+  cursor: pointer;
+}
+
+.cc-section.is-expanded .cc-section-text {
+  max-height: none;
+}
+
+.cc-section-text.is-empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.cc-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.cc-card-footer a {
+  color: var(--accent-dark);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.cc-empty {
+  display: grid;
+  place-items: center;
+  padding: 40px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}

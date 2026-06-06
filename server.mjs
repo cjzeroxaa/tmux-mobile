@@ -129,8 +129,11 @@ const formats = {
     "#{session_id}\t#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created_string}",
   windows:
     "#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{window_flags}\t#{pane_current_command}\t#{pane_current_path}",
+  // pane_pid is tacked on at the end so the existing list-panes destructure
+  // stays compatible (extra fields are just ignored). Needed by Command
+  // Center which walks every pane and calls agentTranscript on it.
   panes:
-    "#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_title}",
+    "#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_title}\t#{pane_pid}",
   paneInfo:
     "#{session_name}\t#{window_index}\t#{window_name}\t#{pane_index}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_pid}\t#{pane_active}",
 };
@@ -515,7 +518,7 @@ async function listPanes(windowId) {
     formats.panes,
   ]);
   return rows(stdout).map(
-    ([id, index, active, command, cwd, width, height, title]) => ({
+    ([id, index, active, command, cwd, width, height, title, pid]) => ({
       id,
       index: Number(index),
       active: active === "1",
@@ -524,6 +527,7 @@ async function listPanes(windowId) {
       width: Number(width || 0),
       height: Number(height || 0),
       title,
+      pid: Number(pid || 0) || null,
     }),
   );
 }
@@ -1037,6 +1041,91 @@ async function safeAgentTranscript(pane) {
   }
 }
 
+/**
+ * Walk every session + window on the host, pick the active pane in each
+ * window, and ask agentTranscript whether it's running a Codex or Claude
+ * Code session. Drop the panes that aren't agents and return one row per
+ * agent with enough structured state to drive the Command Center view:
+ *
+ *   - which tmux window/session it lives in
+ *   - which agent (codex/claude) and which transcript session UUID
+ *   - the last user prompt and last assistant response, verbatim from the
+ *     JSONL (not an LLM summary — we already have the exact text)
+ *   - a status derived from who spoke last: if the last turn is from the
+ *     user, the agent owes a reply -> "running"; otherwise -> "idle"
+ *   - a turn count so the UI can show conversation depth at a glance
+ *
+ * Per-pane work runs in parallel so even ten windows return in roughly the
+ * time of the slowest pane.
+ */
+async function listAgentSessions() {
+  let sessions = [];
+  try {
+    const stdout = await runTmux(["list-sessions", "-F", formats.sessions]);
+    sessions = rows(stdout).map(sessionFromRow);
+  } catch (error) {
+    if (isNoServerError(error)) return { agents: [] };
+    throw error;
+  }
+
+  // Flatten every window into one queue with its session context.
+  const queue = [];
+  for (const session of sessions) {
+    let windows;
+    try {
+      windows = await listWindows(session.id);
+    } catch {
+      continue;
+    }
+    for (const win of windows) queue.push({ session, win });
+  }
+
+  const rows_ = await Promise.all(
+    queue.map(async ({ session, win }) => {
+      let panes;
+      try {
+        panes = await listPanes(win.id);
+      } catch {
+        return null;
+      }
+      const pane = panes.find((p) => p.active) || panes[0];
+      if (!pane?.pid) return null;
+
+      const info = await safeAgentTranscript(pane);
+      if (!info?.kind) return null;
+
+      const turns = Array.isArray(info.turns) ? info.turns : [];
+      const lastTurn = turns[turns.length - 1] || null;
+      const lastAssistantTurn = [...turns].reverse().find((t) => t.role === "assistant") || null;
+      const lastUserTurn = [...turns].reverse().find((t) => t.role === "user") || null;
+
+      return {
+        sessionId: session.id,
+        sessionName: session.name,
+        windowId: win.id,
+        windowIndex: win.index,
+        windowName: win.name,
+        paneId: pane.id,
+        cwd: pane.cwd || "",
+        activeCommand: win.activeCommand || pane.command || "",
+        kind: info.kind,
+        agentSessionId: info.sessionId || "",
+        transcriptPath: info.transcriptPath || "",
+        lastUserText: lastUserTurn?.text || "",
+        lastAssistantText: lastAssistantTurn?.text || "",
+        lastRole: lastTurn?.role || "",
+        turnCount: turns.length,
+        // If the most recent turn is from the user, the agent owes us a
+        // response — that's "running". Otherwise it has spoken and is now
+        // waiting for the next prompt — "idle".
+        status: lastTurn?.role === "user" ? "running" : "idle",
+      };
+    }),
+  );
+
+  return { agents: rows_.filter(Boolean) };
+}
+
 async function buildWindowBriefingInput(windowId, lineCount) {
   requireId(windowId, "window");
   const [windowInfo, panes] = await Promise.all([
@@ -1385,6 +1474,13 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  // Command Center feed: one row per agent pane across every tmux session.
+  // See listAgentSessions() for the shape.
+  if (req.method === "GET" && url.pathname === "/api/command-center") {
+    sendJson(res, 200, await listAgentSessions());
+    return;
+  }
+
   if (req.method === "PATCH" && url.pathname === "/api/windows") {
     const body = await readJsonBody(req);
     const windowId = requireId(body.windowId, "window");
@@ -1690,7 +1786,13 @@ const contentTypes = new Map([
 ]);
 
 async function serveStatic(req, res, url) {
-  const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
+  let pathname = url.pathname === "/" ? "/index.html" : url.pathname;
+  // Command Center is a separate top-level page so the main app stays
+  // untouched. Both /command-center and /command-center/ resolve to the
+  // standalone HTML.
+  if (pathname === "/command-center" || pathname === "/command-center/") {
+    pathname = "/command-center.html";
+  }
   if (pathname === "/manifest.webmanifest") {
     sendWebManifest(res);
     return;
