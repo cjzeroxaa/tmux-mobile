@@ -199,6 +199,7 @@ h3 {
   font-size: 13px;
   font-weight: 600;
   text-align: left;
+  text-decoration: none;
 }
 
 .more-actions-item:hover,
