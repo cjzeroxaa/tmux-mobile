@@ -97,7 +97,7 @@ for (const p of ["./tone.wav", "out/voice.mp3", "clips/a.ogg", "~/rec.m4a", "x/y
 }
 
 // --- PR reference linking (needs an active-window repo) ---
-const repo = { host: "github.com", owner: "sycamore-labs", name: "kernel" };
+const repo = { host: "github.com", owner: "acme", name: "widget" };
 const renderRepo = (t) => linkifyEscaped(escapeHtml(t), { repo });
 
 // 18. "PR #1234" -> github issues link (auto-redirects to the PR). Only the
@@ -105,7 +105,7 @@ const renderRepo = (t) => linkifyEscaped(escapeHtml(t), { repo });
 // the "PR" prefix stays outside the anchor.
 out = renderRepo("landed in PR #4877 today");
 assert.ok(
-  out.includes('href="https://github.com/sycamore-labs/kernel/issues/4877"'),
+  out.includes('href="https://github.com/acme/widget/issues/4877"'),
   `18 PR link: ${out}`,
 );
 assert.ok(out.includes(">#4877</a>"), `18 display text: ${out}`);

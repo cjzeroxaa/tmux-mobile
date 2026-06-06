@@ -42,8 +42,23 @@ const machineAtom = createPersistedAtom("tmux-mobile-machine", {
   machineId: "",
 });
 
-// "kami" = Japanese washi-paper light theme (default), "dark" = original.
+// "kami" = Japanese washi-paper light theme (default), "dark" = original,
+// "auto" = follow the OS prefers-color-scheme.
 const themeAtom = createPersistedAtom("tmux-mobile-theme", { theme: "kami" });
+const THEME_ORDER = ["kami", "dark", "auto"];
+
+function systemPrefersDark() {
+  return !!(
+    window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+  );
+}
+
+// Resolve a theme choice to the concrete light/dark applied to the document.
+function themeIsDark(theme) {
+  if (theme === "dark") return true;
+  if (theme === "auto") return systemPrefersDark();
+  return false; // kami / default
+}
 
 // Notification sound: play a chime (the bundled Ubuntu notification sound) when a
 // window NEWLY needs an answer / finishes. enabled (default OFF — opt-in via
@@ -276,14 +291,32 @@ function readPersistedLines() {
   return LINE_OPTIONS.includes(value) ? value : DEFAULT_LINES;
 }
 
+// Snapshot font size (px). Adjusted live from the More menu's A−/A+ pair.
+// Clamped to [SNAPSHOT_FONT_MIN, SNAPSHOT_FONT_MAX] so a bogus localStorage
+// value can't make the terminal pane unreadable.
+const SNAPSHOT_FONT_MIN = 10;
+const SNAPSHOT_FONT_MAX = 22;
+const SNAPSHOT_FONT_DEFAULT = 13;
+const snapshotFontAtom = createPersistedAtom("tmux-mobile-snapshot-font-size", {
+  px: SNAPSHOT_FONT_DEFAULT,
+});
+function clampSnapshotFont(px) {
+  const value = Number(px);
+  if (!Number.isFinite(value)) return SNAPSHOT_FONT_DEFAULT;
+  return Math.max(SNAPSHOT_FONT_MIN, Math.min(SNAPSHOT_FONT_MAX, Math.round(value)));
+}
+function readPersistedSnapshotFont() {
+  return clampSnapshotFont(snapshotFontAtom.get().px);
+}
+
 function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme === "dark" ? "" : "kami";
+  document.documentElement.dataset.theme = themeIsDark(theme) ? "" : "kami";
 }
 
 const state = {
   runtimeMode: "local",
   serverRevision: "",
-  cloneUrl: "https://github.com/sycamore-labs/tmux-mobile.git",
+  cloneUrl: "https://github.com/cjzeroxaa/tmux-mobile.git",
   machines: [],
   machineId: machineAtom.get().machineId || "",
   sessions: [],
@@ -424,6 +457,9 @@ const els = {
   voiceRealtimeVoice: document.querySelector("#voiceRealtimeVoice"),
   previewSpeechVoice: document.querySelector("#previewSpeechVoice"),
   previewRealtimeVoice: document.querySelector("#previewRealtimeVoice"),
+  fontSizeDecrease: document.querySelector("#fontSizeDecrease"),
+  fontSizeIncrease: document.querySelector("#fontSizeIncrease"),
+  fontSizeValue: document.querySelector("#fontSizeValue"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
   fullscreenRead: document.querySelector("#fullscreenRead"),
@@ -720,8 +756,8 @@ function renderMachinePicker() {
 
 // Show clone+connector instructions only in hub mode with no machine online.
 // The controller URL is the page's own origin (so it's correct on whatever
-// domain the user reached, e.g. http://t.sycamore.sh); the clone URL comes from
-// /api/runtime. Hidden in every other state.
+// domain the user reached, e.g. https://example.ts.net); the clone URL comes
+// from /api/runtime. Hidden in every other state.
 function renderConnectorHelp() {
   if (!els.connectorHelp) return;
   const showHelp =
@@ -2514,12 +2550,33 @@ function ansiPalette() {
   return ansiKami() ? ANSI_PALETTE_LIGHT : ANSI_PALETTE;
 }
 
+// Relative luminance (WCAG) of an sRGB 0-255 color.
+function srgbLin(c) {
+  c /= 255;
+  return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+function relLum(r, g, b) {
+  return 0.2126 * srgbLin(r) + 0.7152 * srgbLin(g) + 0.0722 * srgbLin(b);
+}
+
 // On the light terminal, darken raw RGB (cube / grayscale / truecolor) for contrast.
+// A flat multiply leaves pale colors (Claude Code's steel-blue, purple, etc.) too
+// light on the #faf6ec Kami terminal bg. Instead clamp any color whose luminance
+// exceeds a cap, scaling it toward black while preserving hue — this guarantees a
+// readable contrast ratio (>= ~4.5:1) regardless of how light the source color is.
+const KAMI_LUM_CAP = 0.14;
 function ansiRgb(r, g, b) {
   if (ansiKami()) {
-    r = Math.round(r * 0.55);
-    g = Math.round(g * 0.55);
-    b = Math.round(b * 0.55);
+    const lum = relLum(r, g, b);
+    if (lum > KAMI_LUM_CAP) {
+      const k = Math.pow(KAMI_LUM_CAP / lum, 1 / 2.4);
+      r *= k;
+      g *= k;
+      b *= k;
+    }
+    r = Math.round(r);
+    g = Math.round(g);
+    b = Math.round(b);
   }
   return `rgb(${r},${g},${b})`;
 }
@@ -4231,6 +4288,24 @@ function closeSnippetManager() {
   els.snippetSheet.hidden = true;
 }
 
+async function forkAgentWindow() {
+  if (!state.paneId) {
+    setStatus("Select a window first", false);
+    return;
+  }
+  const data = await api("/api/fork-agent-window", {
+    method: "POST",
+    body: JSON.stringify({ paneId: state.paneId }),
+  });
+  if (!data.forked) return;
+
+  await refreshTree();
+  if (data.window?.id) {
+    await selectWindow(data.window.id);
+  }
+  setStatus(`forked ${data.agent}`);
+}
+
 function setAutoRefresh(enabled) {
   if (state.autoRefreshTimer) {
     window.clearInterval(state.autoRefreshTimer);
@@ -4252,10 +4327,33 @@ els.mobileRefresh.addEventListener("click", async () => {
   await refreshTree();
   await refreshSnapshot();
 });
+const THEME_ICONS = {
+  // sun
+  kami: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
+  // moon
+  dark: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/>',
+  // monitor / auto
+  auto: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+};
+const THEME_LABELS = { kami: "Theme: Light", dark: "Theme: Dark", auto: "Theme: Auto" };
+
+function updateThemeToggle(theme) {
+  els.themeToggle.innerHTML =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    (THEME_ICONS[theme] || THEME_ICONS.kami) +
+    "</svg>";
+  const label = THEME_LABELS[theme] || THEME_LABELS.kami;
+  els.themeToggle.title = label;
+  els.themeToggle.setAttribute("aria-label", label);
+}
+
 els.themeToggle.addEventListener("click", () => {
-  const next = themeAtom.get().theme === "dark" ? "kami" : "dark";
+  const cur = themeAtom.get().theme;
+  const idx = THEME_ORDER.indexOf(cur);
+  const next = THEME_ORDER[(idx + 1) % THEME_ORDER.length];
   themeAtom.set({ theme: next });
   applyTheme(next);
+  updateThemeToggle(next);
 });
 
 // Voice settings sheet — lets the user pick the OpenAI voice models
@@ -4468,6 +4566,15 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !els.voiceSettingsSheet.hidden) closeVoiceSettings();
 });
 
+// Reflect OS theme changes live while in auto mode.
+if (window.matchMedia) {
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (themeAtom.get().theme === "auto") applyTheme("auto");
+  });
+}
+
+updateThemeToggle(themeAtom.get().theme);
+
 // "More" overflow menu — folds rename/directories/refresh/theme behind one
 // button so the topbar has room for the full cwd path. Toggle on tap, close
 // on Esc, outside-click, or after any item is activated.
@@ -4490,6 +4597,31 @@ document.addEventListener("click", (event) => {
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !els.moreActionsMenu.hidden) setMoreActionsOpen(false);
+});
+
+// Snapshot font-size A−/A+ inside the More menu. These intentionally do NOT
+// close the menu (they're inside .more-actions-row, not .more-actions-item)
+// so the user can tap a few times to dial in the right size in one go.
+function applySnapshotFontSize(px) {
+  const clamped = clampSnapshotFont(px);
+  document.documentElement.style.setProperty("--snapshot-font-size", `${clamped}px`);
+  els.fontSizeValue.textContent = String(clamped);
+  els.fontSizeDecrease.disabled = clamped <= SNAPSHOT_FONT_MIN;
+  els.fontSizeIncrease.disabled = clamped >= SNAPSHOT_FONT_MAX;
+}
+function stepSnapshotFontSize(delta) {
+  const next = clampSnapshotFont(readPersistedSnapshotFont() + delta);
+  snapshotFontAtom.set({ px: next });
+  applySnapshotFontSize(next);
+}
+applySnapshotFontSize(readPersistedSnapshotFont());
+els.fontSizeDecrease.addEventListener("click", (event) => {
+  event.stopPropagation();
+  stepSnapshotFontSize(-1);
+});
+els.fontSizeIncrease.addEventListener("click", (event) => {
+  event.stopPropagation();
+  stepSnapshotFontSize(+1);
 });
 els.refreshSnapshot.addEventListener("click", () => refreshSnapshot());
 els.fullscreenSnapshot.addEventListener("click", () => {
@@ -4880,6 +5012,18 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !els.snippetSheet?.hidden) closeSnippetManager();
 });
 renderSnippetChips();
+
+// Fork this agent into a fresh window (duplicates the agent's launch command in
+// a new worktree). Wired by data-attribute so the trigger can live anywhere.
+for (const button of document.querySelectorAll("[data-agent-fork]")) {
+  button.addEventListener("click", async () => {
+    try {
+      await forkAgentWindow();
+    } catch (error) {
+      addChat("system", error.message, "error");
+    }
+  });
+}
 
 window.addEventListener("popstate", () => {
   refreshTree({

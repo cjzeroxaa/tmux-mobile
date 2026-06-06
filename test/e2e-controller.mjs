@@ -13,8 +13,8 @@ const WEB_CLIENT_ID = "web-client.test";
 const WEB_CLIENT_SECRET = "web-secret";
 const DEVICE_CLIENT_ID = "device-client.test";
 const DEVICE_CLIENT_SECRET = "device-secret";
-const ALICE = "alice@sycamore.so";
-const BOB = "bob@sycamore.so";
+const ALICE = "alice@example.com";
+const BOB = "bob@example.com";
 const children = [];
 const sessionsToClean = new Set();
 
@@ -391,7 +391,7 @@ try {
     GOOGLE_DEVICE_CLIENT_SECRET: DEVICE_CLIENT_SECRET,
     OPENAI_API_KEY: "test-openai-key",
     SESSION_SECRET: `session-secret-${process.pid}`,
-    ALLOWED_GOOGLE_DOMAINS: "sycamore.so",
+    ALLOWED_GOOGLE_DOMAINS: "example.com",
   });
 
   await waitFor("controller health", async () => {

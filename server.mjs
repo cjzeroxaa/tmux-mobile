@@ -238,7 +238,7 @@ function sanitizeVoicePrefix(raw) {
 // "no machine connected" UI; override for forks/mirrors.
 const CONNECTOR_CLONE_URL =
   process.env.TMUX_MOBILE_CLONE_URL ||
-  "https://github.com/sycamore-labs/tmux-mobile.git";
+  "https://github.com/cjzeroxaa/tmux-mobile.git";
 const WINDOW_BRIEFING_MODEL =
   process.env.OPENAI_WINDOW_BRIEFING_MODEL || "gpt-5.4-mini";
 const AGENT_RESPONSE_EXTRACT_MODEL =
@@ -1368,7 +1368,7 @@ async function getPaneContext(paneId) {
     "-p",
     "-t",
     paneId,
-    "#{window_id}\t#{session_id}\t#{session_name}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_title}",
+    "#{window_id}\t#{session_id}\t#{session_name}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_title}\t#{pane_pid}",
   ]);
   const [
     windowId = "",
@@ -1384,6 +1384,7 @@ async function getPaneContext(paneId) {
     width = "",
     height = "",
     title = "",
+    pid = "",
   ] = stdout.trimEnd().split("\t");
 
   return {
@@ -1403,7 +1404,79 @@ async function getPaneContext(paneId) {
       width: Number(width || 0),
       height: Number(height || 0),
       title,
+      pid: Number(pid || 0),
     },
+  };
+}
+
+function commandHasExecutable(command, executable) {
+  const escaped = executable.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`(^|[\\s/])${escaped}([\\s]|$)`, "i");
+  return pattern.test(String(command || ""));
+}
+
+function detectForkableAgent(pane, processes) {
+  const commands = [
+    pane?.command || "",
+    pane?.title || "",
+    ...processes.map((processInfo) => processInfo.command || ""),
+  ];
+  if (commands.some((command) => commandHasExecutable(command, "codex"))) {
+    return {
+      agent: "codex",
+      command: "codex fork --last",
+      windowName: "codex-fork",
+    };
+  }
+  if (commands.some((command) => commandHasExecutable(command, "claude"))) {
+    return {
+      agent: "claude",
+      command: "claude --continue --fork-session",
+      windowName: "claude-fork",
+    };
+  }
+  return null;
+}
+
+async function forkAgentWindow(paneId) {
+  requireId(paneId, "pane");
+  const { windowInfo, pane } = await getPaneContext(paneId);
+  const processes =
+    pane.pid && currentBackend().processTree
+      ? await currentBackend().processTree(pane.pid)
+      : [];
+  const forkSpec = detectForkableAgent(pane, processes);
+  if (!forkSpec) {
+    return { ok: true, forked: false, reason: "not-agent" };
+  }
+
+  const stdout = await runTmux([
+    "new-window",
+    "-a",
+    "-t",
+    windowInfo.windowId,
+    "-c",
+    pane.cwd || process.env.HOME || "/",
+    "-n",
+    forkSpec.windowName,
+    "-P",
+    "-F",
+    formats.windows,
+    forkSpec.command,
+  ]);
+  clearSessionSummaryCache(windowInfo.sessionId);
+  const [row] = rows(stdout);
+  if (!row) {
+    const error = new Error("tmux did not return the fork window");
+    error.status = 500;
+    throw error;
+  }
+  return {
+    ok: true,
+    forked: true,
+    agent: forkSpec.agent,
+    source: windowInfo,
+    window: windowFromRow(row),
   };
 }
 
@@ -2313,6 +2386,13 @@ async function handleApi(req, res, url) {
       const sessionId = requireId(body.sessionId, "session");
       sendJson(res, 200, await createWindow(sessionId));
     }
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/fork-agent-window") {
+    const body = await readJsonBody(req);
+    const paneId = requireId(body.paneId, "pane");
+    sendJson(res, 200, await forkAgentWindow(paneId));
     return;
   }
 

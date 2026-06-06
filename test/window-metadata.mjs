@@ -12,15 +12,15 @@ import {
 } from "../lib/window-metadata.mjs";
 
 // --- git remote parsing ---
-assert.deepEqual(parseGitRemote("https://github.com/sycamore-labs/kernel.git"), {
+assert.deepEqual(parseGitRemote("https://github.com/acme/widget.git"), {
   host: "github.com",
-  owner: "sycamore-labs",
-  name: "kernel",
+  owner: "acme",
+  name: "widget",
 });
-assert.deepEqual(parseGitRemote("git@github.com:sycamore-labs/kernel.git"), {
+assert.deepEqual(parseGitRemote("git@github.com:acme/widget.git"), {
   host: "github.com",
-  owner: "sycamore-labs",
-  name: "kernel",
+  owner: "acme",
+  name: "widget",
 });
 assert.deepEqual(parseGitRemote("ssh://git@github.com/o/r.git"), {
   host: "github.com",
