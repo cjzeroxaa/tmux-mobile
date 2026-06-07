@@ -255,6 +255,51 @@ h3 {
   color: var(--accent-dark);
 }
 
+/* "A question is waiting in THIS window" affordance. The two-finger pane gesture
+ * is a hidden shortcut; this lights the obvious path so nobody needs to know it.
+ * A pulsing red notification dot on the More button (always visible in the
+ * topbar), and a highlight on the "Answer question" item once the menu is open.
+ * Toggled by updateAnswerAffordance() via .has-question. */
+.more-actions {
+  /* contain the absolutely-positioned dot below */
+  isolation: isolate;
+}
+
+.icon-button.has-question {
+  position: relative; /* anchor for the corner dot */
+}
+
+.icon-button.has-question::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #b3261e;
+  border: 1.5px solid var(--surface, #fff);
+  animation: agentPulse 1.4s ease-in-out infinite;
+}
+
+.more-actions-item.has-question {
+  background: color-mix(in srgb, #b3261e 12%, transparent);
+  border-color: color-mix(in srgb, #b3261e 35%, transparent);
+}
+
+.more-actions-item.has-question svg {
+  color: #b3261e;
+}
+
+/* Leading "❓" marker on the highlighted item, so it reads as the live action
+ * even for users who can't perceive the color change. */
+.more-actions-item.has-question::before {
+  content: "❓";
+  margin-right: -2px;
+  font-size: 12px;
+  line-height: 1;
+}
+
 /* Destructive item (Close window). */
 .more-actions-item.danger {
   color: #c0392b;
@@ -579,6 +624,18 @@ input {
   user-select: text;
   -webkit-user-select: text;
   -webkit-touch-callout: default;
+  /* Smooth the arming cue in/out so it reads as a deliberate response to the
+     two-finger hold rather than a flicker. */
+  transition: box-shadow 140ms ease-out;
+}
+
+/* Arming cue: a held two-finger (or mouse) gesture is partway to opening the
+   answer overlay. A faint inset ring confirms the hold is registering before it
+   fires, so the gesture doesn't feel silent-then-sudden. Added/removed by
+   setupSnapshotLongPress() via .press-arming. Uses an inset shadow (no layout
+   shift, no positioning context needed). */
+.snapshot.press-arming {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent, #35597a) 55%, transparent);
 }
 
 /* URLs auto-detected in the tmux pane. Inherit the terminal text color (so an

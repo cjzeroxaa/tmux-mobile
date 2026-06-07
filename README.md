@@ -204,9 +204,15 @@ Claude Code's `AskUserQuestion` renders an interactive TUI (a tab bar, `❯`
 cursor, checkboxes for multi-select, a free-form "Type something" escape, and a
 review screen) that's awkward to drive key-by-key from a phone. An overlay turns
 it into tappable cards. Open it two ways: the topbar **More → Answer question**,
-or **long-press the pane** (the gesture you reach for when you spot Claude
-waiting). The long-press fires after ~500ms held still and cancels on
-scroll/selection, so it never shadows tapping a link or selecting text.
+or **hold the pane** (the gesture you reach for when you spot Claude waiting).
+The hold fires after ~500ms held still and cancels on scroll/selection, so it
+never shadows tapping a link.
+
+On touch the hold is **two fingers** — a single-finger press-and-hold is the
+phone's own gesture for selecting/copying text, so it's left completely alone
+(no more overlay popping over text you're trying to copy). On desktop a normal
+left-button hold works, since there's no native finger-selection to compete with
+and drag-select cancels the hold anyway.
 
 The same overlay also handles Claude's **exit-plan-mode** confirmation ("Claude
 has written up a plan and is ready to execute. Would you like to proceed?") — a

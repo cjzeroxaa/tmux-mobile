@@ -245,6 +245,21 @@ function windowsNeedingAttention() {
   return out;
 }
 
+// Is the window the user is CURRENTLY VIEWING confidently blocked on a question
+// (AskUserQuestion / exit-plan)? windowsNeedingAttention() deliberately excludes
+// the active window — the topbar pill shouldn't tell you to jump to where you
+// already are. But that's exactly the window where "Answer question" is the
+// relevant action, so we surface it on the More button instead. Mirrors the
+// "question" branch of descriptorNeedsAttention without the active-key exclusion.
+function activeWindowHasQuestion() {
+  const activeKey = activeWindowKey();
+  if (!activeKey) return false;
+  const d = state.attention.find((x) => attentionKey(x) === activeKey);
+  // waitingConfidence "low" is an unverified hedge, not a confident question —
+  // don't light the affordance on a maybe.
+  return Boolean(d && d.waitingForInput && d.waitingConfidence !== "low");
+}
+
 function recordRecentWindow(win) {
   const key = windowRecentKey(win);
   if (!key) return;
@@ -3279,6 +3294,27 @@ function updateAttentionIndicators() {
       els.needsAttention.hidden = true;
     }
   }
+
+  updateAnswerAffordance();
+}
+
+// Light up the path to the answer overlay when the window you're LOOKING AT is
+// waiting on a question. The two-finger pane gesture is a hidden power shortcut;
+// this makes the obvious button signal exactly when it's the thing to tap, so
+// nobody has to know the gesture exists. A dot on the More button (always
+// visible) plus a highlight on the "Answer question" item inside the menu.
+function updateAnswerAffordance() {
+  const pending = activeWindowHasQuestion();
+  if (els.moreActionsToggle) {
+    els.moreActionsToggle.classList.toggle("has-question", pending);
+    els.moreActionsToggle.setAttribute(
+      "aria-label",
+      pending ? "More actions — a question is waiting" : "More actions",
+    );
+  }
+  if (els.answerQuestion) {
+    els.answerQuestion.classList.toggle("has-question", pending);
+  }
 }
 
 // Show the "scroll mode is on" banner only when the viewed pane has been parked
@@ -4886,30 +4922,52 @@ function openFileViewer(filePath) {
 
 
 
-// Long-press the pane to open the "Answer question" overlay — the gesture the
-// user reaches for when they see Claude waiting on an AskUserQuestion. Like the
-// More-menu item, this is an explicit, user-triggered scan: the long-press just
-// calls openAskOverlay(), which fetches/parses on demand.
+// Hold the pane to open the "Answer question" overlay — the gesture the user
+// reaches for when they see Claude waiting on an AskUserQuestion. Like the
+// More-menu item, this is an explicit, user-triggered scan: it just calls
+// openAskOverlay(), which fetches/parses on demand.
 //
-// It must not interfere with the pane's existing touch behaviour — tapping a
-// link/file, scrolling, or selecting text. So we only fire when the finger (or
-// mouse) is held still for LONG_PRESS_MS, cancel on any movement past a small
-// slop, on early release, on scroll, or when the user is selecting text; and we
-// suppress the synthetic click that follows a long press so it doesn't also
-// grab pane focus.
+// The trigger differs by input so it NEVER competes with copying text:
+//   • Touch  — TWO fingers held still. A single-finger press-and-hold is the
+//              native OS gesture for starting a text selection / showing the
+//              copy callout, so we leave it completely alone (a one-finger hold
+//              used to race the selection and pop this overlay over the text the
+//              user was trying to copy — especially on mobile Safari/Chrome).
+//   • Mouse  — left button held still (desktop has no native finger-selection
+//              race, and drag-select still cancels via the move slop).
+//
+// In both cases we cancel on movement past a small slop (scroll/select), on
+// early release, and bail if a text selection is already in progress; and we
+// suppress the synthetic click that follows so it doesn't also grab pane focus.
+//
+// Arming feedback: a held gesture is otherwise silent for the full 500ms and
+// then the overlay appears all at once, which feels laggy/uncertain. Partway
+// through (ARM_MS) we add a faint "arming" highlight to the pane so the hold
+// reads as intentional — removed the instant it fires or cancels.
 function setupSnapshotLongPress() {
   const LONG_PRESS_MS = 500;
+  const ARM_MS = 220; // show the arming cue partway through the hold
   const MOVE_SLOP_PX = 10; // movement beyond this = a scroll/select, not a press
   let timer = null;
+  let armTimer = null;
   let startX = 0;
   let startY = 0;
   let fired = false; // a long-press fired for the current gesture
+
+  const disarm = () => {
+    if (armTimer !== null) {
+      clearTimeout(armTimer);
+      armTimer = null;
+    }
+    els.snapshot.classList.remove("press-arming");
+  };
 
   const clear = () => {
     if (timer !== null) {
       clearTimeout(timer);
       timer = null;
     }
+    disarm();
   };
 
   const start = (x, y, target) => {
@@ -4920,8 +4978,16 @@ function setupSnapshotLongPress() {
     startX = x;
     startY = y;
     clear();
+    armTimer = setTimeout(() => {
+      armTimer = null;
+      // Only show the cue if the user isn't actually selecting text — same bail
+      // the fire path uses, so we never glow during a real selection.
+      if (hasSnapshotSelection()) return;
+      els.snapshot.classList.add("press-arming");
+    }, ARM_MS);
     timer = setTimeout(() => {
       timer = null;
+      disarm();
       // If the user has started selecting text, this is a selection gesture, not
       // a long-press — leave it alone.
       if (hasSnapshotSelection()) return;
@@ -4938,23 +5004,31 @@ function setupSnapshotLongPress() {
     }
   };
 
+  // Touch: arm only on a deliberate TWO-finger hold. One finger (native copy) or
+  // three+ never arms. The midpoint of the two fingers is the anchor; if a
+  // finger lifts (back to one) or another lands (three+), cancel — the gesture
+  // is only valid while exactly two fingers are down and still.
   els.snapshot.addEventListener(
     "touchstart",
     (e) => {
-      if (e.touches.length !== 1) {
-        clear();
+      if (e.touches.length !== 2) {
+        clear(); // one finger = let the OS handle selection; 3+ = not our gesture
         return;
       }
-      const t = e.touches[0];
-      start(t.clientX, t.clientY, e.target);
+      const [a, b] = e.touches;
+      start((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2, e.target);
     },
     { passive: true },
   );
   els.snapshot.addEventListener(
     "touchmove",
     (e) => {
-      const t = e.touches[0];
-      if (t) move(t.clientX, t.clientY);
+      if (e.touches.length !== 2) {
+        clear(); // finger count changed mid-hold — no longer the two-finger gesture
+        return;
+      }
+      const [a, b] = e.touches;
+      move((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2);
     },
     { passive: true },
   );
