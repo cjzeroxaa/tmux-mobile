@@ -3,24 +3,242 @@ import http from "node:http";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { currentBackend, localBackend, withBackend } from "./lib/backend.mjs";
+import { OP } from "./lib/protocol.mjs";
+import {
+  computeWindowMetadata,
+  createMetadataCache,
+} from "./lib/window-metadata.mjs";
+import { detectTurn } from "./lib/turn-detection.mjs";
+import { detectAgentMode, AGENT_MODES } from "./lib/agent-mode.mjs";
+import { isScrollbackMode } from "./lib/pane-mode.mjs";
+import { renderMarkdown } from "./public/markdown.js";
+import { escapeHtml as escapeHtmlShared } from "./public/linkify.js";
+import { detectAskQuestion, parseAskQuestion } from "./lib/ask-question.mjs";
+import {
+  singleSelectKeys,
+  multiSelectKeys,
+  reviewSubmitKeys,
+  freeFormKeys,
+  cancelKeys,
+} from "./lib/ask-question-keys.mjs";
+import {
+  VOICE_OPTIONS,
+  describeVoiceConfig,
+  getVoiceConfig,
+  updateVoiceConfig,
+  withVoiceUser,
+} from "./lib/voice-config.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 
 loadLocalEnv(path.join(__dirname, ".env"));
 
-const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 3737);
-const APP_TITLE = process.env.TMUX_MOBILE_APP_TITLE || os.hostname() || "tmux Mobile";
+// Browser tab / PWA name. Defaults to a clean product name rather than the host
+// name (which on Cloud Run / local shows unhelpful values like "localhost").
+// Override with TMUX_MOBILE_APP_TITLE.
+const APP_TITLE = process.env.TMUX_MOBILE_APP_TITLE || "tmux Mobile";
+const APP_REVISION =
+  process.env.K_REVISION || process.env.TMUX_MOBILE_REVISION || "dev";
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const MAX_TEXT_BYTES = 64 * 1024;
 const MAX_CAPTURE_LINES = 5000;
-const TRANSCRIBE_MODEL =
-  process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
+// Voice models (transcription / realtime / TTS) are now runtime-configurable
+// via lib/voice-config.mjs and the web app's Settings panel; read them at call
+// time with getVoiceConfig() rather than freezing them at module load.
 const SUMMARY_MODEL = process.env.OPENAI_SUMMARY_MODEL || "gpt-5.4-mini";
+// Max bytes the smart content viewer will read from a pane-referenced file.
+const FILE_VIEWER_MAX_BYTES = 5 * 1024 * 1024;
+// Larger cap for media/html opened in an external tab (video especially).
+const FILE_EXTERNAL_MAX_BYTES = 50 * 1024 * 1024;
+// Extensions the viewer recognizes, mapped to a kind + content type.
+const IMAGE_EXTS = new Map([
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".gif", "image/gif"],
+  [".svg", "image/svg+xml"],
+  [".webp", "image/webp"],
+  [".bmp", "image/bmp"],
+  [".ico", "image/x-icon"],
+]);
+const MARKDOWN_EXTS = new Set([".md", ".markdown", ".mdown", ".mkd"]);
+// Types opened in an external browser tab (not rendered in the in-app modal):
+// video, audio, and standalone HTML. The browser handles playback/rendering
+// natively (audio opens with built-in <audio> controls in the new tab).
+const EXTERNAL_EXTS = new Map([
+  [".webm", "video/webm"],
+  [".mp4", "video/mp4"],
+  [".m4v", "video/mp4"],
+  [".mov", "video/quicktime"],
+  // Audio — served inline so the browser tab plays it with native controls.
+  [".wav", "audio/wav"],
+  [".mp3", "audio/mpeg"],
+  [".ogg", "audio/ogg"],
+  [".m4a", "audio/mp4"],
+  [".aac", "audio/aac"],
+  [".flac", "audio/flac"],
+  [".html", "text/html; charset=utf-8"],
+  [".htm", "text/html; charset=utf-8"],
+]);
+function fileExt(filePath) {
+  return path.extname(String(filePath)).toLowerCase();
+}
+function fileKind(filePath) {
+  const ext = fileExt(filePath);
+  if (IMAGE_EXTS.has(ext)) return "image";
+  if (MARKDOWN_EXTS.has(ext)) return "markdown";
+  if (EXTERNAL_EXTS.has(ext)) return "external";
+  return "other";
+}
+function fileContentType(filePath) {
+  const ext = fileExt(filePath);
+  return (
+    IMAGE_EXTS.get(ext) ||
+    EXTERNAL_EXTS.get(ext) ||
+    "text/markdown; charset=utf-8"
+  );
+}
+
+// Make a basename safe for a Content-Disposition filename: strip path bits and
+// quotes/control chars that could break the header or smuggle directives.
+function sanitizeFilename(name) {
+  return String(name || "file")
+    .replace(/^.*[/\\]/, "") // basename only
+    .replace(/["\r\n]/g, "") // no quotes/newlines in the header
+    .replace(/[\x00-\x1f]/g, "")
+    .slice(0, 255) || "file";
+}
+
+// Wrap rendered markdown in a minimal, self-contained HTML page for a new tab.
+// The <title> is the file name so the tab label and "Save as…" are sensible.
+// Styles are inlined (the tab isn't the app) and kept close to the in-app viewer.
+function renderMarkdownPage(name, markdown, truncated) {
+  const title = escapeHtmlShared(sanitizeFilename(name));
+  const body = renderMarkdown(markdown);
+  const note = truncated
+    ? '<p class="trunc">Showing the first part of a large file.</p>'
+    : "";
+  // Lazily upgrade ```mermaid blocks to diagrams — only inject the script when
+  // the page actually contains one (mirrors the in-app lazy CDN loader). strict
+  // securityLevel so an untrusted diagram can't inject HTML/script.
+  const mermaidScript = /class="mermaid-block"/.test(body)
+    ? `<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: false, securityLevel: "strict",
+    theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default" });
+  let n = 0;
+  for (const block of document.querySelectorAll('pre.mermaid-block')) {
+    try {
+      const { svg } = await mermaid.render("md-" + (++n), block.textContent);
+      const fig = document.createElement("div"); fig.innerHTML = svg; block.replaceWith(fig);
+    } catch (e) { block.title = "Mermaid render failed: " + (e?.message || ""); }
+  }
+</script>`
+    : "";
+  return `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${title}</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { max-width: 820px; margin: 0 auto; padding: 24px 18px 64px;
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  h1,h2,h3,h4 { line-height: 1.25; }
+  pre { background: rgba(127,127,127,.12); padding: 12px; border-radius: 8px; overflow:auto; }
+  code { background: rgba(127,127,127,.14); padding: .1em .35em; border-radius: 4px; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; }
+  th, td { border: 1px solid rgba(127,127,127,.4); padding: 6px 10px; }
+  blockquote { margin: .6em 0; padding-left: 12px; border-left: 3px solid rgba(127,127,127,.5); opacity:.85; }
+  img { max-width: 100%; height: auto; }
+  li.task-item { list-style: none; margin-left: -1.2em; }
+  del { opacity: .7; }
+  .trunc { color: #b26b00; font-style: italic; }
+  svg { max-width: 100%; height: auto; }
+</style>
+</head><body>
+${note}
+${body}
+${mermaidScript}
+</body></html>`;
+}
+
+// Shared validation + read for the file-serving routes (/api/file, /api/file-raw,
+// /api/file-view). Returns { requestedPath, name, kind, contentType, result } on
+// success, or null after sending the appropriate error response.
+async function readFileForServing(req, res, url) {
+  const paneId = requireId(url.searchParams.get("paneId"), "pane");
+  const requestedPath = String(url.searchParams.get("path") || "");
+  if (!requestedPath) {
+    sendJson(res, 400, { error: "path is required" });
+    return null;
+  }
+  const kind = fileKind(requestedPath);
+  if (kind === "other") {
+    sendJson(res, 415, { error: "Unsupported file type" });
+    return null;
+  }
+  const backend = currentBackend();
+  if (typeof backend.supportsOp === "function" && !backend.supportsOp(OP.READFILE)) {
+    sendJson(res, 501, {
+      error:
+        "This machine's connector is out of date — restart it (node server.mjs --register …) to view files.",
+    });
+    return null;
+  }
+  const cwd = await getPaneCwd(paneId);
+  const isAbsoluteOrHome = path.isAbsolute(requestedPath) || requestedPath.startsWith("~");
+  if (!cwd && !isAbsoluteOrHome) {
+    sendJson(res, 404, { error: "Pane has no working directory" });
+    return null;
+  }
+  try {
+    const result = await backend.readfile(requestedPath, {
+      baseDir: cwd,
+      maxBytes: kind === "external" ? FILE_EXTERNAL_MAX_BYTES : FILE_VIEWER_MAX_BYTES,
+    });
+    return {
+      requestedPath,
+      name: path.basename(requestedPath),
+      kind,
+      contentType: fileContentType(requestedPath),
+      result,
+    };
+  } catch (error) {
+    if (/unknown op/i.test(error.message) || error instanceof TypeError) {
+      sendJson(res, 501, {
+        error: "This machine's connector is out of date — restart it to view files.",
+      });
+      return null;
+    }
+    const status = error.code === "EACCES" ? 403 : 404;
+    sendJson(res, status, { error: error.message || "Could not read file" });
+    return null;
+  }
+}
+
+// Sanitize a voice-send prefix (e.g. "/btw "). Allow a leading-slash command
+// word plus an optional trailing space — letters/digits/-/_ only — and cap the
+// length, so it can't smuggle control sequences or shell into the pasted text.
+function sanitizeVoicePrefix(raw) {
+  const s = String(raw || "").slice(0, 32);
+  const m = s.match(/^(\/[A-Za-z][A-Za-z0-9_-]{0,20})(\s?)$/);
+  if (!m) return "";
+  return `${m[1]} `; // normalize to exactly one trailing space
+}
+// Git repo a user clones to run the connector (agent). Shown in the
+// "no machine connected" UI; override for forks/mirrors.
+const CONNECTOR_CLONE_URL =
+  process.env.TMUX_MOBILE_CLONE_URL ||
+  "https://github.com/cjzeroxaa/tmux-mobile.git";
 const WINDOW_BRIEFING_MODEL =
   process.env.OPENAI_WINDOW_BRIEFING_MODEL || "gpt-5.4-mini";
 const AGENT_RESPONSE_EXTRACT_MODEL =
@@ -29,12 +247,6 @@ const AGENT_RESPONSE_EXTRACT_MAX_OUTPUT_TOKENS = parsePositiveInteger(
   process.env.OPENAI_AGENT_RESPONSE_EXTRACT_MAX_OUTPUT_TOKENS,
   4096,
 );
-const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime";
-const REALTIME_VOICE =
-  process.env.OPENAI_REALTIME_VOICE || process.env.OPENAI_SPEECH_VOICE || "cedar";
-const SPEECH_MODEL =
-  process.env.OPENAI_SPEECH_MODEL || "gpt-4o-mini-tts-2025-12-15";
-const SPEECH_VOICE = process.env.OPENAI_SPEECH_VOICE || "cedar";
 const configuredSubmitNudgeDelayMs = Number(
   process.env.TMUX_SUBMIT_NUDGE_DELAY_MS,
 );
@@ -43,6 +255,25 @@ const SUBMIT_NUDGE_DELAY_MS =
   configuredSubmitNudgeDelayMs >= 0
     ? configuredSubmitNudgeDelayMs
     : 700;
+// Gap between finishing a bracketed paste and sending the submit Enter. tmux
+// pastes text wrapped in bracketed-paste markers (ESC[200~ … ESC[201~); if the
+// Enter is sent immediately it arrives in the SAME terminal read as the paste
+// tail, and input-line apps (Claude/Codex CLIs, readline) often consume it as
+// part of paste finalization instead of as "submit" — so the line sits unsent.
+// A short delay makes the Enter land as its own keypress, reliably submitting.
+const PASTE_ENTER_DELAY_MS = parsePositiveInteger(
+  process.env.TMUX_PASTE_ENTER_DELAY_MS,
+  120,
+);
+// Delay between keystrokes when driving the AskUserQuestion TUI, so its cursor
+// movement / toggles keep up with the input over the WebSocket.
+const ASK_KEY_DELAY_MS = parsePositiveInteger(
+  process.env.TMUX_ASK_KEY_DELAY_MS,
+  140,
+);
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 const SUMMARY_CACHE_MS = 60_000;
 const SUMMARY_LINES_DEFAULT = 20;
 const WINDOW_BRIEFING_LINES = 60;
@@ -127,13 +358,14 @@ function loadLocalEnv(filePath) {
 const formats = {
   sessions:
     "#{session_id}\t#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created_string}",
+  // The annotation (free-text follow-up note) is the LAST field and may contain
+  // tabs, so windowFromRow takes everything from its index onward.
   windows:
-    "#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{window_flags}\t#{pane_current_command}\t#{pane_current_path}",
-  // pane_pid is tacked on at the end so the existing list-panes destructure
-  // stays compatible (extra fields are just ignored). Needed by Command
-  // Center which walks every pane and calls agentTranscript on it.
+    "#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{window_flags}\t#{pane_current_command}\t#{pane_tty}\t#{pane_current_path}\t#{@tm_annotation}",
+  // pane_pid is included for structured agent transcript lookup and fork-agent.
+  // pane_title is the LAST field and may contain tabs, so listPanes rejoins it.
   panes:
-    "#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_title}\t#{pane_pid}",
+    "#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_mode}\t#{pane_pid}\t#{pane_title}",
   paneInfo:
     "#{session_name}\t#{window_index}\t#{window_name}\t#{pane_index}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_pid}\t#{pane_active}",
 };
@@ -143,8 +375,10 @@ const allowedKeys = new Set([
   "q",
   "C-c",
   "C-d",
+  "C-u",
   "C-z",
   "Tab",
+  "BTab", // Shift+Tab — cycles agent permission mode (Claude + Codex)
   "Escape",
   "BSpace",
   "Up",
@@ -372,12 +606,38 @@ async function pasteTextToPane(paneId, text) {
 }
 
 async function sendTextToPane(paneId, text, { enter = false } = {}) {
+  // If the pane is parked in copy-mode (scrollback pager), a paste/Enter is
+  // swallowed by the pager and the window looks stuck. Exit it first. Centralized
+  // here so EVERY text-send path is covered (voice-send, /api/send, …), not just
+  // the endpoints that remembered to call it.
+  await exitCopyModeIfNeeded(paneId);
   await pasteTextToPane(paneId, text);
   if (enter) {
+    // Wait for the bracketed paste to be fully consumed before the Enter, so the
+    // app sees Enter as a distinct submit keypress (see PASTE_ENTER_DELAY_MS).
+    await delay(PASTE_ENTER_DELAY_MS);
     await runTmux(["send-keys", "-t", paneId, "Enter"]);
     return { mode: "paste-buffer", sentEnter: true };
   }
   return { mode: "paste-buffer", sentEnter: false };
+}
+
+// Before delivering any input, drop the pane out of the scrollback pager so the
+// keystroke lands on the program. Returns true if it had to exit.
+async function exitCopyModeIfNeeded(paneId) {
+  let mode = "";
+  try {
+    mode = (
+      await runTmux(["display-message", "-p", "-t", paneId, "#{pane_mode}"])
+    ).trim();
+  } catch {
+    return false; // pane vanished / query failed — let the caller proceed
+  }
+  if (!isScrollbackMode(mode)) return false;
+  // `-X cancel` leaves the pager without disturbing the command line (unlike
+  // sending `q`, which the program would receive once we're out of mode).
+  await runTmux(["send-keys", "-t", paneId, "-X", "cancel"]);
+  return true;
 }
 
 function sendSubmitNudge(paneId) {
@@ -398,7 +658,11 @@ function sessionFromRow([id, name, windows, attached, created]) {
   };
 }
 
-function windowFromRow([id, index, name, active, panes, flags, activeCommand, cwd]) {
+function windowFromRow(fields) {
+  const [id, index, name, active, panes, flags, activeCommand, tty, cwd] = fields;
+  // The annotation is the last format field and is free text (may contain tabs),
+  // so take everything from index 9 onward and rejoin rather than positionally.
+  const annotation = fields.slice(9).join("\t");
   return {
     id,
     index: Number(index),
@@ -407,7 +671,9 @@ function windowFromRow([id, index, name, active, panes, flags, activeCommand, cw
     panes: Number(panes || 0),
     flags,
     activeCommand,
+    tty: tty || "",
     cwd: cwd || "",
+    annotation: annotation || "",
   };
 }
 
@@ -444,10 +710,14 @@ async function renameSession(sessionId, name) {
   const sessionName = requireSessionName(name);
   await runTmux(["rename-session", "-t", sessionId, sessionName]);
   clearSessionSummaryCache(sessionId);
+  return readSessionRow(sessionId, "renamed");
+}
+
+async function readSessionRow(sessionId, what) {
   const stdout = await runTmux(["display-message", "-p", "-t", sessionId, formats.sessions]);
   const [row] = rows(stdout);
   if (!row) {
-    const error = new Error("tmux did not return the renamed session");
+    const error = new Error(`tmux did not return the ${what} session`);
     error.status = 500;
     throw error;
   }
@@ -493,6 +763,109 @@ async function renameWindow(windowId, name) {
   return { ok: true };
 }
 
+// Shells we don't re-run as a "command" when duplicating — a window sitting at a
+// shell prompt should duplicate to a fresh shell, not literally run `bash`.
+const DUP_SHELLS = new Set(["bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh", "csh"]);
+
+// Duplicate a window: open a new window in the same session, same working
+// directory, re-running the command the source window used. cwd comes from the
+// active pane; the command prefers pane_start_command (the literal launch
+// command, e.g. "sleep 300"), falling back to the running program name
+// (pane_current_command) when it's an interactive app rather than a bare shell.
+// Suggested values for duplicating a window: the source window's session, name,
+// cwd, and the command to re-run. The UI fetches these to pre-fill an editable
+// confirmation before the duplicate is actually created. Command prefers
+// pane_start_command (the literal launch command, e.g. "sleep 300"), falling
+// back to the running program name when it's an interactive app (not a bare
+// shell).
+async function getDuplicateDefaults(windowId) {
+  requireId(windowId, "window");
+  const info = await getWindowInfo(windowId);
+  const stdout = await runTmux([
+    "display-message",
+    "-p",
+    "-t",
+    windowId,
+    "#{pane_current_path}\t#{pane_current_command}\t#{pane_start_command}",
+  ]);
+  const [cwd = "", currentCommand = "", rawStartCommand = ""] = stdout
+    .trimEnd()
+    .split("\t");
+
+  // tmux returns pane_start_command wrapped in literal double-quotes
+  // (e.g. `"sleep 300"`); strip them so the shell runs the actual command and
+  // not a program literally named `sleep 300`.
+  let startCommand = rawStartCommand.trim();
+  if (startCommand.length >= 2 && startCommand.startsWith('"') && startCommand.endsWith('"')) {
+    startCommand = startCommand.slice(1, -1);
+  }
+  const command =
+    startCommand ||
+    (currentCommand && !DUP_SHELLS.has(currentCommand) ? currentCommand : "");
+
+  return {
+    sessionId: info.sessionId,
+    name: info.windowName || "",
+    command,
+    cwd,
+  };
+}
+
+// Create a new window in the source window's session, same cwd, using the given
+// name and command (the UI passes the user-confirmed/adjusted values; both fall
+// back to the source defaults when omitted). Empty command -> a plain shell.
+async function duplicateWindow(windowId, overrides = {}) {
+  requireId(windowId, "window");
+  const defaults = await getDuplicateDefaults(windowId);
+  const name =
+    overrides.name !== undefined ? String(overrides.name).trim() : defaults.name;
+  const command =
+    overrides.command !== undefined
+      ? String(overrides.command).trim()
+      : defaults.command;
+
+  // new-window -P -F <fmt> [-c cwd] -t <session> [-n name] [command]
+  const args = ["new-window", "-P", "-F", formats.windows, "-t", defaults.sessionId];
+  if (defaults.cwd) args.push("-c", defaults.cwd);
+  if (name) args.push("-n", name);
+  if (command) args.push(command); // shell-command run in the new window
+  const created = await runTmux(args);
+  clearSessionSummaryCache(defaults.sessionId);
+  const [row] = rows(created);
+  if (!row) {
+    const error = new Error("tmux did not return the duplicated window");
+    error.status = 500;
+    throw error;
+  }
+  return { ...windowFromRow(row), duplicatedFrom: windowId, command: command || "" };
+}
+
+// Store a free-text follow-up note on the WINDOW as the @tm_annotation
+// window-scoped user option (set-option -w). Empty/whitespace clears it. Useful
+// for tracking the follow-up of a long-running task in a specific window.
+async function setWindowAnnotation(windowId, annotation) {
+  requireId(windowId, "window");
+  const text = String(annotation ?? "");
+  if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
+    const error = new Error("Annotation is too large");
+    error.status = 413;
+    throw error;
+  }
+  if (text.trim() === "") {
+    await runTmux(["set-option", "-w", "-t", windowId, "-u", "@tm_annotation"]);
+  } else {
+    await runTmux(["set-option", "-w", "-t", windowId, "@tm_annotation", text]);
+  }
+  const stdout = await runTmux(["display-message", "-p", "-t", windowId, formats.windows]);
+  const [row] = rows(stdout);
+  if (!row) {
+    const error = new Error("tmux did not return the annotated window");
+    error.status = 500;
+    throw error;
+  }
+  return windowFromRow(row);
+}
+
 async function killWindow(windowId) {
   requireId(windowId, "window");
   const windowInfo = await getWindowInfo(windowId);
@@ -518,7 +891,7 @@ async function listPanes(windowId) {
     formats.panes,
   ]);
   return rows(stdout).map(
-    ([id, index, active, command, cwd, width, height, title, pid]) => ({
+    ([id, index, active, command, cwd, width, height, mode, pid, ...titleParts]) => ({
       id,
       index: Number(index),
       active: active === "1",
@@ -526,8 +899,13 @@ async function listPanes(windowId) {
       cwd,
       width: Number(width || 0),
       height: Number(height || 0),
-      title,
       pid: Number(pid || 0) || null,
+      // The scrollback pager (copy-mode OR view-mode — see isScrollbackMode)
+      // swallows input; that's what the "scroll mode" banner warns about.
+      // `pane_mode` is "" when not in a mode.
+      inCopyMode: isScrollbackMode(mode),
+      // pane_title is last and may contain tabs — rejoin any split pieces.
+      title: titleParts.join("\t"),
     }),
   );
 }
@@ -586,20 +964,194 @@ async function getSessionWindowActivity(sessionId) {
   return result;
 }
 
-async function getSessionWindowBranches(sessionId) {
+// cwd-keyed TTL cache for expensive window metadata (repo, branch). Lives for
+// the process; shared across sessions/windows with the same cwd.
+const windowMetadataCache = createMetadataCache();
+
+// Returns per-window metadata for a session:
+//   { agentType, repo, git, turn, contentHash }
+// Live (agentType) + cwd-scoped (repo, git) come from computeWindowMetadata.
+// turn (working/idle, agent-specific) and contentHash (for client "unread"
+// detection) need pane content, computed here for windows that have an agent.
+async function getSessionWindowMetadata(sessionId) {
   const windows = await listWindows(sessionId);
-  const result = {};
+  const base = await computeWindowMetadata(
+    windows,
+    currentBackend(),
+    windowMetadataCache,
+    Date.now(),
+  );
+  // Enrich with turn + contentHash. We capture the active pane once per window
+  // and derive both from it. Only windows with a detected agent get a turn;
+  // every window gets a contentHash so the client can flag unread changes.
   await Promise.all(
     windows.map(async (win) => {
-      if (!win.cwd) return;
       try {
-        result[win.id] = await currentBackend().branch(win.cwd);
+        const panes = await listPanes(win.id);
+        const pane = panes.find((p) => p.active) || panes[0];
+        if (!pane) return;
+        // Surface copy-mode so the UI can warn that the pane's scrollback pager
+        // is intercepting input (keystrokes won't reach the program until it's
+        // exited). /api/send and /api/key auto-exit it, but a banner makes the
+        // state visible when it happens.
+        base[win.id].inCopyMode = Boolean(pane.inCopyMode);
+        const screen = await capturePane(pane.id, "screen");
+        const clean = cleanTerminalText(screen);
+        base[win.id].contentHash = createHash("sha1")
+          .update(clean)
+          .digest("hex")
+          .slice(0, 16);
+        const agentType = base[win.id].agentType;
+        if (agentType) {
+          const lines = clean.split("\n");
+          // detectTurn returns { state, confidence }. Store the state in `turn`
+          // (back-compat wire field) and the confidence separately so the client
+          // can rank a low-confidence "unverified" window below confirmed items
+          // rather than trusting or dropping it (honest-state, Wave 1).
+          const t = detectTurn(agentType, {
+            title: pane.title,
+            paneTail: lines.slice(-12).join("\n"),
+          });
+          base[win.id].turn = t ? t.state : "";
+          base[win.id].turnConfidence = t ? t.confidence : "";
+          // Mode/effort needs a DEEPER tail than turn: the model+effort line and
+          // the mode line sit above a growing input box, so with command history
+          // they can be ~20+ rows up from the bottom. 28 lines reliably spans the
+          // whole footer block without scanning the entire scrollback.
+          base[win.id].agentMode = detectAgentMode(agentType, {
+            title: pane.title,
+            paneTail: lines.slice(-28).join("\n"),
+          });
+        }
+        // Cheap "is this pane blocked on an AskUserQuestion prompt?" check — just
+        // the detector's two regex tests over the screen we already captured (NOT
+        // the full parse, which stays on-demand via /api/ask-question). This lets
+        // the UI flag a window as "waiting for your answer" distinctly from a
+        // turn that merely ended.
+        // detectAskQuestion returns { waiting, confidence }. A low-confidence
+        // "maybe blocked" (ambiguous prompt chrome, mid-redraw) is still surfaced
+        // — ranked as unverified by the client — rather than silently dropped.
+        const ask = detectAskQuestion(clean);
+        base[win.id].waitingForInput = ask.waiting;
+        base[win.id].waitingConfidence = ask.confidence;
       } catch {
-        result[win.id] = "";
+        // pane vanished / capture failed — leave turn & contentHash unset
       }
     }),
   );
-  return result;
+  return base;
+}
+
+// Attention descriptors for every window on the CURRENT backend's machine: the
+// fields the client needs to decide "needs you" (turn / waitingForInput) plus the
+// stable identity (session name + window index) it keys unread state by, and the
+// contentHash so the client can apply its own unread comparison. Used by the
+// cross-machine /api/attention aggregate. Best-effort: a failing session is
+// skipped rather than failing the whole sweep.
+async function collectMachineAttention() {
+  let sessions = [];
+  try {
+    sessions = rows(await runTmux(["list-sessions", "-F", formats.sessions])).map(
+      sessionFromRow,
+    );
+  } catch (error) {
+    if (isNoServerError(error)) return [];
+    throw error;
+  }
+  const out = [];
+  await Promise.all(
+    sessions.map(async (session) => {
+      let windows;
+      let meta;
+      try {
+        windows = await listWindows(session.id);
+        meta = await getSessionWindowMetadata(session.id);
+      } catch {
+        return; // session vanished mid-sweep
+      }
+      for (const win of windows) {
+        const m = meta[win.id] || {};
+        out.push({
+          sessionName: session.name,
+          windowIndex: win.index,
+          windowName: win.name,
+          agentType: m.agentType || "",
+          turn: m.turn || "",
+          turnConfidence: m.turnConfidence || "",
+          waitingForInput: Boolean(m.waitingForInput),
+          waitingConfidence: m.waitingConfidence || "",
+          contentHash: m.contentHash || "",
+        });
+      }
+    }),
+  );
+  return out;
+}
+
+// --- AskUserQuestion overlay support (on-demand) ---
+
+// The active pane id for a window (a pane id is also accepted as-is).
+async function resolveActivePane(idMaybeWindow) {
+  // If it's already a pane id (%N) just use it; if a window id (@N) find its
+  // active pane. The client passes the active paneId, so this usually no-ops.
+  if (/^%/.test(idMaybeWindow)) return idMaybeWindow;
+  const panes = await listPanes(idMaybeWindow);
+  const pane = panes.find((p) => p.active) || panes[0];
+  return pane ? pane.id : idMaybeWindow;
+}
+
+// Parse the current AskUserQuestion state of a pane (null if not showing one).
+async function readAskQuestion(paneId) {
+  const screen = cleanTerminalText(await capturePane(paneId, "screen"));
+  return parseAskQuestion(screen);
+}
+
+// A compact signature of the current prompt state, so we can tell when applying
+// an answer has actually changed the screen (advanced to the next question /
+// reached the review screen / the prompt is gone) vs. still showing the same
+// prompt mid-transition. Null parse (no prompt) -> "gone".
+function askQuestionSignature(parsed) {
+  if (!parsed) return "gone";
+  if (parsed.review) return "review";
+  // question text + which tabs are answered + checkbox state — enough to detect
+  // an advance to the next question or a toggle landing.
+  const tabs = (parsed.tabs || []).map((t) => (t.answered ? "1" : "0")).join("");
+  const checks = (parsed.options || []).map((o) => (o.checked ? "1" : "0")).join("");
+  return `q:${parsed.questionText || ""}|${tabs}|${checks}`;
+}
+
+// After sending answer keystrokes the TUI takes a beat to tear down / advance the
+// prompt — and over the controller->agent WebSocket each capture round-trips, so
+// a single fixed delay races the redraw (the re-parse can still see the OLD
+// prompt, making the overlay look stuck). Instead, poll until the prompt state
+// SETTLES to something different from `before`, or a timeout. Returns the final
+// parsed state (possibly null = prompt gone).
+async function settleAskQuestion(paneId, beforeSig, { timeoutMs = 2500 } = {}) {
+  const stepMs = ASK_KEY_DELAY_MS; // ~140ms between polls
+  const deadline = Date.now() + timeoutMs;
+  let parsed = await readAskQuestion(paneId);
+  // Keep polling while the state still matches the pre-answer signature (i.e.
+  // the redraw hasn't landed yet). As soon as it differs (next question, review,
+  // or gone), we're settled.
+  while (askQuestionSignature(parsed) === beforeSig && Date.now() < deadline) {
+    await delay(stepMs);
+    parsed = await readAskQuestion(paneId);
+  }
+  return parsed;
+}
+
+// Send a computed key list to the pane, one key at a time with a small delay so
+// the TUI keeps up (same rationale as the paste->Enter delay). A list item that
+// is { text } is sent as literal text rather than a key name.
+async function sendAskKeys(paneId, keys) {
+  for (const k of keys) {
+    if (k && typeof k === "object" && typeof k.text === "string") {
+      await sendTextToPane(paneId, k.text, { enter: false });
+    } else {
+      await runTmux(["send-keys", "-t", paneId, k]);
+    }
+    await delay(ASK_KEY_DELAY_MS);
+  }
 }
 
 async function capturePane(paneId, mode, lineCount, { ansi = false } = {}) {
@@ -819,7 +1371,7 @@ async function getPaneContext(paneId) {
     "-p",
     "-t",
     paneId,
-    "#{window_id}\t#{session_id}\t#{session_name}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_title}\t#{pane_pid}",
+    "#{window_id}\t#{session_id}\t#{session_name}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_tty}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_mode}\t#{pane_pid}\t#{pane_title}",
   ]);
   const [
     windowId = "",
@@ -831,11 +1383,13 @@ async function getPaneContext(paneId) {
     paneIndex = "",
     paneActive = "",
     command = "",
+    tty = "",
     cwd = "",
     width = "",
     height = "",
-    title = "",
+    mode = "",
     pid = "",
+    ...titleParts
   ] = stdout.trimEnd().split("\t");
 
   return {
@@ -851,11 +1405,13 @@ async function getPaneContext(paneId) {
       index: Number(paneIndex),
       active: paneActive === "1",
       command,
+      tty,
       cwd,
       width: Number(width || 0),
       height: Number(height || 0),
-      title,
+      inCopyMode: isScrollbackMode(mode),
       pid: Number(pid || 0),
+      title: titleParts.join("\t"),
     },
   };
 }
@@ -1170,21 +1726,26 @@ async function summarizePaneForSpeech(paneId, lineCount) {
   };
 }
 
-async function createSpeechAudio(text) {
+async function createSpeechAudio(text, overrides = {}) {
   if (!process.env.OPENAI_API_KEY) {
     const error = new Error("OPENAI_API_KEY is not set");
     error.status = 500;
     throw error;
   }
 
+  // Default to the user's saved config, but let callers (e.g. the voice
+  // preview) pin a specific model/voice without mutating saved settings.
+  const config = getVoiceConfig();
+  const speechModel = overrides.model || config.speechModel;
+  const speechVoice = overrides.voice || config.speechVoice;
   const body = {
-    model: SPEECH_MODEL,
-    voice: SPEECH_VOICE,
+    model: speechModel,
+    voice: speechVoice,
     input: text,
     response_format: "mp3",
   };
 
-  if (SPEECH_MODEL.startsWith("gpt-4o")) {
+  if (speechModel.startsWith("gpt-4o")) {
     body.instructions =
       "Voice Affect: Clear and composed. Tone: concise and useful. Pacing: steady. Delivery: read as an AI-generated status briefing.";
   }
@@ -1215,6 +1776,7 @@ async function createRealtimeClientSecret() {
     throw error;
   }
 
+  const { realtimeModel, realtimeVoice } = getVoiceConfig();
   const headers = {
     authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
     "content-type": "application/json",
@@ -1235,7 +1797,7 @@ async function createRealtimeClientSecret() {
         },
         session: {
           type: "realtime",
-          model: REALTIME_MODEL,
+          model: realtimeModel,
           instructions: REALTIME_WINDOW_BRIEFING_INSTRUCTIONS,
           max_output_tokens: REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS,
           output_modalities: ["audio"],
@@ -1244,7 +1806,7 @@ async function createRealtimeClientSecret() {
               turn_detection: null,
             },
             output: {
-              voice: REALTIME_VOICE,
+              voice: realtimeVoice,
             },
           },
         },
@@ -1319,7 +1881,7 @@ async function transcribeAudio(buffer, contentType) {
   }
 
   const form = new FormData();
-  form.append("model", TRANSCRIBE_MODEL);
+  form.append("model", getVoiceConfig().transcribeModel);
   form.append(
     "prompt",
     "Transcribe a short voice command intended for a tmux pane. Preserve shell commands, flags, paths, package names, and code identifiers.",
@@ -1357,6 +1919,434 @@ function sendJson(res, status, data) {
   res.end(JSON.stringify(data));
 }
 
+function safeEqual(actualValue, expectedValue) {
+  const actual = Buffer.from(String(actualValue || ""));
+  const expected = Buffer.from(String(expectedValue || ""));
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+const SESSION_COOKIE = "tmux_mobile_session";
+const OAUTH_SCOPE = "openid email profile";
+const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+const AGENT_TOKEN_TTL_SECONDS = 180 * 24 * 60 * 60;
+const oauthStates = new Map();
+const deviceSessions = new Map();
+
+function splitCsv(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function base64urlEncode(value) {
+  return Buffer.from(value).toString("base64url");
+}
+
+function base64urlJson(value) {
+  return base64urlEncode(JSON.stringify(value));
+}
+
+function signValue(value) {
+  return createHmac("sha256", process.env.SESSION_SECRET || "")
+    .update(value)
+    .digest("base64url");
+}
+
+function issueSignedToken(payload, ttlSeconds) {
+  const body = base64urlJson({
+    ...payload,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + ttlSeconds,
+  });
+  return `${body}.${signValue(body)}`;
+}
+
+function verifySignedToken(token, expectedType) {
+  const [body, signature] = String(token || "").split(".");
+  if (!body || !signature || !safeEqual(signature, signValue(body))) return null;
+
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+  if (payload.type !== expectedType) return null;
+  if (!payload.userId || !payload.email) return null;
+  if (!Number.isFinite(payload.exp) || payload.exp < Math.floor(Date.now() / 1000)) {
+    return null;
+  }
+  return payload;
+}
+
+function parseCookies(req) {
+  const result = {};
+  for (const part of String(req.headers.cookie || "").split(";")) {
+    const index = part.indexOf("=");
+    if (index === -1) continue;
+    const key = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    if (key) result[key] = value;
+  }
+  return result;
+}
+
+function originForRequest(req) {
+  const proto = req.headers["x-forwarded-proto"] || (req.socket.encrypted ? "https" : "http");
+  return `${proto}://${req.headers.host || `${HOST}:${PORT}`}`;
+}
+
+function cookieSecure(req) {
+  return originForRequest(req).startsWith("https://");
+}
+
+function setSessionCookie(req, res, user) {
+  const token = issueSignedToken(
+    { type: "session", userId: user.userId, email: user.email, sub: user.sub },
+    SESSION_TTL_SECONDS,
+  );
+  const parts = [
+    `${SESSION_COOKIE}=${token}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${SESSION_TTL_SECONDS}`,
+  ];
+  if (cookieSecure(req)) parts.push("Secure");
+  res.setHeader("set-cookie", parts.join("; "));
+}
+
+function clearSessionCookie(req, res) {
+  const parts = [
+    `${SESSION_COOKIE}=`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=0",
+  ];
+  if (cookieSecure(req)) parts.push("Secure");
+  res.setHeader("set-cookie", parts.join("; "));
+}
+
+function authenticateBrowser(req) {
+  return verifySignedToken(parseCookies(req)[SESSION_COOKIE], "session");
+}
+
+function bearerToken(req) {
+  const header = String(req.headers.authorization || "");
+  const [scheme, token] = header.split(" ");
+  return scheme?.toLowerCase() === "bearer" ? token : "";
+}
+
+function authenticateAgent(req) {
+  const tokenUser = verifySignedToken(bearerToken(req), "agent");
+  if (tokenUser) return tokenUser.userId;
+  if (process.env.TMUX_MOBILE_ENABLE_LEGACY_AUTH !== "1") return null;
+
+  const legacySecret = process.env.AGENT_SECRET || "";
+  if (legacySecret && safeEqual(req.headers["x-agent-secret"], legacySecret)) {
+    return String(process.env.TMUX_MOBILE_USER || "default");
+  }
+  return null;
+}
+
+function randomId(bytes = 24) {
+  return randomBytes(bytes).toString("base64url");
+}
+
+function sendRedirect(res, location) {
+  res.writeHead(302, {
+    location,
+    "cache-control": "no-store",
+  });
+  res.end();
+}
+
+function readAllowedGoogleConfig() {
+  return {
+    emails: new Set(splitCsv(process.env.ALLOWED_GOOGLE_EMAILS)),
+    domains: new Set(splitCsv(process.env.ALLOWED_GOOGLE_DOMAINS)),
+  };
+}
+
+function assertGoogleUserAllowed(user) {
+  const allowed = readAllowedGoogleConfig();
+  const email = String(user.email || "").toLowerCase();
+  const domain = email.includes("@") ? email.split("@").pop() : "";
+  if (allowed.emails.has(email) || allowed.domains.has(domain)) return;
+
+  const error = new Error("Google account is not allowed for this controller");
+  error.status = 403;
+  throw error;
+}
+
+function googleOAuthEndpoints() {
+  return {
+    auth: process.env.GOOGLE_AUTH_URL || "https://accounts.google.com/o/oauth2/v2/auth",
+    token: process.env.GOOGLE_TOKEN_URL || "https://oauth2.googleapis.com/token",
+    deviceCode:
+      process.env.GOOGLE_DEVICE_CODE_URL || "https://oauth2.googleapis.com/device/code",
+    tokenInfo:
+      process.env.GOOGLE_TOKENINFO_URL || "https://oauth2.googleapis.com/tokeninfo",
+  };
+}
+
+function oauthRedirectUri(req) {
+  return (
+    process.env.GOOGLE_OAUTH_REDIRECT_URI ||
+    `${originForRequest(req)}/auth/google/callback`
+  );
+}
+
+async function googleTokenInfo(idToken, expectedAudience) {
+  const endpoints = googleOAuthEndpoints();
+  const url = new URL(endpoints.tokenInfo);
+  url.searchParams.set("id_token", idToken);
+  const response = await fetch(url);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error_description || data.error || "Google token verification failed");
+    error.status = 401;
+    throw error;
+  }
+  if (String(data.aud || "") !== expectedAudience) {
+    const error = new Error("Google token audience did not match this controller");
+    error.status = 401;
+    throw error;
+  }
+  if (String(data.email_verified) !== "true" && data.email_verified !== true) {
+    const error = new Error("Google account email is not verified");
+    error.status = 403;
+    throw error;
+  }
+  const email = String(data.email || "").trim().toLowerCase();
+  if (!email) {
+    const error = new Error("Google token did not include an email");
+    error.status = 403;
+    throw error;
+  }
+  const user = { userId: email, email, sub: String(data.sub || "") };
+  assertGoogleUserAllowed(user);
+  return user;
+}
+
+async function exchangeAuthorizationCode(code, redirectUri) {
+  const response = await fetch(googleOAuthEndpoints().token, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: process.env.GOOGLE_OAUTH_CLIENT_ID || "",
+      client_secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET || "",
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: redirectUri,
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error_description || data.error || "Google OAuth code exchange failed");
+    error.status = 401;
+    throw error;
+  }
+  if (!data.id_token) {
+    const error = new Error("Google OAuth response did not include an ID token");
+    error.status = 401;
+    throw error;
+  }
+  return data;
+}
+
+async function exchangeDeviceCode(deviceCode) {
+  const response = await fetch(googleOAuthEndpoints().token, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: process.env.GOOGLE_DEVICE_CLIENT_ID || "",
+      client_secret: process.env.GOOGLE_DEVICE_CLIENT_SECRET || "",
+      device_code: deviceCode,
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (response.ok) return { done: true, data };
+  if (data.error === "authorization_pending" || data.error === "slow_down") {
+    return { done: false, slowDown: data.error === "slow_down" };
+  }
+  const error = new Error(data.error_description || data.error || "Google device login failed");
+  error.status = 401;
+  throw error;
+}
+
+async function handleAuthRoute(req, res, url) {
+  if (req.method === "GET" && url.pathname === "/auth/me") {
+    const user = authenticateBrowser(req);
+    if (!user) {
+      sendJson(res, 401, { error: "Authentication required" });
+      return true;
+    }
+    sendJson(res, 200, { email: user.email, userId: user.userId });
+    return true;
+  }
+
+  if (req.method === "GET" && url.pathname === "/auth/logout") {
+    clearSessionCookie(req, res);
+    sendRedirect(res, "/");
+    return true;
+  }
+
+  if (req.method === "GET" && url.pathname === "/auth/google/login") {
+    const state = randomId();
+    const returnTo = safeReturnPath(url.searchParams.get("returnTo") || "/");
+    const redirectUri = oauthRedirectUri(req);
+    oauthStates.set(state, {
+      createdAt: Date.now(),
+      redirectUri,
+      returnTo,
+    });
+    pruneAuthState();
+
+    const googleUrl = new URL(googleOAuthEndpoints().auth);
+    googleUrl.searchParams.set("client_id", process.env.GOOGLE_OAUTH_CLIENT_ID || "");
+    googleUrl.searchParams.set("redirect_uri", redirectUri);
+    googleUrl.searchParams.set("response_type", "code");
+    googleUrl.searchParams.set("scope", OAUTH_SCOPE);
+    googleUrl.searchParams.set("state", state);
+    googleUrl.searchParams.set("prompt", "select_account");
+    const loginHint = url.searchParams.get("loginHint");
+    if (loginHint) googleUrl.searchParams.set("login_hint", loginHint);
+    sendRedirect(res, googleUrl.toString());
+    return true;
+  }
+
+  if (req.method === "GET" && url.pathname === "/auth/google/callback") {
+    const state = String(url.searchParams.get("state") || "");
+    const code = String(url.searchParams.get("code") || "");
+    const pending = oauthStates.get(state);
+    oauthStates.delete(state);
+    if (!pending || !code) {
+      sendJson(res, 400, { error: "Invalid OAuth callback" });
+      return true;
+    }
+    const tokenData = await exchangeAuthorizationCode(code, pending.redirectUri);
+    const user = await googleTokenInfo(
+      tokenData.id_token,
+      process.env.GOOGLE_OAUTH_CLIENT_ID || "",
+    );
+    setSessionCookie(req, res, user);
+    sendRedirect(res, pending.returnTo || "/");
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/auth/device/start") {
+    const response = await fetch(googleOAuthEndpoints().deviceCode, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: process.env.GOOGLE_DEVICE_CLIENT_ID || "",
+        scope: OAUTH_SCOPE,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(data.error_description || data.error || "Google device login start failed");
+      error.status = 502;
+      throw error;
+    }
+    const id = randomId();
+    const interval = Math.max(Number(data.interval || 5), 1);
+    deviceSessions.set(id, {
+      deviceCode: data.device_code,
+      interval,
+      expiresAt: Date.now() + Math.max(Number(data.expires_in || 600), 60) * 1000,
+      lastPollAt: 0,
+    });
+    pruneDeviceSessions();
+    sendJson(res, 200, {
+      id,
+      userCode: data.user_code,
+      verificationUrl: data.verification_url || data.verification_uri,
+      verificationUrlComplete: data.verification_url_complete,
+      expiresIn: Number(data.expires_in || 600),
+      interval,
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/auth/device/poll") {
+    const body = await readJsonBody(req);
+    const id = String(body.id || "");
+    const pending = deviceSessions.get(id);
+    if (!pending || pending.expiresAt < Date.now()) {
+      deviceSessions.delete(id);
+      sendJson(res, 410, { error: "Device login expired" });
+      return true;
+    }
+    const elapsedMs = Date.now() - pending.lastPollAt;
+    if (pending.lastPollAt && elapsedMs < Math.max(pending.interval - 1, 1) * 1000) {
+      sendJson(res, 202, { pending: true, interval: pending.interval });
+      return true;
+    }
+    pending.lastPollAt = Date.now();
+    const result = await exchangeDeviceCode(pending.deviceCode);
+    if (!result.done) {
+      if (result.slowDown) pending.interval += 5;
+      sendJson(res, 202, { pending: true, interval: pending.interval });
+      return true;
+    }
+    if (!result.data.id_token) {
+      const error = new Error("Google device response did not include an ID token");
+      error.status = 401;
+      throw error;
+    }
+    const user = await googleTokenInfo(
+      result.data.id_token,
+      process.env.GOOGLE_DEVICE_CLIENT_ID || "",
+    );
+    deviceSessions.delete(id);
+    sendJson(res, 200, {
+      token: issueSignedToken(
+        { type: "agent", userId: user.userId, email: user.email, sub: user.sub },
+        AGENT_TOKEN_TTL_SECONDS,
+      ),
+      user: { email: user.email, userId: user.userId },
+      expiresIn: AGENT_TOKEN_TTL_SECONDS,
+    });
+    return true;
+  }
+
+  return false;
+}
+
+function safeReturnPath(value) {
+  const pathValue = String(value || "/");
+  if (!pathValue.startsWith("/") || pathValue.startsWith("//")) return "/";
+  return pathValue;
+}
+
+function pruneAuthState() {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [state, pending] of oauthStates) {
+    if (pending.createdAt < cutoff) oauthStates.delete(state);
+  }
+}
+
+function pruneDeviceSessions() {
+  const now = Date.now();
+  for (const [id, pending] of deviceSessions) {
+    if (pending.expiresAt < now) deviceSessions.delete(id);
+  }
+}
+
+function sendAuthChallenge(res) {
+  res.writeHead(401, {
+    "content-type": "text/plain; charset=utf-8",
+    "cache-control": "no-store",
+    "www-authenticate": 'Basic realm="tmux-mobile", charset="UTF-8"',
+  });
+  res.end("Authentication required");
+}
+
 function logServerEvent(event, details = {}) {
   console.log(
     JSON.stringify({
@@ -1383,7 +2373,16 @@ function logRequestError(req, url, status, error) {
 
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
-    sendJson(res, 200, { ok: true });
+    sendJson(res, 200, { ok: true, revision: APP_REVISION });
+    return;
+  }
+
+  // Local-mode attention sweep (single machine). In hub mode this is handled
+  // earlier across all machines; here it returns one "local" machine entry so the
+  // client uses the same code path in both modes.
+  if (req.method === "GET" && url.pathname === "/api/attention") {
+    const windows = await collectMachineAttention();
+    sendJson(res, 200, { machines: [{ machineId: "local", hostname: "local", windows }] });
     return;
   }
 
@@ -1430,16 +2429,98 @@ async function handleApi(req, res, url) {
     return;
   }
 
-  if (req.method === "GET" && url.pathname === "/api/window-branches") {
+  // Per-window metadata (agentType, repo, git branch/worktree). Replaces the
+  // old window-branches endpoint, which is kept as an alias for compatibility.
+  if (
+    req.method === "GET" &&
+    (url.pathname === "/api/window-metadata" || url.pathname === "/api/window-branches")
+  ) {
     const sessionId = requireId(url.searchParams.get("sessionId"), "session");
-    sendJson(res, 200, await getSessionWindowBranches(sessionId));
+    sendJson(res, 200, await getSessionWindowMetadata(sessionId));
+    return;
+  }
+
+  // On-demand: parse the active pane's current AskUserQuestion (if any). The
+  // user triggers this by tapping "Answer question" — no continuous scanning.
+  if (req.method === "GET" && url.pathname === "/api/ask-question") {
+    const paneId = await resolveActivePane(requireId(url.searchParams.get("paneId"), "pane"));
+    const parsed = await readAskQuestion(paneId);
+    sendJson(res, 200, { paneId, active: Boolean(parsed), question: parsed });
+    return;
+  }
+
+  // Apply an AskUserQuestion answer by driving the TUI with keystrokes. Body:
+  //   { paneId, action: "single", optionIndex }
+  //   { paneId, action: "multi", checked: number[] }
+  //   { paneId, action: "free", text }
+  //   { paneId, action: "reviewSubmit" }
+  //   { paneId, action: "cancel" }
+  // Re-parses the pane first so the keys are computed against the live cursor
+  // state, then returns the new parsed state so the overlay can continue
+  // (next question / review / done).
+  if (req.method === "POST" && url.pathname === "/api/ask-answer") {
+    const body = await readJsonBody(req);
+    const paneId = await resolveActivePane(requireId(body.paneId, "pane"));
+    const parsed = await readAskQuestion(paneId);
+    if (!parsed) {
+      sendJson(res, 409, { error: "No active question in this pane" });
+      return;
+    }
+    let keys = [];
+    switch (body.action) {
+      case "single":
+        keys = singleSelectKeys(parsed, Number(body.optionIndex));
+        break;
+      case "multi":
+        keys = multiSelectKeys(parsed, new Set((body.checked || []).map(Number)));
+        break;
+      case "free":
+        keys = freeFormKeys(String(body.text || ""));
+        break;
+      case "reviewSubmit":
+        keys = reviewSubmitKeys(parsed);
+        break;
+      case "cancel":
+        keys = cancelKeys();
+        break;
+      default:
+        sendJson(res, 400, { error: `Unknown action: ${body.action}` });
+        return;
+    }
+    const beforeSig = askQuestionSignature(parsed);
+    await sendAskKeys(paneId, keys);
+    // Poll until the prompt actually changes (advances / review / gone) rather
+    // than guessing a fixed delay — robust to a slow redraw and to the extra
+    // round-trip latency in controller mode. cancel/free decline the prompt, so
+    // their expected end state is "gone".
+    const next = await settleAskQuestion(paneId, beforeSig);
+    sendJson(res, 200, { paneId, active: Boolean(next), question: next });
+    return;
+  }
+
+  // Suggested name/command/cwd for duplicating a window — the UI fetches this to
+  // pre-fill the editable confirmation before actually creating the duplicate.
+  if (req.method === "GET" && url.pathname === "/api/window-duplicate-info") {
+    const windowId = requireId(url.searchParams.get("windowId"), "window");
+    sendJson(res, 200, await getDuplicateDefaults(windowId));
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/windows") {
     const body = await readJsonBody(req);
-    const sessionId = requireId(body.sessionId, "session");
-    sendJson(res, 200, await createWindow(sessionId));
+    // `duplicateFrom` present -> clone that window (same cwd, with the
+    // user-confirmed name/command); otherwise create a fresh window.
+    if (Object.prototype.hasOwnProperty.call(body, "duplicateFrom")) {
+      const windowId = requireId(body.duplicateFrom, "window");
+      sendJson(
+        res,
+        200,
+        await duplicateWindow(windowId, { name: body.name, command: body.command }),
+      );
+    } else {
+      const sessionId = requireId(body.sessionId, "session");
+      sendJson(res, 200, await createWindow(sessionId));
+    }
     return;
   }
 
@@ -1484,7 +2565,12 @@ async function handleApi(req, res, url) {
   if (req.method === "PATCH" && url.pathname === "/api/windows") {
     const body = await readJsonBody(req);
     const windowId = requireId(body.windowId, "window");
-    sendJson(res, 200, await renameWindow(windowId, body.name));
+    // `annotation` present -> set the follow-up note; otherwise rename.
+    if (Object.prototype.hasOwnProperty.call(body, "annotation")) {
+      sendJson(res, 200, await setWindowAnnotation(windowId, body.annotation));
+    } else {
+      sendJson(res, 200, await renameWindow(windowId, body.name));
+    }
     return;
   }
 
@@ -1524,6 +2610,110 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  // Smart content viewer: read a file referenced in a pane, resolving a relative
+  // path against the pane's cwd (absolute/~ paths resolve as given). The only
+  // boundary is the OS file permissions of the user the agent runs as — a file
+  // that user can read is served; one they can't yields EACCES.
+  if (req.method === "GET" && url.pathname === "/api/file") {
+    const f = await readFileForServing(req, res, url);
+    if (!f) return; // error already sent
+    sendJson(res, 200, {
+      path: f.requestedPath,
+      name: f.name,
+      kind: f.kind,
+      contentType: f.contentType,
+      base64: f.result.base64,
+      size: f.result.size,
+      truncated: f.result.truncated,
+    });
+    return;
+  }
+
+  // Raw file streaming with a SENSIBLE filename. Used so artifacts open in a new
+  // tab as a real URL (not an opaque blob:) and downloads save under the actual
+  // file name via Content-Disposition. Routed by machineId (header OR ?machineId)
+  // and cookie-authed like every /api route, so a plain tab navigation works.
+  // `?dl=1` forces a download (attachment); otherwise the browser shows it inline.
+  if (req.method === "GET" && url.pathname === "/api/file-raw") {
+    const f = await readFileForServing(req, res, url);
+    if (!f) return;
+    const bytes = Buffer.from(f.result.base64, "base64");
+    const download = url.searchParams.get("dl") === "1";
+    res.writeHead(200, {
+      "content-type": f.contentType,
+      "content-disposition": `${download ? "attachment" : "inline"}; filename="${sanitizeFilename(f.name)}"`,
+      "content-length": String(bytes.length),
+      "cache-control": "no-store",
+    });
+    res.end(bytes);
+    return;
+  }
+
+  // Markdown rendered to a standalone HTML page for opening in a new tab — keeps
+  // the formatted view (headings, lists, tables) with a real document <title> so
+  // the tab and any "Save as" use the file's name, not a blob GUID.
+  if (req.method === "GET" && url.pathname === "/api/file-view") {
+    const f = await readFileForServing(req, res, url);
+    if (!f) return;
+    if (f.kind !== "markdown") {
+      // Non-markdown has nothing to render; just stream it inline.
+      const bytes = Buffer.from(f.result.base64, "base64");
+      res.writeHead(200, {
+        "content-type": f.contentType,
+        "content-disposition": `inline; filename="${sanitizeFilename(f.name)}"`,
+        "content-length": String(bytes.length),
+        "cache-control": "no-store",
+      });
+      res.end(bytes);
+      return;
+    }
+    const md = Buffer.from(f.result.base64, "base64").toString("utf8");
+    const page = renderMarkdownPage(f.name, md, f.result.truncated);
+    res.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+    });
+    res.end(page);
+    return;
+  }
+
+  // Upload a file to a temp directory on the target machine; the client inserts
+  // the returned path into the composer. Body is the raw file bytes; the filename
+  // is the `name` query param. Routes through the backend seam, so a controller
+  // brokers it to the registered agent (file rides as base64 in the frame).
+  if (req.method === "POST" && url.pathname === "/api/upload") {
+    requireId(url.searchParams.get("paneId"), "pane");
+    const backend = currentBackend();
+    if (typeof backend.supportsOp === "function" && !backend.supportsOp(OP.WRITEFILE)) {
+      sendJson(res, 501, {
+        error:
+          "This machine's connector is out of date — restart it (node server.mjs --register …) to upload files.",
+      });
+      return;
+    }
+    const bytes = await readRequestBuffer(req, MAX_UPLOAD_BYTES);
+    if (bytes.length === 0) {
+      sendJson(res, 400, { error: "No file received" });
+      return;
+    }
+    const name = url.searchParams.get("name") || "upload";
+    let result;
+    try {
+      result = await backend.writeTempFile(name, bytes.toString("base64"));
+    } catch (error) {
+      if (/unknown op/i.test(error.message) || error instanceof TypeError) {
+        sendJson(res, 501, {
+          error: "This machine's connector is out of date — restart it to upload files.",
+        });
+        return;
+      }
+      sendJson(res, 500, { error: error.message || "Could not save the file" });
+      return;
+    }
+    sendJson(res, 200, { path: result.path, name: result.name });
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/inspect") {
     const paneId = requireId(url.searchParams.get("paneId"), "pane");
     const lines = parseLines(url.searchParams.get("lines"));
@@ -1560,14 +2750,24 @@ async function handleApi(req, res, url) {
       return;
     }
 
-    const sendResult =
-      text.length > 0
-        ? await sendTextToPane(paneId, text, { enter: false })
-        : { mode: "none", sentEnter: false };
-    if (sendEnter) {
-      await runTmux(["send-keys", "-t", paneId, "Enter"]);
-      if (submitNudge && text.length > 0) {
+    // If the pane is parked in copy-mode, our input would be swallowed by the
+    // scrollback pager — exit it first so the paste/Enter reaches the program.
+    await exitCopyModeIfNeeded(paneId);
+
+    let sendResult;
+    if (text.length > 0) {
+      // Paste + (optionally) Enter in one call so the paste->Enter delay applies
+      // and the Enter reliably submits rather than being eaten by the paste.
+      sendResult = await sendTextToPane(paneId, text, { enter: sendEnter });
+      if (sendEnter && submitNudge) {
         sendSubmitNudge(paneId);
+      }
+    } else {
+      // No text — a bare Enter keypress (e.g. the Enter quick-key). No paste, so
+      // no race; send it directly.
+      sendResult = { mode: "none", sentEnter: false };
+      if (sendEnter) {
+        await runTmux(["send-keys", "-t", paneId, "Enter"]);
       }
     }
     sendJson(res, 200, {
@@ -1593,7 +2793,7 @@ async function handleApi(req, res, url) {
       return;
     }
 
-    sendJson(res, 200, { text, model: TRANSCRIBE_MODEL });
+    sendJson(res, 200, { text, model: getVoiceConfig().transcribeModel });
     return;
   }
 
@@ -1601,6 +2801,11 @@ async function handleApi(req, res, url) {
     const paneId = requireId(url.searchParams.get("paneId"), "pane");
     const sendEnter = url.searchParams.get("enter") !== "0";
     const submitNudge = url.searchParams.get("submitNudge") !== "0";
+    // Optional prefix prepended to the transcript before sending — e.g. "/btw "
+    // so a voice note becomes a Claude `/btw` side-note slash-command. Validated
+    // to a short, safe set of chars so it can't inject arbitrary control input.
+    const rawPrefix = url.searchParams.get("prefix") || "";
+    const prefix = sanitizeVoicePrefix(rawPrefix);
     const contentType = req.headers["content-type"] || "audio/webm";
     const audio = await readRequestBuffer(req, MAX_AUDIO_BYTES);
     if (audio.length === 0) {
@@ -1608,28 +2813,30 @@ async function handleApi(req, res, url) {
       return;
     }
 
-    const text = await transcribeAudio(audio, contentType);
-    if (!text) {
+    const transcript = await transcribeAudio(audio, contentType);
+    if (!transcript) {
       sendJson(res, 422, { error: "No speech recognized" });
       return;
     }
+    const text = prefix ? `${prefix}${transcript}` : transcript;
     if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
       sendJson(res, 413, { error: "Transcribed text is too large" });
       return;
     }
 
-    const sendResult = await sendTextToPane(paneId, text, { enter: false });
-    if (sendEnter) {
-      await runTmux(["send-keys", "-t", paneId, "Enter"]);
-      if (submitNudge) {
-        sendSubmitNudge(paneId);
-      }
+    // Paste + Enter together so the paste->Enter delay applies and the Enter
+    // reliably submits (rather than being consumed by the bracketed paste).
+    const sendResult = await sendTextToPane(paneId, text, { enter: sendEnter });
+    if (sendEnter && submitNudge) {
+      sendSubmitNudge(paneId);
     }
 
     sendJson(res, 200, {
       ok: true,
-      text,
-      model: TRANSCRIBE_MODEL,
+      text, // the full sent text (prefix + transcript)
+      transcript, // the raw transcript without the prefix
+      prefix,
+      model: getVoiceConfig().transcribeModel,
       sendMode: sendResult.mode,
       submitNudgeDelayMs:
         submitNudge && sendEnter && text.length > 0 ? SUBMIT_NUDGE_DELAY_MS : 0,
@@ -1646,14 +2853,15 @@ async function handleApi(req, res, url) {
       return;
     }
     const lines = Math.min(parseLines(body.lines || WINDOW_BRIEFING_LINES), 100);
+    const { speechModel, speechVoice } = getVoiceConfig();
     const startedAt = Date.now();
     logServerEvent("window_audio_summary_started", {
       paneId,
       windowId,
       lines,
       summaryModel: WINDOW_BRIEFING_MODEL,
-      speechModel: SPEECH_MODEL,
-      voice: SPEECH_VOICE,
+      speechModel,
+      voice: speechVoice,
     });
     const briefing = paneId
       ? await summarizePaneForSpeech(paneId, lines)
@@ -1672,7 +2880,7 @@ async function handleApi(req, res, url) {
       windowId: briefing.windowId || windowId,
       lines,
       summaryModel: WINDOW_BRIEFING_MODEL,
-      speechModel: SPEECH_MODEL,
+      speechModel,
       audioBase64Chars: audioBase64.length,
       elapsedMs: Date.now() - startedAt,
     });
@@ -1684,8 +2892,8 @@ async function handleApi(req, res, url) {
       windowId: briefing.windowId || windowId,
       lines,
       summaryModel: WINDOW_BRIEFING_MODEL,
-      speechModel: SPEECH_MODEL,
-      voice: SPEECH_VOICE,
+      speechModel,
+      voice: speechVoice,
     });
     return;
   }
@@ -1703,13 +2911,14 @@ async function handleApi(req, res, url) {
       parseLines(body.lines || WINDOW_BRIEFING_LINES),
       REALTIME_WINDOW_BRIEFING_MAX_CAPTURE_LINES,
     );
+    const { realtimeModel, realtimeVoice } = getVoiceConfig();
     const startedAt = Date.now();
     logServerEvent("window_realtime_session_started", {
       windowId,
       paneId,
       lines,
-      realtimeModel: REALTIME_MODEL,
-      voice: REALTIME_VOICE,
+      realtimeModel,
+      voice: realtimeVoice,
       clientSecretTtlSeconds: REALTIME_CLIENT_SECRET_TTL_SECONDS,
     });
     const briefing = paneId
@@ -1720,8 +2929,8 @@ async function handleApi(req, res, url) {
       windowId: briefing.windowId || windowId,
       paneId: briefing.paneId || paneId,
       lines: briefing.lines,
-      realtimeModel: REALTIME_MODEL,
-      voice: REALTIME_VOICE,
+      realtimeModel,
+      voice: realtimeVoice,
       inputChars: briefing.input.length,
       rawChars: briefing.rawChars,
       extractedChars: briefing.extractedChars,
@@ -1742,8 +2951,8 @@ async function handleApi(req, res, url) {
       lines: briefing.lines,
       windowId: briefing.windowId || windowId,
       paneId: briefing.paneId || paneId,
-      model: REALTIME_MODEL,
-      voice: REALTIME_VOICE,
+      model: realtimeModel,
+      voice: realtimeVoice,
       extractionModel: briefing.extractionModel,
       extractedChars: briefing.extractedChars,
       maxOutputTokens: REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS,
@@ -1769,8 +2978,102 @@ async function handleApi(req, res, url) {
       sendJson(res, 400, { error: "Unsupported key" });
       return;
     }
+    // Exit copy-mode first so the key reaches the program, not the pager. (One
+    // exception: if the user is deliberately sending a navigation key to drive
+    // copy-mode, this would fight them — but the allowed keys here are
+    // submit/edit keys for the app's input, not copy-mode navigation.)
+    await exitCopyModeIfNeeded(paneId);
     await runTmux(["send-keys", "-t", paneId, key]);
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // Set a Claude agent's effort level by driving its in-TUI `/effort` slider:
+  // open the slider, step Left/Right from the current level to the target, then
+  // Enter to confirm. The slider levels + command live in the per-agent table;
+  // "current" is read live from the pane footer so we step the right distance
+  // even if the user moved it by hand. This reuses the same sequenced-key
+  // primitive as the AskUserQuestion answer flow (sendAskKeys + a settle poll).
+  if (req.method === "POST" && url.pathname === "/api/agent-effort") {
+    const body = await readJsonBody(req);
+    const paneId = requireId(body.paneId, "pane");
+    const agentType = String(body.agentType || "");
+    const target = String(body.level || "").toLowerCase();
+    const spec = AGENT_MODES[agentType]?.effort;
+    if (!spec) {
+      sendJson(res, 400, { error: `No effort control for agent "${agentType}"` });
+      return;
+    }
+    const targetIdx = spec.levels.indexOf(target);
+    if (targetIdx === -1) {
+      sendJson(res, 400, { error: `Unknown effort level "${target}"` });
+      return;
+    }
+    await exitCopyModeIfNeeded(paneId);
+    // Open the slider, then drive it DETERMINISTICALLY without parsing the
+    // current level (the footer's effort marker is unreliable across levels and
+    // widths — e.g. max/ultracode render differently and may not show "/effort").
+    // The slider clamps at its ends, so: press Left N times to guarantee we're at
+    // the far-left (index 0 = lowest), then Right `targetIdx` times to land on the
+    // target. N = levels.length is always enough to reach the left edge.
+    await sendTextToPane(paneId, spec.command, { enter: true });
+    await delay(ASK_KEY_DELAY_MS * 3); // let the slider render before stepping
+    const keys = [];
+    for (let i = 0; i < spec.levels.length; i++) keys.push("Left"); // clamp to low
+    for (let i = 0; i < targetIdx; i++) keys.push("Right"); // step up to target
+    keys.push("Enter");
+    await sendAskKeys(paneId, keys);
+    sendJson(res, 200, { ok: true, to: target });
+    return;
+  }
+
+  // Set an agent's permission mode by cycling Shift+Tab until the pane's parsed
+  // mode matches the target. We do NOT assume a fixed ring order/membership (it
+  // varies with launch flags) — we step one cycle, re-read the REAL mode, and
+  // stop when it matches or we've made a full loop without finding it.
+  if (req.method === "POST" && url.pathname === "/api/agent-mode") {
+    const body = await readJsonBody(req);
+    const paneId = requireId(body.paneId, "pane");
+    const agentType = String(body.agentType || "");
+    const target = String(body.mode || "");
+    const cfg = AGENT_MODES[agentType];
+    if (!cfg) {
+      sendJson(res, 400, { error: `No mode control for agent "${agentType}"` });
+      return;
+    }
+    await exitCopyModeIfNeeded(paneId);
+    const readMode = async () => {
+      const clean = cleanTerminalText(await capturePane(paneId, "screen"));
+      return detectAgentMode(agentType, {
+        paneTail: clean.split("\n").slice(-12).join("\n"),
+      }).mode;
+    };
+    let current = await readMode();
+    // A whole ring is at most ~6 modes; cap steps generously to avoid spinning.
+    const maxSteps = 8;
+    let steps = 0;
+    while (current !== target && steps < maxSteps) {
+      await runTmux(["send-keys", "-t", paneId, cfg.cycleKey]);
+      await delay(ASK_KEY_DELAY_MS * 2); // let the footer redraw before re-reading
+      current = await readMode();
+      steps++;
+    }
+    sendJson(res, 200, {
+      ok: current === target,
+      mode: current,
+      steps,
+      reached: current === target,
+    });
+    return;
+  }
+
+  // Explicitly drop a pane out of tmux copy-mode (the "Exit scroll mode" banner
+  // button). Idempotent: a no-op if it isn't in copy-mode.
+  if (req.method === "POST" && url.pathname === "/api/exit-copy-mode") {
+    const body = await readJsonBody(req);
+    const paneId = requireId(body.paneId, "pane");
+    const exited = await exitCopyModeIfNeeded(paneId);
+    sendJson(res, 200, { ok: true, exited });
     return;
   }
 
@@ -1783,6 +3086,7 @@ const contentTypes = new Map([
   [".js", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
   [".webmanifest", "application/manifest+json; charset=utf-8"],
+  [".wav", "audio/wav"], // bundled notification chime (public/sounds/notify.wav)
 ]);
 
 async function serveStatic(req, res, url) {
@@ -1825,25 +3129,82 @@ async function serveStatic(req, res, url) {
 }
 
 // Mode: `--register <hubUrl>` runs as an agent for the cloud; `--hub` serves the
-// app and brokers to registered agents; default is today's local server.
+// app and brokers to registered agents; `--controller` is the public Cloud Run
+// hub variant with app auth; default is today's local server.
 function parseMode(args) {
   const registerIndex = args.indexOf("--register");
   if (registerIndex !== -1) {
-    return { kind: "register", hubUrl: args[registerIndex + 1] || process.env.HUB_URL };
+    return {
+      kind: "register",
+      hubUrl: args[registerIndex + 1] || process.env.HUB_URL,
+      login: args.includes("--login"),
+    };
   }
+  if (args.includes("--controller")) return { kind: "controller" };
   if (args.includes("--hub")) return { kind: "hub" };
   return { kind: "local" };
 }
 
 const MODE = parseMode(process.argv.slice(2));
+const HOST = process.env.HOST || (MODE.kind === "controller" ? "0.0.0.0" : "127.0.0.1");
+const IS_HUB_MODE = MODE.kind === "hub" || MODE.kind === "controller";
+const REQUIRE_BROWSER_AUTH =
+  MODE.kind === "controller" || process.env.TMUX_MOBILE_REQUIRE_AUTH === "1";
+
+function validateStartupConfig() {
+  if (MODE.kind !== "controller") return;
+
+  const missing = [];
+  for (const key of [
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "GOOGLE_DEVICE_CLIENT_ID",
+    "GOOGLE_DEVICE_CLIENT_SECRET",
+    "OPENAI_API_KEY",
+    "SESSION_SECRET",
+  ]) {
+    if (!process.env[key]) missing.push(key);
+  }
+  if (!process.env.ALLOWED_GOOGLE_EMAILS && !process.env.ALLOWED_GOOGLE_DOMAINS) {
+    missing.push("ALLOWED_GOOGLE_EMAILS or ALLOWED_GOOGLE_DOMAINS");
+  }
+  if (missing.length > 0) {
+    console.error(
+      `controller mode requires ${missing.join(", ")} to be set`,
+    );
+    process.exit(2);
+  }
+}
+
+validateStartupConfig();
 
 if (MODE.kind === "register") {
   if (!MODE.hubUrl) {
     console.error("usage: node server.mjs --register <hubUrl>");
     process.exit(2);
   }
-  const { runAgent } = await import("./lib/agent.mjs");
-  logServerEvent("agent_starting", { hub: MODE.hubUrl, machine: os.hostname() });
+  const { agentAuthState, loginAgent, runAgent } = await import("./lib/agent.mjs");
+  let authState = agentAuthState(MODE.hubUrl);
+  const shouldLogin = MODE.login || !authState.hasAuth;
+  logServerEvent("agent_starting", {
+    controller: new URL(MODE.hubUrl).origin,
+    machine: process.env.AGENT_MACHINE || os.hostname(),
+    login: shouldLogin,
+    authSource: authState.source,
+    message: shouldLogin
+      ? "No agent token is available, or re-login was requested; starting Google device login before registration."
+      : "Starting agent with existing credentials; this machine will register with the controller.",
+  });
+  if (shouldLogin) {
+    await loginAgent(MODE.hubUrl);
+    authState = agentAuthState(MODE.hubUrl);
+    logServerEvent("agent_login_ready", {
+      controller: new URL(MODE.hubUrl).origin,
+      machine: process.env.AGENT_MACHINE || os.hostname(),
+      authSource: authState.source,
+      message: "Agent login is ready; connecting to the controller.",
+    });
+  }
   runAgent(MODE.hubUrl, localBackend, { logEvent: logServerEvent });
 } else {
   let hub = null;
@@ -1853,41 +3214,150 @@ if (MODE.kind === "register") {
     try {
       url = new URL(req.url || "/", `http://${req.headers.host || HOST}`);
 
+      if (await handleAuthRoute(req, res, url)) {
+        return;
+      }
+
+      if (
+        REQUIRE_BROWSER_AUTH &&
+        url.pathname !== "/api/health" &&
+        !authenticateBrowser(req)
+      ) {
+        if (url.pathname.startsWith("/api/")) {
+          sendJson(res, 401, { error: "Authentication required" });
+        } else {
+          sendRedirect(
+            res,
+            `/auth/google/login?returnTo=${encodeURIComponent(url.pathname + url.search)}`,
+          );
+        }
+        return;
+      }
+      const authenticatedUser = REQUIRE_BROWSER_AUTH ? authenticateBrowser(req) : null;
+      const userId = REQUIRE_BROWSER_AUTH
+        ? authenticatedUser?.userId
+        : String(process.env.TMUX_MOBILE_USER || "default");
+
       if (req.method === "GET" && url.pathname === "/api/runtime") {
-        sendJson(res, 200, { mode: MODE.kind });
+        sendJson(res, 200, {
+          mode: IS_HUB_MODE ? "hub" : MODE.kind,
+          revision: APP_REVISION,
+          // Connector repo, shown in the "no machine connected" UI so a user
+          // knows what to clone. Overridable via env for forks/mirrors.
+          cloneUrl: CONNECTOR_CLONE_URL,
+        });
+        return;
+      }
+
+      // Voice model settings are per-user (each authenticated user has their own
+      // transcription / TTS / realtime models), so they're keyed by userId and
+      // live above the hub/machine routing rather than per-pane.
+      if (url.pathname === "/api/voice-config") {
+        if (req.method === "GET") {
+          sendJson(res, 200, describeVoiceConfig(userId));
+          return;
+        }
+        if (req.method === "PUT" || req.method === "POST") {
+          const body = await readJsonBody(req);
+          try {
+            updateVoiceConfig(body, userId);
+          } catch (error) {
+            // updateVoiceConfig throws status 400 on a bad value; a persistence
+            // failure (read-only home dir) carries persisted:false but the
+            // in-memory override still took effect, so report success with a note.
+            if (error.persisted === false) {
+              sendJson(res, 200, {
+                ...describeVoiceConfig(userId),
+                persisted: false,
+                note: error.message,
+              });
+              return;
+            }
+            sendJson(res, error.status || 400, { error: error.message });
+            return;
+          }
+          sendJson(res, 200, { ...describeVoiceConfig(userId), persisted: true });
+          return;
+        }
+        sendJson(res, 405, { error: "Method not allowed" });
+        return;
+      }
+
+      // Voice preview: synthesize a short sample phrase in a chosen voice so the
+      // user can hear it before saving. Validates the voice against the curated
+      // allowlist and never mutates the user's saved config.
+      if (req.method === "POST" && url.pathname === "/api/voice-preview") {
+        const body = await readJsonBody(req);
+        const voice = String(body.voice || "");
+        if (!VOICE_OPTIONS.voice.includes(voice)) {
+          sendJson(res, 400, {
+            error: `Unknown voice: ${voice}. Allowed: ${VOICE_OPTIONS.voice.join(", ")}`,
+          });
+          return;
+        }
+        const sample =
+          typeof body.text === "string" && body.text.trim()
+            ? body.text.trim().slice(0, 200)
+            : `Hi, this is the ${voice} voice. Your terminal is ready when you are.`;
+        const audioBase64 = await createSpeechAudio(sample, { voice });
+        sendJson(res, 200, { audioBase64, mimeType: "audio/mpeg", voice });
         return;
       }
 
       if (url.pathname.startsWith("/api/")) {
         if (hub) {
           if (req.method === "GET" && url.pathname === "/api/machines") {
-            sendJson(res, 200, hub.listMachines());
+            sendJson(res, 200, hub.listMachines(userId));
+            return;
+          }
+          // Cross-machine attention sweep: per-window turn/waitingForInput/
+          // contentHash for EVERY online machine, so the client's "needs you"
+          // pill/title/favicon span all machines (not just the focused one). One
+          // request per poll regardless of machine count. The client applies its
+          // own (local) unread comparison against contentHash.
+          if (req.method === "GET" && url.pathname === "/api/attention") {
+            const online = hub.listMachines(userId);
+            const machines = await Promise.all(
+              online.map(async (machine) => {
+                let windows = [];
+                try {
+                  windows = await withBackend(
+                    hub.backendFor(userId, machine.id),
+                    () => collectMachineAttention(),
+                  );
+                } catch {
+                  windows = []; // machine hiccup — skip it this tick
+                }
+                return { machineId: machine.id, hostname: machine.hostname, windows };
+              }),
+            );
+            sendJson(res, 200, { machines });
             return;
           }
           if (url.pathname === "/api/health") {
-            sendJson(res, 200, { ok: true });
+            sendJson(res, 200, { ok: true, revision: APP_REVISION });
             return;
           }
           const machineId =
             req.headers["x-machine-id"] ||
             url.searchParams.get("machineId") ||
-            hub.soleMachineId();
+            hub.soleMachineId(userId);
           if (!machineId) {
             sendJson(res, 400, {
               error: "machineId is required (multiple machines online)",
             });
             return;
           }
-          if (!hub.hasMachine(machineId)) {
+          if (!hub.hasMachine(userId, machineId)) {
             sendJson(res, 503, { error: `Machine ${machineId} is offline` });
             return;
           }
-          await withBackend(hub.backendFor(machineId), () =>
-            handleApi(req, res, url),
+          await withBackend(hub.backendFor(userId, machineId), () =>
+            withVoiceUser(userId, () => handleApi(req, res, url)),
           );
           return;
         }
-        await handleApi(req, res, url);
+        await withVoiceUser(userId, () => handleApi(req, res, url));
         return;
       }
 
@@ -1905,12 +3375,40 @@ if (MODE.kind === "register") {
     }
   });
 
-  if (MODE.kind === "hub") {
+  if (IS_HUB_MODE) {
     const { createHub } = await import("./lib/hub.mjs");
-    hub = createHub(server, { logEvent: logServerEvent });
+    hub = createHub(server, {
+      logEvent: logServerEvent,
+      authenticateAgent: MODE.kind === "controller"
+        ? authenticateAgent
+        : () => String(process.env.TMUX_MOBILE_USER || "default"),
+    });
   }
 
   server.listen(PORT, HOST, () => {
     console.log(`tmux ${MODE.kind} listening at http://${HOST}:${PORT}`);
   });
+
+  // Graceful shutdown. Cloud Run sends SIGTERM to an old instance before it is
+  // torn down during a revision rollout; closing agent WebSockets here makes
+  // each agent reconnect immediately (onto the new revision) instead of staying
+  // pinned to this dying instance until its socket eventually dies on its own.
+  let shuttingDown = false;
+  function gracefulShutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logServerEvent("controller_shutdown", {
+      signal,
+      revision: APP_REVISION,
+      message: "Closing agent connections so agents reconnect to the new revision.",
+    });
+    try {
+      hub?.shutdown();
+    } catch {}
+    server.close(() => process.exit(0));
+    // Don't wait forever for lingering keep-alive sockets to drain.
+    setTimeout(() => process.exit(0), 5_000).unref?.();
+  }
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 }

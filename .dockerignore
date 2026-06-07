@@ -1,0 +1,9 @@
+.git
+.gitignore
+.gcloudignore
+node_modules
+.env
+.env.*
+tmp
+*.log
+.DS_Store

@@ -162,6 +162,45 @@ h3 {
   color: var(--accent-dark);
 }
 
+/* "Needs you" pill in the topbar — appears when other windows' agents have
+   finished (unread) or are waiting on a question. Tap to jump to the first. */
+.needs-attention {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--accent, #35597a);
+  border-radius: 999px;
+  padding: 0 11px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  background: var(--accent, #35597a);
+  color: #fff;
+  box-shadow: var(--shadow);
+}
+
+.needs-attention .needs-dot {
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* Question-waiting is louder than just-finished. */
+.needs-attention.question {
+  background: #b3261e;
+  border-color: #b3261e;
+  animation: agentPulse 1.4s ease-in-out infinite;
+}
+
+/* HONEST STATE: the set is only unverified windows — a hedge, not a confirmed
+ * need. Muted/outlined so it never masquerades as a confident "needs answer". */
+.needs-attention.unverified {
+  background: transparent;
+  color: var(--accent, #35597a);
+  border-style: dashed;
+  font-weight: 700;
+}
+
 /* "More" overflow menu in the topbar. The trigger is just an icon-button;
  * the dropdown is absolutely positioned below it, right-anchored so it stays
  * on-screen on narrow phones. */
@@ -214,6 +253,20 @@ h3 {
 
 .more-actions-item.directory-trigger svg {
   color: var(--accent-dark);
+}
+
+/* Destructive item (Close window). */
+.more-actions-item.danger {
+  color: #c0392b;
+}
+
+.more-actions-item.danger svg {
+  color: #c0392b;
+}
+
+.more-actions-item.danger:hover,
+.more-actions-item.danger:focus-visible {
+  background: rgba(192, 57, 43, 0.1);
 }
 
 /* Font-size row: not a menu item (doesn't auto-close on tap). A label on
@@ -395,6 +448,118 @@ input {
   opacity: 0.62;
 }
 
+/* "Scroll mode is on" warning — the viewed pane is in tmux copy-mode and is
+   intercepting input. */
+.copy-mode-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 6px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: #fdecc8;
+  color: #6b4b00;
+  border: 1px solid #e9c46a;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.copy-mode-banner .small-button {
+  flex: 0 0 auto;
+  background: #6b4b00;
+  color: #fff;
+}
+
+/* "Reconnecting…" banner — shown while we hold the current window during a
+   momentary machine drop (deploy/wifi/agent restart). Calm/neutral, not an
+   error: the view is intact and we're retrying. */
+.reconnect-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.reconnect-spinner {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  animation: reconnect-spin 0.8s linear infinite;
+}
+
+@keyframes reconnect-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* "Connector out of date" (version-skew) banner. */
+.stale-agent-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 6px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: #fde4e1;
+  color: #7a2618;
+  border: 1px solid #e8a99e;
+  font-size: 12.5px;
+}
+
+.stale-agent-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stale-agent-text strong {
+  font-weight: 800;
+}
+
+.stale-agent-banner .connector-cmd {
+  font-size: 11px;
+  opacity: 0.85;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.stale-agent-banner .small-button {
+  flex: 0 0 auto;
+  background: #7a2618;
+  color: #fff;
+  align-self: center;
+}
+
+.stale-agent-dismiss {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: #7a2618;
+  opacity: 0.75;
+  padding: 0;
+}
+
+.stale-agent-dismiss:active {
+  opacity: 1;
+}
+
 .snapshot {
   min-width: 0;
   min-height: 0;
@@ -409,6 +574,121 @@ input {
   line-height: 1.42;
   white-space: pre-wrap;
   word-break: break-word;
+  /* Make pane text selectable/copyable, including the long-press copy menu on
+     mobile Safari/Chrome. */
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* URLs auto-detected in the tmux pane. Inherit the terminal text color (so an
+   ANSI-colored URL keeps its color) but underline + tint so they read as links
+   and are comfortable tap targets on mobile. */
+.snapshot .pane-link {
+  color: var(--accent-dark);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.snapshot .pane-link:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* Detected viewable file paths (images / markdown) — clickable to open the
+   in-app content viewer. Dotted underline distinguishes them from URL links. */
+.snapshot .pane-file {
+  color: var(--accent-dark);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.snapshot .pane-file:hover {
+  text-decoration-style: solid;
+}
+
+/* "No machine connected" connector instructions. Overlays the snapshot area so
+   it reads as the primary content when there's nothing to show yet. */
+.snapshot-panel {
+  position: relative;
+}
+
+.snapshot.dimmed {
+  opacity: 0.12;
+}
+
+.connector-help {
+  position: absolute;
+  inset: 0;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding: 20px 18px calc(20px + env(safe-area-inset-bottom, 0px));
+  background: var(--surface);
+  color: inherit;
+}
+
+.connector-help h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.connector-help p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
+.connector-help .connector-note {
+  font-size: 0.82rem;
+  opacity: 0.7;
+}
+
+.connector-steps {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.connector-step-label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+  opacity: 0.85;
+}
+
+.connector-cmd-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.connector-cmd {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border-radius: 7px;
+  padding: 9px 10px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12.5px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: all;
+}
+
+.connector-copy {
+  flex: 0 0 auto;
+  align-self: flex-start;
 }
 
 .control-panel {
@@ -421,118 +701,539 @@ input {
   display: block;
 }
 
-.voice-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+/* Snippet bar: a horizontally-scrolling row of frequently-used-sentence chips
+   plus a manage button, sitting just above the composer. */
+.snippet-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.snippet-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+}
+
+.snippet-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  padding: 6px 11px;
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.4));
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: inherit;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.snippet-chip:active {
+  background: var(--surface);
+}
+
+.snippet-empty {
+  font-size: 0.82rem;
+  opacity: 0.6;
+  padding: 4px 2px;
+}
+
+.snippet-manage {
+  flex: 0 0 auto;
+}
+
+/* Duplicate-window confirmation: the cwd shown inline in the hint. */
+.duplicate-cwd {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.85em;
+  word-break: break-all;
+}
+
+.settings-field input[type="text"] {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.4));
+  background: var(--surface);
+  color: inherit;
+  font-size: 0.95rem;
+}
+
+/* Snippet manager rows. */
+/* Both the Snippets and Recent lists flow naturally inside the panel, which is
+   the single scroll container (.settings-panel: max-height 92dvh, overflow-y
+   auto). Giving each list its OWN max-height + overflow made them fight the panel
+   and squeezed the Recent section off the bottom. */
+.snippet-list {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
-.voice-entry {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 64px 48px 48px;
+.snippet-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.snippet-row-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.4));
+  background: var(--surface);
+  color: inherit;
+  font-size: 0.9rem;
+}
+
+.snippet-row-insert {
+  flex: 0 0 auto;
+}
+
+.insert-section-title {
+  margin: 12px 0 2px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.snippet-row-move {
+  flex: 0 0 auto;
+}
+
+.snippet-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.snippet-add input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.4));
+  background: var(--surface);
+  color: inherit;
+  font-size: 0.9rem;
+}
+
+/* Composer: snippet row, input area, direct keys. Everything funnels through the
+   text box; only the direct keys send straight to the pane. */
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* The input area: a spacious text box with mic + Send. While recording it gets
+   the "listening" treatment (waveform overlay, glowing border, pulsing mic). */
+.input-area {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--code-bg);
+  padding: 8px 10px;
+}
+
+.input-area .lexical-editor {
+  position: relative;
+  width: 100%;
+  /* Compact when idle (~1 row); expands on focus or when it holds text. */
+  min-height: 24px;
+  max-height: 36dvh;
+  overflow-y: auto;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: 2px;
+  font-size: 14px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+  cursor: text;
+  text-align: left;
+  transition: min-height 140ms ease;
+}
+
+/* Expand to the spacious ~3-row box once focused or holding content. */
+.input-area:focus-within .lexical-editor,
+.input-area .lexical-editor:not(.empty) {
+  min-height: 66px;
+}
+
+.input-area .lexical-editor p {
+  margin: 0;
+  text-align: left;
+}
+
+.input-area .lexical-editor.empty::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+/* Horizontal control bar below the box: attach pinned left, mic+send right. */
+.input-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
   gap: 6px;
 }
 
+/* Pushes the mic+send cluster to the far right, attach stays left. */
+.input-actions-right {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* Mic (dictate). Round, accent. Hidden while listening (Keep/Discard take over). */
 .voice-button {
   display: grid;
-  width: 100%;
-  height: 48px;
-  min-height: 48px;
+  width: 40px;
+  height: 40px;
   place-items: center;
-  border: 1px solid rgba(0, 0, 0, 0.14);
+  border: 1px solid var(--accent, #35597a);
   border-radius: 999px;
-  background: linear-gradient(#ffffff, #e8ebef);
-  color: #263238;
+  background: var(--accent, #35597a);
+  color: #fff;
   padding: 0;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 1px 2px rgba(15, 20, 24, 0.18);
-  text-align: center;
+  box-shadow: 0 6px 14px rgba(15, 111, 99, 0.18);
 }
 
 .voice-button:active {
-  background: linear-gradient(#dfe3e8, #ffffff);
+  filter: brightness(0.95);
 }
 
-.mic-icon {
-  position: relative;
-  width: 22px;
-  height: 28px;
-  color: currentColor;
+.voice-button.busy {
+  opacity: 0.7;
 }
 
-.mic-icon::before {
-  position: absolute;
-  top: 0;
-  left: 5px;
-  width: 10px;
-  height: 17px;
-  border: 2px solid currentColor;
-  border-radius: 999px;
-  content: "";
-}
-
-.mic-icon::after {
-  position: absolute;
-  left: 3px;
-  bottom: 0;
-  width: 16px;
-  height: 12px;
-  border-bottom: 2px solid currentColor;
-  border-left: 2px solid transparent;
-  border-radius: 0 0 999px 999px;
-  box-shadow: 6px 6px 0 -4px currentColor;
-  content: "";
-}
-
-.keyboard-button,
-.read-button,
-.actions-toggle {
+/* Attach (file upload) — neutral icon button next to the mic. */
+.attach-button {
   display: grid;
-  min-width: 0;
-  min-height: 48px;
+  width: 40px;
+  height: 40px;
   place-items: center;
-  border: 1px solid rgba(39, 68, 114, 0.28);
-  border-radius: 8px;
-  background: #f2f4f7;
-  color: #274472;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
   padding: 0;
-  font-size: 11px;
+}
+
+.attach-button:active {
+  background: var(--surface-soft);
+}
+
+.attach-button:disabled {
+  opacity: 0.55;
+}
+
+.input-submit {
+  min-height: 40px;
+  min-width: 56px;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
   font-weight: 800;
 }
 
-.read-button {
-  border-color: rgba(17, 107, 95, 0.28);
+/* Listening state: swap mic→Keep/Discard, glow the box, animate the waveform. */
+.voice-action.listen-only {
+  display: none;
+}
+
+.input-area.listening {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px rgba(167, 53, 53, 0.18), 0 0 16px rgba(167, 53, 53, 0.22);
+  animation: listen-glow 1.6s ease-in-out infinite;
+}
+
+.input-area.listening .voice-button,
+.input-area.listening .input-submit,
+.input-area.listening .attach-button {
+  display: none;
+}
+
+.input-area.listening .voice-action.listen-only {
+  display: grid;
+  width: 44px;
+  height: 44px;
+}
+
+@keyframes listen-glow {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(167, 53, 53, 0.16), 0 0 12px rgba(167, 53, 53, 0.18); }
+  50% { box-shadow: 0 0 0 2px rgba(167, 53, 53, 0.28), 0 0 22px rgba(167, 53, 53, 0.30); }
+}
+
+/* The waveform sits across the box only while listening. */
+.voice-waveform {
+  display: none;
+}
+
+.input-area.listening .lexical-editor {
+  display: none;
+}
+
+.input-area.listening .voice-waveform {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 66px;
+  overflow: hidden;
+  padding: 0 4px;
+}
+
+.voice-waveform span {
+  width: 3px;
+  height: 3px;
+  flex: 1 1 auto;
+  max-width: 5px;
+  border-radius: 999px;
+  background: var(--danger);
+  transition: height 100ms;
+}
+
+.voice-action {
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  padding: 0;
+}
+
+.voice-action.submit {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.voice-action.cancel {
+  border: 1px solid rgba(167, 53, 53, 0.4);
+  background: var(--surface);
+  color: var(--danger);
+}
+
+.voice-action.retry {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Mode pill: focused agent's current permission mode + effort. Lives INSIDE the
+   input control bar (next to attach), filling the free middle space rather than
+   taking its own row; hidden when no agent is focused so attach/mic/Send close
+   up. The pill + caret are ONE integrated control (shared border, a thin divider
+   between them) — no gap, no mismatched corners. Color encodes the mode by RISK,
+   escalating from quiet (Plan/Normal) to a loud solid red (Bypass), via the
+   per-mode rules below keyed off data-mode on #modeBar. */
+.mode-bar {
+  display: inline-flex;
+  align-items: stretch;
+  margin-left: 8px; /* nudge off the attach button */
+  height: 36px;
+  border: 1px solid var(--mode-line, var(--line));
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--mode-bg, var(--surface-soft));
+  color: var(--mode-fg, var(--ink));
+}
+
+.mode-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.mode-pill-effort {
+  font-weight: 600;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.mode-pill-more {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  border: 0;
+  border-left: 1px solid var(--mode-divider, var(--line));
+  background: transparent;
+  color: inherit;
+  opacity: 0.85;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mode-pill:active,
+.mode-pill-more:active {
+  background: rgba(0, 0, 0, 0.14);
+}
+
+/* ── Risk palette: quiet until risky ──────────────────────────────────────
+   Plan/Normal stay neutral (subtle); danger ramps amber → orange → solid red.
+   Each rule sets the three vars the .mode-bar reads. */
+.mode-bar[data-mode="plan"] {
+  --mode-bg: rgba(95, 191, 143, 0.14);
+  --mode-fg: #6fc99a;
+  --mode-line: rgba(95, 191, 143, 0.55);
+  --mode-divider: rgba(95, 191, 143, 0.35);
+}
+.mode-bar[data-mode="normal"] {
+  --mode-bg: var(--surface-soft);
+  --mode-fg: var(--ink);
+  --mode-line: var(--line);
+  --mode-divider: var(--line);
+}
+.mode-bar[data-mode="readOnly"] {
+  --mode-bg: rgba(95, 191, 143, 0.14);
+  --mode-fg: #6fc99a;
+  --mode-line: rgba(95, 191, 143, 0.55);
+  --mode-divider: rgba(95, 191, 143, 0.35);
+}
+.mode-bar[data-mode="acceptEdits"] {
+  --mode-bg: rgba(224, 177, 90, 0.18);
+  --mode-fg: #e6bd6a;
+  --mode-line: rgba(224, 177, 90, 0.6);
+  --mode-divider: rgba(224, 177, 90, 0.4);
+}
+.mode-bar[data-mode="auto"] {
+  --mode-bg: rgba(224, 138, 74, 0.2);
+  --mode-fg: #ec9a5a;
+  --mode-line: rgba(224, 138, 74, 0.65);
+  --mode-divider: rgba(224, 138, 74, 0.45);
+}
+/* Highest risk — solid fill you can't miss. */
+.mode-bar[data-mode="bypass"],
+.mode-bar[data-mode="fullAccess"] {
+  --mode-bg: #cf5f5f;
+  --mode-fg: #2a1010;
+  --mode-line: #cf5f5f;
+  --mode-divider: rgba(0, 0, 0, 0.22);
+}
+
+/* Mode/effort sheet option buttons — wrap into rows of chips. */
+.mode-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.mode-option {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mode-option.selected {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.mode-option:active {
+  filter: brightness(0.97);
+}
+
+/* Direct keys: raw terminal signals, high-contrast, sent straight to the pane.
+   auto-fit packs as many keys per row as fit at >=72px each, so a wide screen
+   gets all 8 on ONE row and a narrow phone wraps to fewer columns (4, then 2).
+   Capped + centered so they don't stretch to absurd widths. */
+.direct-keys {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 5px;
+  width: 100%; /* never exceed the composer; lets auto-fit wrap on narrow widths */
+  max-width: 640px;
+  margin-inline: auto;
+}
+
+.direct-key {
+  display: grid;
+  min-width: 0;
+  min-height: 38px;
+  place-items: center;
+  border: 1px solid var(--accent-dark, #2a4863);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  padding: 0;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.direct-key:active {
+  background: var(--surface);
+}
+
+.direct-key.danger {
+  border-color: rgba(167, 53, 53, 0.5);
+  color: var(--danger);
+}
+
+/* Topbar "Read" (TTS) global action. */
+.topbar-read {
+  flex: 0 0 auto;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
   color: var(--accent-dark);
+  padding: 0;
+  box-shadow: var(--shadow);
 }
 
-.actions-toggle.active {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
-}
-
-.read-button.reading {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
-}
-
-.read-button.stopping {
-  opacity: 0.72;
-}
-
-.read-button .icon-busy {
-  display: none;
-}
-
-.read-button.reading .icon-idle {
-  display: none;
-}
-
-.read-button.reading .icon-busy {
-  display: block;
-}
+.topbar-read .icon-busy { display: none; }
+.topbar-read.reading { border-color: var(--accent); background: var(--accent); color: #fff; }
+.topbar-read.reading .icon-idle { display: none; }
+.topbar-read.reading .icon-busy { display: block; }
+.topbar-read.stopping { opacity: 0.72; }
 
 /* Topbar voice status is a single icon; text only in the tooltip/aria-label. */
 .voice-status {
@@ -613,199 +1314,47 @@ input {
   color: var(--accent-blue);
 }
 
-.text-composer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 82px;
-  gap: 6px;
-}
-
-.text-composer .lexical-editor {
-  position: relative;
-  width: 100%;
-  min-height: 86px;
-  max-height: 36dvh;
-  overflow-y: auto;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--ink);
-  padding: 9px 10px;
-  font-size: 13px;
-  line-height: 1.35;
-  white-space: pre-wrap;
-  word-break: break-word;
-  outline: none;
-  cursor: text;
-  text-align: left;
-}
-
-.text-composer .lexical-editor p {
-  margin: 0;
-  text-align: left;
-}
-
-.text-composer .lexical-editor.empty::before {
-  content: attr(data-placeholder);
-  position: absolute;
-  top: 9px;
-  left: 10px;
-  color: var(--muted);
-  pointer-events: none;
-}
-
-.text-composer-actions {
-  display: grid;
-  grid-template-rows: 1fr auto;
-  gap: 6px;
-}
-
-.text-composer-actions .small-button {
-  min-height: 40px;
-}
-
-.text-composer-actions .submit {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
-}
-
-.text-composer-actions .cancel {
-  border-color: var(--line);
-  color: var(--muted);
-}
-
-.text-actions-toggle {
-  display: inline-grid;
-  grid-template-columns: auto auto;
-  width: max-content;
-  min-height: 32px;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--muted);
-  padding: 0 10px;
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.text-actions-toggle.active {
-  border-color: rgba(17, 107, 95, 0.28);
-  background: #edf5f2;
-  color: var(--accent-dark);
-}
-
-.voice-recording-actions {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 6px;
-  align-items: center;
-}
-
-.voice-waveform {
+/* Insert picker — Recent (history) section rows; also reused for tap-to-insert. */
+.history-list {
   display: flex;
-  min-height: 36px;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: #f8e9e9;
-  padding: 6px 12px;
+  flex-direction: column;
+  gap: 6px;
+  /* No own max-height/overflow — flows inside the scrolling .settings-panel so
+     Recent always has room (the whole sheet scrolls as one). */
+  padding-bottom: 4px;
 }
 
-.voice-waveform span {
-  width: 3px;
-  height: 3px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: var(--danger);
-  transition: height 100ms;
-}
-
-.voice-action {
-  width: 36px;
-  height: 36px;
-}
-
-.voice-action.submit {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
-}
-
-.voice-action.cancel {
-  border-color: rgba(167, 53, 53, 0.36);
-  color: var(--danger);
-}
-
-.quick-action-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 4px;
-}
-
-.action-button {
-  display: grid;
-  min-width: 0;
-  min-height: 32px;
-  place-items: center;
+.history-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
-  color: var(--ink);
-  padding: 0;
+  background: var(--surface);
+  color: inherit;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  white-space: nowrap;
   overflow: hidden;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1;
+  text-overflow: ellipsis;
+  cursor: pointer;
 }
 
-.quick-action {
-  height: 32px;
+.history-item:hover {
+  border-color: var(--accent, #6c88a6);
+}
+
+.history-empty {
+  font-size: 0.9rem;
+  opacity: 0.7;
+  padding: 8px 2px;
 }
 
 @media (min-width: 600px) {
   .app-shell {
     width: 100vw;
   }
-}
-
-.action-button.danger {
-  border-color: rgba(167, 53, 53, 0.36);
-  color: var(--danger);
-}
-
-.action-button.command {
-  border-color: rgba(17, 107, 95, 0.28);
-  background: #edf5f2;
-  color: var(--accent-dark);
-}
-
-.action-button.agent {
-  border-color: rgba(39, 68, 114, 0.28);
-  background: #f2f4f7;
-  color: #274472;
-  font-size: 10px;
-}
-
-.action-button.audio {
-  border-color: rgba(39, 68, 114, 0.28);
-  background: #eef3fa;
-  color: #23466e;
-  font-size: 11px;
-}
-
-.action-button.audio.reading {
-  border-color: rgba(167, 53, 53, 0.36);
-  background: #fff0ee;
-  color: var(--danger);
-}
-
-.action-button.audio.stopping {
-  opacity: 0.72;
 }
 
 .directory-navigator {
@@ -1251,6 +1800,276 @@ input {
   margin-top: 3px;
 }
 
+/* Voice settings sheet — a bottom sheet like the target picker, but a simple
+   stacked form of model/voice dropdowns rather than a scrollable tree. */
+.settings-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 44;
+}
+
+.settings-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(15, 20, 24, 0.42);
+}
+
+.settings-panel {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 92dvh;
+  overflow-y: auto;
+  border-radius: 8px 8px 0 0;
+  background: var(--surface);
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  box-shadow: 0 -18px 38px rgba(15, 20, 24, 0.2);
+}
+
+/* AskUserQuestion overlay — a bottom sheet like the settings panel, with option
+   cards. */
+.ask-panel {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 88dvh;
+  overflow-y: auto;
+  border-radius: 10px 10px 0 0;
+  background: var(--surface);
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  box-shadow: 0 -18px 38px rgba(15, 20, 24, 0.25);
+}
+
+.ask-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ask-tab {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  border: 1px dashed var(--line);
+}
+
+.ask-tab.answered {
+  color: var(--accent-dark);
+  border-style: solid;
+}
+
+.ask-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ask-question {
+  font-size: 1.02rem;
+  font-weight: 700;
+  margin: 2px 0 4px;
+}
+
+.ask-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 11px 12px;
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.35));
+  border-radius: 9px;
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+}
+
+.ask-option:hover {
+  border-color: var(--accent, #6c88a6);
+}
+
+.ask-option .ask-mark {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border: 2px solid var(--border, rgba(120, 120, 120, 0.5));
+  border-radius: 50%; /* radio for single-select */
+}
+
+.ask-option.multi .ask-mark {
+  border-radius: 5px; /* square for multi-select */
+}
+
+.ask-option.checked .ask-mark {
+  background: var(--accent, #35597a);
+  border-color: var(--accent, #35597a);
+  box-shadow: inset 0 0 0 3px var(--surface);
+}
+
+.ask-option-main {
+  min-width: 0;
+}
+
+.ask-option-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.ask-option-desc {
+  margin-top: 2px;
+  font-size: 0.82rem;
+  opacity: 0.75;
+  line-height: 1.4;
+}
+
+.ask-free {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.ask-free input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.4));
+  background: var(--surface);
+  color: inherit;
+  font-size: 0.92rem;
+}
+
+.ask-submit {
+  margin-top: 6px;
+  background: var(--accent, #35597a);
+  color: #fff;
+}
+
+.ask-loading,
+.ask-empty,
+.ask-review {
+  font-size: 0.9rem;
+  opacity: 0.85;
+  padding: 6px 0;
+}
+
+/* Inline confirmation summary before the answer is sent. */
+.ask-confirm-label {
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+.ask-confirm-value {
+  margin-top: 4px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  opacity: 1;
+  line-height: 1.35;
+}
+
+.settings-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  opacity: 0.72;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.settings-field > span {
+  font-size: 0.82rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.settings-field select {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.4));
+  background: var(--surface);
+  color: inherit;
+  font-size: 0.95rem;
+}
+
+/* A checkbox + label on one row (e.g. the notification-sound on/off toggle). */
+.settings-field-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+}
+.settings-field-inline > span {
+  opacity: 1;
+  font-weight: 600;
+}
+.settings-field-inline input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+}
+
+.settings-field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-field-row select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.voice-preview {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.voice-preview:disabled {
+  opacity: 0.6;
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.settings-status {
+  margin-right: auto;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.settings-status.error {
+  color: #c0392b;
+  opacity: 1;
+}
+
 .target-select {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1266,6 +2085,30 @@ input {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: end;
+}
+
+.machine-picker {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.machine-picker select {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  padding: 7px 8px;
 }
 
 .session-name-field {
@@ -1314,6 +2157,51 @@ input {
   text-transform: none;
   letter-spacing: 0;
   color: var(--muted);
+}
+
+/* Per-window follow-up note, shown indented under its window button. Reads as a
+   sticky note when set, a subtle "+ add note" when empty. */
+.window-annotation {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: calc(100% - 14px);
+  margin: -2px 0 8px 14px;
+  padding: 5px 8px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.window-annotation:not(.has-note) {
+  opacity: 0.6; /* keep the empty "+ add note" affordance quiet */
+}
+
+.window-annotation.has-note {
+  border-style: solid;
+  background: var(--surface-soft);
+  color: var(--ink);
+  opacity: 1;
+}
+
+.window-annotation-icon {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.window-annotation-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.window-annotation:hover {
+  border-color: var(--accent, #6c88a6);
 }
 
 .mobile-target-groups {
@@ -1387,43 +2275,76 @@ input {
   background: #e9f3ef;
 }
 
-.item-title {
+/* Identity header: name (prominent) + compact inline branch/wt/cwd meta, with
+   the agent icon + live badge pushed to the right. One row instead of three. */
+.item-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
-  font-weight: 800;
-  font-size: 13px;
-  line-height: 1.25;
+  line-height: 1.2;
 }
 
-.item-title span:first-child {
+.item-name {
+  flex: 0 1 auto;
+  min-width: 2.5em; /* keep at least the "NN:" visible before truncating */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.item-head .item-branch {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--accent-dark);
 }
 
+.item-head .item-cwd {
+  flex: 0 2 auto; /* cwd yields first when space is tight */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.item-wt {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 1px 6px;
+  background: rgba(53, 89, 122, 0.14);
+  color: var(--accent-dark);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Spacer pushes the agent icon + badge to the right edge. */
+.item-head-spacer {
+  flex: 1 1 auto;
+  min-width: 4px;
+}
+
+/* The activity summary — supporting line below the identity header. */
 .item-meta {
-  margin-top: 4px;
+  margin-top: 5px;
   color: var(--muted);
   font-size: 11px;
   line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.item-branch {
-  margin-top: 3px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
-  font-weight: 700;
-  color: var(--accent-dark);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* Solid indigo chip in the topbar — sits at the START of the label so it
@@ -1464,29 +2385,17 @@ input {
   vertical-align: middle;
 }
 
-.item-cwd {
-  margin-top: 3px;
-  color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
-  line-height: 1.3;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  direction: rtl;
-  text-align: left;
-}
-
 .item-meta.summary {
   display: -webkit-box;
   overflow: hidden;
   color: #3d4c49;
-  font-size: 10.5px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
   text-overflow: clip;
   white-space: normal;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
 }
 
 .badge {
@@ -1501,6 +2410,67 @@ input {
 
 .badge.green {
   background: #dcefe8;
+  color: var(--accent-dark);
+}
+
+/* AI agent type chip (claude/codex/gemini) in a window row. */
+.agent-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 999px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  background: #ede7fb;
+  color: #5b3fb0;
+}
+
+.agent-chip svg {
+  display: block;
+}
+
+.agent-chip.agent-claude { background: #f3e7df; color: #b5530f; }
+.agent-chip.agent-codex { background: #e3e9f5; color: #2f5bb7; }
+.agent-chip.agent-gemini { background: #e4f0e4; color: #2c7a3e; }
+
+/* Turn state: working pulses (agent busy), idle is dimmed (turn ended). */
+.agent-chip.turn-working {
+  animation: agentPulse 1.4s ease-in-out infinite;
+}
+.agent-chip.turn-idle {
+  opacity: 0.6;
+}
+/* Waiting on an AskUserQuestion prompt — the strongest "needs you" state. */
+.agent-chip.turn-ask {
+  background: #fde8e8;
+  color: #b3261e;
+  animation: agentPulse 1.4s ease-in-out infinite;
+}
+/* HONEST STATE: detection is uncertain (low-confidence turn or "maybe blocked").
+ * Neutral + dashed outline reads as "unconfirmed" without the alarm of a red ask
+ * or the false calm of a dimmed idle. Never pulses (no urgency it can't justify).*/
+.agent-chip.turn-unverified {
+  opacity: 0.85;
+  border: 1px dashed currentColor;
+  border-radius: 5px;
+}
+@keyframes agentPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* Unread dot: window changed since last visit. */
+.unread-dot {
+  flex: 0 0 auto;
+  color: var(--accent-dark, #2a4863);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.item.unread .item-name {
   color: var(--accent-dark);
 }
 
@@ -1531,7 +2501,7 @@ input:focus {
 html:not([data-theme="kami"]) {
 select,
 input,
-.text-composer .lexical-editor {
+.input-area .lexical-editor {
   background: var(--code-bg);
   color: var(--ink);
 }
@@ -1560,66 +2530,18 @@ input,
   color: var(--muted);
 }
 
-.voice-button {
-  border-color: rgba(237, 229, 210, 0.12);
-  background: linear-gradient(var(--surface-soft), var(--surface));
+.input-area {
+  background: var(--code-bg);
+}
+
+.direct-key {
+  background: var(--surface-soft);
   color: var(--ink);
-  box-shadow:
-    inset 0 1px 0 rgba(237, 229, 210, 0.06),
-    0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
-.voice-button:active {
-  background: linear-gradient(var(--surface), var(--surface-soft));
-}
-
-.keyboard-button,
-.action-button.agent {
-  background: #1f2638;
-  color: var(--accent-dark);
-}
-
-.read-button {
-  background: #1f2638;
-  color: var(--accent-dark);
-}
-
-.voice-button.busy {
-  background: #1f2638;
-  color: var(--accent-dark);
-}
-
-.text-composer-actions .cancel {
+.topbar-read {
   background: var(--surface);
-}
-
-.voice-waveform {
-  background: #2e1814;
-}
-
-.action-button {
-  background: var(--surface);
-}
-
-.action-button.command {
-  background: #1f2638;
   color: var(--accent-dark);
-}
-
-.text-actions-toggle,
-.text-actions-toggle.active {
-  background: #1f2638;
-  color: var(--accent-dark);
-}
-
-.action-button.audio {
-  background: #1f2638;
-  color: var(--accent-dark);
-}
-
-.action-button.audio.reading {
-  background: #2e1814;
-  color: var(--danger);
 }
 
 .directory-navigator {
