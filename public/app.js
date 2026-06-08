@@ -133,6 +133,7 @@ const state = {
     pendingError: "",
     pendingMimeType: "",
     pendingTranscript: "",
+    pendingIdempotencyKey: "",
     sampleTimer: null,
     stream: null,
     status: "idle",
@@ -701,11 +702,22 @@ function renderVoiceRetry() {
   els.voiceStatusRow.hidden = !statusVisible && !canRetry;
 }
 
+function newRequestId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `r-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function rememberPendingVoiceAudio(blob) {
   state.voice.pendingAudio = blob;
   state.voice.pendingMimeType = blob.type || "audio/webm";
   state.voice.pendingTranscript = "";
   state.voice.pendingError = "";
+  // Stable per-recording idempotency key, reused across every retry so the
+  // server can dedupe — without it, a flaky link makes /api/voice-send paste
+  // the same message into tmux once per retry.
+  state.voice.pendingIdempotencyKey = newRequestId();
   renderVoiceRetry();
 }
 
@@ -714,6 +726,7 @@ function clearPendingVoiceAudio() {
   state.voice.pendingMimeType = "";
   state.voice.pendingTranscript = "";
   state.voice.pendingError = "";
+  state.voice.pendingIdempotencyKey = "";
   renderVoiceRetry();
 }
 
@@ -1023,7 +1036,12 @@ async function sendPendingVoiceRecording() {
   });
   const data = await api(`/api/voice-send?${params}`, {
     method: "POST",
-    headers: { "content-type": state.voice.pendingMimeType || "audio/webm" },
+    headers: {
+      "content-type": state.voice.pendingMimeType || "audio/webm",
+      // Same key on every retry of the same recording, so the server can
+      // collapse duplicates to one tmux send-keys.
+      "x-idempotency-key": state.voice.pendingIdempotencyKey || "",
+    },
     body: blob,
   });
   const transcript = String(data.text || "").trim();

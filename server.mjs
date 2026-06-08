@@ -1311,6 +1311,46 @@ function audioFilename(contentType) {
   return "voice.webm";
 }
 
+// Voice-send idempotency. Successful responses are cached for
+// VOICE_SEND_IDEMPOTENCY_TTL_MS so retries on a flaky link don't paste the
+// same message into tmux N times. In-flight dedup also folds concurrent
+// retries with the same key onto one shared promise — without it, two
+// parallel retries that both miss the cache would both run send-keys.
+const VOICE_SEND_IDEMPOTENCY_TTL_MS = 120_000;
+const voiceSendCache = new Map();
+const voiceSendInFlight = new Map();
+
+function pruneExpiredVoiceSendCache(now) {
+  for (const [key, entry] of voiceSendCache) {
+    if (entry.expiresAt <= now) voiceSendCache.delete(key);
+  }
+}
+
+async function withVoiceSendIdempotency(key, processFn) {
+  if (!key) return processFn();
+  const now = Date.now();
+  const cached = voiceSendCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.response;
+  if (cached) voiceSendCache.delete(key);
+  const inFlight = voiceSendInFlight.get(key);
+  if (inFlight) return inFlight;
+  const promise = (async () => {
+    try {
+      const response = await processFn();
+      voiceSendCache.set(key, {
+        response,
+        expiresAt: Date.now() + VOICE_SEND_IDEMPOTENCY_TTL_MS,
+      });
+      pruneExpiredVoiceSendCache(Date.now());
+      return response;
+    } finally {
+      voiceSendInFlight.delete(key);
+    }
+  })();
+  voiceSendInFlight.set(key, promise);
+  return promise;
+}
+
 async function transcribeAudio(buffer, contentType) {
   if (!process.env.OPENAI_API_KEY) {
     const error = new Error("OPENAI_API_KEY is not set");
@@ -1601,39 +1641,48 @@ async function handleApi(req, res, url) {
     const paneId = requireId(url.searchParams.get("paneId"), "pane");
     const sendEnter = url.searchParams.get("enter") !== "0";
     const submitNudge = url.searchParams.get("submitNudge") !== "0";
+    const idempotencyKey = String(req.headers["x-idempotency-key"] || "");
     const contentType = req.headers["content-type"] || "audio/webm";
     const audio = await readRequestBuffer(req, MAX_AUDIO_BYTES);
-    if (audio.length === 0) {
-      sendJson(res, 400, { error: "No audio received" });
-      return;
-    }
 
-    const text = await transcribeAudio(audio, contentType);
-    if (!text) {
-      sendJson(res, 422, { error: "No speech recognized" });
-      return;
-    }
-    if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
-      sendJson(res, 413, { error: "Transcribed text is too large" });
-      return;
-    }
-
-    const sendResult = await sendTextToPane(paneId, text, { enter: false });
-    if (sendEnter) {
-      await runTmux(["send-keys", "-t", paneId, "Enter"]);
-      if (submitNudge) {
-        sendSubmitNudge(paneId);
+    // Idempotency: voice-send transcribes AND pastes into a tmux pane, so a
+    // retried request after a flaky response would otherwise duplicate the
+    // user's message into the pane every retry. Client supplies a stable
+    // UUID per recording (state.voice.pendingIdempotencyKey); same key
+    // collapses to the same response. In-flight dedup also handles two
+    // retries fired before the first finishes.
+    const response = await withVoiceSendIdempotency(idempotencyKey, async () => {
+      if (audio.length === 0) {
+        const error = new Error("No audio received");
+        error.status = 400;
+        throw error;
       }
-    }
-
-    sendJson(res, 200, {
-      ok: true,
-      text,
-      model: TRANSCRIBE_MODEL,
-      sendMode: sendResult.mode,
-      submitNudgeDelayMs:
-        submitNudge && sendEnter && text.length > 0 ? SUBMIT_NUDGE_DELAY_MS : 0,
+      const text = await transcribeAudio(audio, contentType);
+      if (!text) {
+        const error = new Error("No speech recognized");
+        error.status = 422;
+        throw error;
+      }
+      if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
+        const error = new Error("Transcribed text is too large");
+        error.status = 413;
+        throw error;
+      }
+      const sendResult = await sendTextToPane(paneId, text, { enter: false });
+      if (sendEnter) {
+        await runTmux(["send-keys", "-t", paneId, "Enter"]);
+        if (submitNudge) sendSubmitNudge(paneId);
+      }
+      return {
+        ok: true,
+        text,
+        model: TRANSCRIBE_MODEL,
+        sendMode: sendResult.mode,
+        submitNudgeDelayMs:
+          submitNudge && sendEnter && text.length > 0 ? SUBMIT_NUDGE_DELAY_MS : 0,
+      };
     });
+    sendJson(res, 200, response);
     return;
   }
 
