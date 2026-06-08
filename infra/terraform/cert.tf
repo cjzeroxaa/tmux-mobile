@@ -1,12 +1,12 @@
 # ACM cert for the controller domain. Validation is DNS-based, but
-# rebyte.ai delegates to Google Cloud DNS (not Route 53), so this module
-# does NOT create the validation record automatically — `outputs.tf`
-# emits the exact `gcloud dns record-sets` command the operator runs to
-# add the validation CNAME under rebyte.ai.
+# impo.ai delegates to Cloudflare (not Route 53), so this module does NOT
+# create the validation record automatically — `outputs.tf` emits the
+# record name + value the operator pastes into the Cloudflare DNS UI for
+# impo.ai (or POSTs to the CF API via the curl example).
 #
-# After that record propagates (usually <2 min on Google DNS), `terraform
-# apply` again to let aws_acm_certificate_validation poll AWS for the
-# issued cert and unblock the ALB listener.
+# After Cloudflare propagates the CNAME (usually <30s on CF), the
+# aws_acm_certificate_validation resource below polls AWS for the
+# issued cert and unblocks the ALB listener.
 
 resource "aws_acm_certificate" "controller" {
   domain_name       = var.domain_name

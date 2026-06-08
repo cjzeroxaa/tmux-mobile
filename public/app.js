@@ -4030,16 +4030,17 @@ async function refreshSnapshot(addToChat = false, { forceScrollBottom = false } 
   }
 }
 
-async function sendMessage(text, enter, { submitNudge = true } = {}) {
-  // submitNudge defaults to TRUE: when the target pane is a bracketed-paste
-  // agent (Claude Code, Codex), tmux's paste-buffer→Enter sometimes lands
-  // the Enter inside the paste block, so the agent sees the text as input
-  // text but never sees a submit. The server fires a second Enter ~700ms
-  // later (SUBMIT_NUDGE_DELAY_MS), after bracketed-paste has closed, which
-  // is what actually submits. Voice-send already does this; text submits
-  // used to default off, which is why "I hit Send but nothing happened"
-  // was a thing. The extra Enter is benign for plain shell targets — just
-  // produces one extra prompt redraw.
+async function sendMessage(text, enter, { submitNudge = false } = {}) {
+  // submitNudge defaults FALSE. I had this defaulting to true for a few
+  // commits because I assumed the paste→Enter race was still live in this
+  // codebase — but the upstream sync already fixed it by waiting
+  // PASTE_ENTER_DELAY_MS between paste-buffer and send-keys Enter (see
+  // server.mjs sendTextToPane). With that delay in place, the single Enter
+  // already submits cleanly; tacking on a nudge Enter ~700ms later just
+  // fires into whatever state the agent has moved into — empty submit on a
+  // shell, AUTO-CONFIRMING a "Y/n" or rating prompt on Claude/Codex.
+  // Verified empirically: shell shows a duplicate $ prompt with nudge,
+  // clean prompt without.
   if (!state.paneId) {
     addChat("system", "Select a window first.", "system");
     return;

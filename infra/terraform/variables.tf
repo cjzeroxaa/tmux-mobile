@@ -5,9 +5,9 @@ variable "aws_region" {
 }
 
 variable "domain_name" {
-  description = "Public hostname the controller answers on. ACM cert + ALB listener + GOOGLE_OAUTH_REDIRECT_URI are all derived from this."
+  description = "Public hostname the controller answers on. ACM cert + ALB listener + GOOGLE_OAUTH_REDIRECT_URI are all derived from this. Parent zone (impo.ai) is authoritative on Cloudflare; DNS records are added out-of-band (see outputs.tf)."
   type        = string
-  default     = "eng.rebyte.ai"
+  default     = "eng.impo.ai"
 }
 
 # Browser-side allow-list. Set both: ALLOWED_GOOGLE_EMAILS is per-user (you),
