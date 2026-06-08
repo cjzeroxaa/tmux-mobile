@@ -3179,9 +3179,12 @@ async function serveStatic(req, res, url) {
   }
 }
 
-// Mode: `--register <hubUrl>` runs as an agent for the cloud; `--hub` serves the
-// app and brokers to registered agents; `--controller` is the public Cloud Run
-// hub variant with app auth; default is today's local server.
+// Three modes:
+//   default       — local single-machine server (today's everyday usage)
+//   --register U  — agent that dials out to a controller over WebSocket
+//   --controller  — the public hub (Fargate / Cloud Run) with Google OAuth
+// The legacy `--hub` (no-auth public broker) is gone; the controller path
+// covers every public-broker use case with proper auth.
 function parseMode(args) {
   const registerIndex = args.indexOf("--register");
   if (registerIndex !== -1) {
@@ -3192,13 +3195,20 @@ function parseMode(args) {
     };
   }
   if (args.includes("--controller")) return { kind: "controller" };
-  if (args.includes("--hub")) return { kind: "hub" };
+  if (args.includes("--hub")) {
+    console.error(
+      "--hub mode has been removed; use --controller (Google OAuth) for the public broker.",
+    );
+    process.exit(2);
+  }
   return { kind: "local" };
 }
 
 const MODE = parseMode(process.argv.slice(2));
 const HOST = process.env.HOST || (MODE.kind === "controller" ? "0.0.0.0" : "127.0.0.1");
-const IS_HUB_MODE = MODE.kind === "hub" || MODE.kind === "controller";
+// IS_HUB_MODE is now just "is this the public broker", which only the
+// controller is. Kept under the old name so the many call sites don't churn.
+const IS_HUB_MODE = MODE.kind === "controller";
 const REQUIRE_BROWSER_AUTH =
   MODE.kind === "controller" || process.env.TMUX_MOBILE_REQUIRE_AUTH === "1";
 
@@ -3291,6 +3301,9 @@ if (MODE.kind === "register") {
 
       if (req.method === "GET" && url.pathname === "/api/runtime") {
         sendJson(res, 200, {
+          // Frontend still uses the legacy 'hub' literal to mean "I'm
+          // talking to the public broker (vs my own local tmux server)";
+          // preserved here so the UI doesn't need to learn 'controller'.
           mode: IS_HUB_MODE ? "hub" : MODE.kind,
           revision: APP_REVISION,
           // Connector repo, shown in the "no machine connected" UI so a user
