@@ -4023,7 +4023,16 @@ async function refreshSnapshot(addToChat = false, { forceScrollBottom = false } 
   }
 }
 
-async function sendMessage(text, enter, { submitNudge = false } = {}) {
+async function sendMessage(text, enter, { submitNudge = true } = {}) {
+  // submitNudge defaults to TRUE: when the target pane is a bracketed-paste
+  // agent (Claude Code, Codex), tmux's paste-buffer→Enter sometimes lands
+  // the Enter inside the paste block, so the agent sees the text as input
+  // text but never sees a submit. The server fires a second Enter ~700ms
+  // later (SUBMIT_NUDGE_DELAY_MS), after bracketed-paste has closed, which
+  // is what actually submits. Voice-send already does this; text submits
+  // used to default off, which is why "I hit Send but nothing happened"
+  // was a thing. The extra Enter is benign for plain shell targets — just
+  // produces one extra prompt redraw.
   if (!state.paneId) {
     addChat("system", "Select a window first.", "system");
     return;
