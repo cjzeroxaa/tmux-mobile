@@ -1288,6 +1288,27 @@ function composerClear() {
   els.textInput.classList.add("empty");
 }
 
+// Set the editor to a specific string — used to restore the user's text when
+// a send fails after the optimistic clear. Lexical needs an update() block
+// that builds a fresh paragraph with a text node; the plain contenteditable
+// fallback can just set textContent.
+function composerSetText(text) {
+  const value = String(text ?? "");
+  if (composerEditor) {
+    composerEditor.editor.update(() => {
+      const { $getRoot, $createParagraphNode, $createTextNode } = composerEditor.lexical;
+      const root = $getRoot();
+      root.clear();
+      const paragraph = $createParagraphNode();
+      if (value.length > 0) paragraph.append($createTextNode(value));
+      root.append(paragraph);
+    });
+  } else {
+    els.textInput.textContent = value;
+  }
+  els.textInput.classList.toggle("empty", value.length === 0);
+}
+
 function composerFocus() {
   if (composerEditor) composerEditor.editor.focus();
   else els.textInput.focus();
@@ -1464,7 +1485,14 @@ async function submitTextComposer(event, { keepFocus = true } = {}) {
   try {
     await sendMessage(text, true);
   } catch (error) {
-    addChat("system", error.message, "send error");
+    // Optimistic clear is great on the happy path, but if the send actually
+    // failed the user has lost their text. Put it back in the composer so
+    // they can fix-and-retry without re-typing, and re-focus so the keyboard
+    // pops back up on mobile. The error chat row + box-still-has-the-text
+    // is the unambiguous "submit didn't go through" signal.
+    composerSetText(text);
+    composerFocus();
+    addChat("system", `Send failed: ${error.message}`, "send error");
   } finally {
     els.submitText.disabled = false;
   }
