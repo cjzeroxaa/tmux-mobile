@@ -1873,6 +1873,46 @@ function audioFilename(contentType) {
   return "voice.webm";
 }
 
+// Voice-send idempotency. Successful responses are cached for
+// VOICE_SEND_IDEMPOTENCY_TTL_MS so retries on a flaky link don't paste the
+// same message into tmux N times. In-flight dedup also folds concurrent
+// retries with the same key onto one shared promise — without it, two
+// parallel retries that both miss the cache would both run send-keys.
+const VOICE_SEND_IDEMPOTENCY_TTL_MS = 120_000;
+const voiceSendCache = new Map();
+const voiceSendInFlight = new Map();
+
+function pruneExpiredVoiceSendCache(now) {
+  for (const [key, entry] of voiceSendCache) {
+    if (entry.expiresAt <= now) voiceSendCache.delete(key);
+  }
+}
+
+async function withVoiceSendIdempotency(key, processFn) {
+  if (!key) return processFn();
+  const now = Date.now();
+  const cached = voiceSendCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.response;
+  if (cached) voiceSendCache.delete(key);
+  const inFlight = voiceSendInFlight.get(key);
+  if (inFlight) return inFlight;
+  const promise = (async () => {
+    try {
+      const response = await processFn();
+      voiceSendCache.set(key, {
+        response,
+        expiresAt: Date.now() + VOICE_SEND_IDEMPOTENCY_TTL_MS,
+      });
+      pruneExpiredVoiceSendCache(Date.now());
+      return response;
+    } finally {
+      voiceSendInFlight.delete(key);
+    }
+  })();
+  voiceSendInFlight.set(key, promise);
+  return promise;
+}
+
 async function transcribeAudio(buffer, contentType) {
   if (!process.env.OPENAI_API_KEY) {
     const error = new Error("OPENAI_API_KEY is not set");
@@ -2806,41 +2846,52 @@ async function handleApi(req, res, url) {
     // to a short, safe set of chars so it can't inject arbitrary control input.
     const rawPrefix = url.searchParams.get("prefix") || "";
     const prefix = sanitizeVoicePrefix(rawPrefix);
+    const idempotencyKey = String(req.headers["x-idempotency-key"] || "");
     const contentType = req.headers["content-type"] || "audio/webm";
     const audio = await readRequestBuffer(req, MAX_AUDIO_BYTES);
-    if (audio.length === 0) {
-      sendJson(res, 400, { error: "No audio received" });
-      return;
-    }
 
-    const transcript = await transcribeAudio(audio, contentType);
-    if (!transcript) {
-      sendJson(res, 422, { error: "No speech recognized" });
-      return;
-    }
-    const text = prefix ? `${prefix}${transcript}` : transcript;
-    if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
-      sendJson(res, 413, { error: "Transcribed text is too large" });
-      return;
-    }
-
-    // Paste + Enter together so the paste->Enter delay applies and the Enter
-    // reliably submits (rather than being consumed by the bracketed paste).
-    const sendResult = await sendTextToPane(paneId, text, { enter: sendEnter });
-    if (sendEnter && submitNudge) {
-      sendSubmitNudge(paneId);
-    }
-
-    sendJson(res, 200, {
-      ok: true,
-      text, // the full sent text (prefix + transcript)
-      transcript, // the raw transcript without the prefix
-      prefix,
-      model: getVoiceConfig().transcribeModel,
-      sendMode: sendResult.mode,
-      submitNudgeDelayMs:
-        submitNudge && sendEnter && text.length > 0 ? SUBMIT_NUDGE_DELAY_MS : 0,
+    // Idempotency: voice-send transcribes AND pastes into a tmux pane, so a
+    // retried request after a flaky response would otherwise duplicate the
+    // user's message into the pane every retry. Client supplies a stable
+    // UUID per recording (state.voice.pendingIdempotencyKey); same key
+    // collapses to the same response. In-flight dedup also handles two
+    // retries fired before the first finishes.
+    const response = await withVoiceSendIdempotency(idempotencyKey, async () => {
+      if (audio.length === 0) {
+        const error = new Error("No audio received");
+        error.status = 400;
+        throw error;
+      }
+      const transcript = await transcribeAudio(audio, contentType);
+      if (!transcript) {
+        const error = new Error("No speech recognized");
+        error.status = 422;
+        throw error;
+      }
+      const text = prefix ? `${prefix}${transcript}` : transcript;
+      if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
+        const error = new Error("Transcribed text is too large");
+        error.status = 413;
+        throw error;
+      }
+      // Paste + Enter together so the paste->Enter delay applies and the Enter
+      // reliably submits (rather than being consumed by the bracketed paste).
+      const sendResult = await sendTextToPane(paneId, text, { enter: sendEnter });
+      if (sendEnter && submitNudge) {
+        sendSubmitNudge(paneId);
+      }
+      return {
+        ok: true,
+        text, // the full sent text (prefix + transcript)
+        transcript, // the raw transcript without the prefix
+        prefix,
+        model: getVoiceConfig().transcribeModel,
+        sendMode: sendResult.mode,
+        submitNudgeDelayMs:
+          submitNudge && sendEnter && text.length > 0 ? SUBMIT_NUDGE_DELAY_MS : 0,
+      };
     });
+    sendJson(res, 200, response);
     return;
   }
 
