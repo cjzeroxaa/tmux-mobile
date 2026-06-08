@@ -197,13 +197,24 @@ if [[ -z "$RT_ID" || "$RT_ID" == "None" ]]; then
     --query 'RouteTable.RouteTableId' --output text)"
   aws_run ec2 create-route --region "$AWS_REGION" --route-table-id "$RT_ID" \
     --destination-cidr-block 0.0.0.0/0 --gateway-id "$IGW_ID" >/dev/null
-  aws_run ec2 associate-route-table --region "$AWS_REGION" --route-table-id "$RT_ID" --subnet-id "$SUBNET_A_ID" >/dev/null
-  aws_run ec2 associate-route-table --region "$AWS_REGION" --route-table-id "$RT_ID" --subnet-id "$SUBNET_B_ID" >/dev/null
   note "created $RT_ID"
 else
   note "exists  $RT_ID"
 fi
 state_set RT_ID "$RT_ID"
+# Always reconcile subnet associations: a previous run with bad subnet
+# IDs (e.g. multiline-contaminated state) can leave the RT with no
+# associations, and the else-branch above otherwise wouldn't notice.
+for sub in "$SUBNET_A_ID" "$SUBNET_B_ID"; do
+  current_rt="$(aws ec2 describe-route-tables --region "$AWS_REGION" \
+    --filters "Name=association.subnet-id,Values=$sub" \
+    --query 'RouteTables[0].RouteTableId' --output text 2>/dev/null || true)"
+  if [[ "$current_rt" != "$RT_ID" ]]; then
+    aws_run ec2 associate-route-table --region "$AWS_REGION" \
+      --route-table-id "$RT_ID" --subnet-id "$sub" >/dev/null
+    note "  associated $sub → $RT_ID"
+  fi
+done
 
 # ---------------------- security groups ----------------------
 section "Security groups"
@@ -549,7 +560,9 @@ if [[ "$SVC_EXISTS" == "ACTIVE" ]]; then
     --cluster "$NAME" --service "$NAME" \
     --task-definition "$TD_ARN" \
     --force-new-deployment >/dev/null
-elif [[ "$SVC_EXISTS" == "INACTIVE" || "$SVC_EXISTS" == "MISSING" ]]; then
+elif [[ "$SVC_EXISTS" == "INACTIVE" || "$SVC_EXISTS" == "MISSING" || "$SVC_EXISTS" == "None" ]]; then
+  # "None" is what `--query services[0].status` prints when the array is
+  # empty (jmespath maps undefined to JSON null, CLI prints it as "None").
   aws_run ecs create-service --region "$AWS_REGION" \
     --cluster "$NAME" --service-name "$NAME" \
     --task-definition "$TD_ARN" \
