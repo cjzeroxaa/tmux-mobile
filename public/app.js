@@ -327,6 +327,9 @@ const state = {
   attention: [], // cross-machine: [{ machineId, sessionName, windowIndex, windowName, agentType, turn, waitingForInput, contentHash }]
   activityTimer: null,
   metadataTimer: null, // background "needs you" metadata poll (cross-machine)
+  autoRefreshInFlight: false, // back-pressure flag for setAutoRefresh — skip the
+                              // next tick if the previous one's network hasn't
+                              // returned yet (see setAutoRefresh).
   summariesLoading: false,
   panes: [],
   sessionId: "",
@@ -3425,13 +3428,24 @@ async function pollWindowActivity() {
 function startActivityPolling() {
   stopActivityPolling();
   if (state.sessions.length === 0) return;
-  pollWindowActivity();
-  state.activityTimer = window.setInterval(pollWindowActivity, 3000);
+  // setTimeout-after-await pattern (same shape as startMetadataPolling).
+  // setInterval would queue overlapping ticks under slow network; with the
+  // chained-setTimeout pattern each tick only fires after the previous one's
+  // awaits complete, so the cadence naturally backs off when responses are
+  // slow.
+  const tick = async () => {
+    await pollWindowActivity();
+    if (state.activityTimer !== null) {
+      state.activityTimer = window.setTimeout(tick, 3000);
+    }
+  };
+  state.activityTimer = 0; // non-null sentinel so the first tick's re-arm runs
+  tick();
 }
 
 function stopActivityPolling() {
-  if (state.activityTimer) {
-    window.clearInterval(state.activityTimer);
+  if (state.activityTimer !== null) {
+    window.clearTimeout(state.activityTimer);
     state.activityTimer = null;
   }
 }
@@ -4396,8 +4410,24 @@ function setAutoRefresh(enabled) {
   }
   if (enabled) {
     state.autoRefreshTimer = window.setInterval(() => {
-      refreshTree();
-      refreshSnapshot();
+      // Back-pressure. Each refresh cycle fans out ~20 requests
+      // (sessions + 8 × /api/windows + 8 × /api/window-metadata + capture
+      // + attention + …). On a slow link a cycle can take 5–10 s, so the
+      // raw 3-second interval was firing cycle N+1 while cycle N's
+      // responses were still landing. Out-of-order responses then kept
+      // overwriting state.windows / state.panes mid-render — which the
+      // user perceives as the window list "jumping between channels
+      // many times" before settling. Verified empirically:
+      //   /tmp/verify-tmux-mobile/events.jsonl on slow-3g showed 3
+      //   overlapping cycles, 57 in-flight requests, in 10 s.
+      // Skip the tick if the previous network is still in flight; with
+      // this guard the effective cadence becomes min(3s, cycle-duration)
+      // which is exactly the back-pressure we want.
+      if (state.autoRefreshInFlight) return;
+      state.autoRefreshInFlight = true;
+      Promise.allSettled([refreshTree(), refreshSnapshot()]).finally(() => {
+        state.autoRefreshInFlight = false;
+      });
     }, 3000);
   }
 }
