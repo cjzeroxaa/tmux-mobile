@@ -1056,7 +1056,7 @@ async function sendPendingVoiceRecording() {
   stopVoiceAnalysis({ clearWaveform: true });
 }
 
-const VOICE_SEND_MAX_ATTEMPTS = 10;
+const VOICE_SEND_MAX_ATTEMPTS = 3;
 const VOICE_SEND_RETRY_DELAY_MS = 1200;
 
 // These fail the same way on every attempt, so retrying is pointless.
