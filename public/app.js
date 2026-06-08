@@ -1288,27 +1288,6 @@ function composerClear() {
   els.textInput.classList.add("empty");
 }
 
-// Set the editor to a specific string — used to restore the user's text when
-// a send fails after the optimistic clear. Lexical needs an update() block
-// that builds a fresh paragraph with a text node; the plain contenteditable
-// fallback can just set textContent.
-function composerSetText(text) {
-  const value = String(text ?? "");
-  if (composerEditor) {
-    composerEditor.editor.update(() => {
-      const { $getRoot, $createParagraphNode, $createTextNode } = composerEditor.lexical;
-      const root = $getRoot();
-      root.clear();
-      const paragraph = $createParagraphNode();
-      if (value.length > 0) paragraph.append($createTextNode(value));
-      root.append(paragraph);
-    });
-  } else {
-    els.textInput.textContent = value;
-  }
-  els.textInput.classList.toggle("empty", value.length === 0);
-}
-
 function composerFocus() {
   if (composerEditor) composerEditor.editor.focus();
   else els.textInput.focus();
