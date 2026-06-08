@@ -5132,6 +5132,23 @@ els.textInput.addEventListener("keydown", (event) => {
     submitTextComposer();
   }
 });
+
+// iOS PWA / Add-to-Home-Screen quirk: in standalone mode the virtual
+// keyboard's Return key on a contenteditable fires `beforeinput` with
+// `inputType: "insertParagraph"` but does NOT reliably fire a `keydown`
+// with `key === "Enter"`. Lexical's KEY_ENTER_COMMAND and the keydown
+// fallback above both bind to keydown, so both miss it — net effect is
+// Enter does nothing in iOS PWAs even though typing works. Regular Safari
+// / Chrome aren't standalone so they fire keydown the normal way.
+// Catching beforeinput is harmless on those browsers: if both fire, the
+// second submitTextComposer sees an empty editor and returns immediately.
+els.textInput.addEventListener("beforeinput", (event) => {
+  const type = event.inputType;
+  if (type !== "insertParagraph" && type !== "insertLineBreak") return;
+  if (event.shiftKey) return; // future-proof: Shift+Enter still a newline
+  event.preventDefault();
+  submitTextComposer();
+});
 els.submitVoice.addEventListener("click", submitVoiceRecording);
 els.cancelVoice.addEventListener("click", cancelVoiceRecording);
 els.retryVoice.addEventListener("click", retryVoiceRecording);
