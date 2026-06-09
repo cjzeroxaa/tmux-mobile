@@ -172,6 +172,65 @@ h3 {
   display: inline-block;
 }
 
+/* Global-recents quick-switch: toggle button + popup, right of the copy button.
+   Mirrors the More menu's structure. The isolate+z-index lifts the popup above
+   the terminal .snapshot so its items stay clickable (same stacking fix the
+   More menu needed). */
+.recents-menu {
+  position: relative;
+  flex: 0 0 auto;
+  isolation: isolate;
+  z-index: 60;
+}
+.recents-menu-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  max-width: min(86vw, 460px);
+  max-height: 70vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 6px;
+  gap: 2px;
+}
+.recents-menu-item {
+  display: block;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  padding: 7px 9px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.35;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  /* Long descriptors wrap rather than truncate — the whole id should be
+     readable in the list. */
+  white-space: normal;
+  word-break: break-word;
+  cursor: pointer;
+}
+.recents-menu-item:hover,
+.recents-menu-item:focus-visible {
+  background: var(--accent);
+  color: var(--surface);
+  border-color: var(--accent);
+}
+.recents-menu-empty {
+  padding: 10px 9px;
+  color: var(--muted, #888);
+  font-size: 12px;
+}
+
 .directory-trigger {
   color: var(--accent-dark);
 }

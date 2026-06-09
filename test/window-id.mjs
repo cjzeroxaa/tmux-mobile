@@ -7,7 +7,35 @@ import {
   windowKey,
   windowStableId,
   windowDescriptor,
+  mergeRecent,
 } from "../public/window-id.js";
+
+// --- mergeRecent: MRU insert, dedupe by key, cap length ---
+// new key goes to the front
+assert.deepEqual(
+  mergeRecent([{ key: "a" }, { key: "b" }], { key: "c" }, 20).map((e) => e.key),
+  ["c", "a", "b"],
+);
+// re-visiting an existing key moves it to the front (no duplicate), and the
+// entry's fresh data replaces the old one
+const merged = mergeRecent(
+  [{ key: "a", name: "old" }, { key: "b" }],
+  { key: "a", name: "new" },
+  20,
+);
+assert.deepEqual(merged.map((e) => e.key), ["a", "b"]);
+assert.equal(merged[0].name, "new");
+// cap is enforced, oldest dropped
+assert.deepEqual(
+  mergeRecent(
+    [{ key: "1" }, { key: "2" }, { key: "3" }],
+    { key: "0" },
+    3,
+  ).map((e) => e.key),
+  ["0", "1", "2"],
+);
+// tolerates empty / missing list
+assert.deepEqual(mergeRecent(undefined, { key: "x" }, 5), [{ key: "x" }]);
 
 // --- windowKey: the shared identity key (machine  session  index) ---
 // Both windowRecentKey (live windows) and attentionKey (attention descriptors)
