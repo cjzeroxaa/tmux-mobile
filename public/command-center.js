@@ -232,14 +232,20 @@ function renderCard(agent) {
   const header = document.createElement("div");
   header.className = "cc-card-header";
   // In controller mode the controller tags each agent with the machine it
-  // came from; show that as a leading chip so you can tell which Mac the
-  // window lives on when you have several connected. In local mode the
-  // field isn't present and the chip is omitted.
+  // came from + the email of whoever registered it. Show both as a
+  // leading chip pair so you can tell whose Mac the window lives on at a
+  // glance. Local mode skips both (fields absent).
   const machineChip = agent.machineHostname
     ? `<span class="cc-machine-chip" title="${escapeHtml(agent.machineId || "")}">${escapeHtml(agent.machineHostname)}</span>`
     : "";
+  // Strip @domain for visual compactness; full email lives in the title.
+  const ownerLocal = (agent.machineOwnerId || "").replace(/@.*$/, "");
+  const ownerChip = agent.machineOwnerId
+    ? `<span class="cc-owner-chip" title="${escapeHtml(agent.machineOwnerId)}">${escapeHtml(ownerLocal)}</span>`
+    : "";
   header.innerHTML = `
     ${machineChip}
+    ${ownerChip}
     <span class="cc-card-title">
       <span>${agent.windowIndex}: ${escapeHtml(agent.windowName || "(unnamed)")}</span>
       <span class="cc-card-session">· ${escapeHtml(agent.sessionName || "")}</span>

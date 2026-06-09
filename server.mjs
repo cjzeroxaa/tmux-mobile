@@ -3411,10 +3411,12 @@ if (MODE.kind === "register") {
             sendJson(res, 200, { ok: true, revision: APP_REVISION });
             return;
           }
-          // Command Center spans every machine the user owns — same shape
-          // as /api/attention above. Tag each agent with which machine it
-          // came from so the UI can label cards. Skip a machine that
-          // hiccups this tick rather than failing the whole call.
+          // Command Center spans every machine on the controller — open-
+          // team mode, so the user sees their own machines plus everyone
+          // else's contributed ones in one merged feed. Tag each agent
+          // with which machine + which contributor (ownerId) so the UI
+          // can label cards. Per-machine failures get swallowed so one
+          // hiccupping agent doesn't poison the whole feed.
           if (req.method === "GET" && url.pathname === "/api/command-center") {
             const online = hub.listMachines(userId);
             const all = [];
@@ -3429,6 +3431,7 @@ if (MODE.kind === "register") {
                     all.push({
                       machineId: machine.id,
                       machineHostname: machine.hostname,
+                      machineOwnerId: machine.ownerId || "",
                       ...a,
                     });
                   }

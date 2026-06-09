@@ -241,6 +241,22 @@
   text-overflow: ellipsis;
 }
 
+/* Whose Google account registered the machine. Slightly accented so it
+ * reads as "contributor" not "context"; full email in the title attr. */
+.cc-owner-chip {
+  display: inline-block;
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(53, 89, 122, 0.10);
+  color: var(--accent-dark);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
 .cc-status-pill {
   display: inline-flex;
   align-items: center;
