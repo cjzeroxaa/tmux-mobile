@@ -150,5 +150,14 @@ assert.equal(
   }),
   "h/s:4 (4:x · worktree)",
 );
+// { worktree: false } suppresses the flag (the recents menu uses this) — but
+// keeps branch/cwd; default still shows it.
+assert.equal(
+  windowDescriptor(
+    { host: "h", sessionName: "s", index: 4, name: "x", cwd: "/root/p", branch: "main", worktree: true },
+    { worktree: false },
+  ),
+  "h/s:4 (4:x · ~/p ⎇ main)",
+);
 
 console.log("window-id unit tests passed");
