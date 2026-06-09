@@ -50,6 +50,15 @@
           <svg class="icon-copy" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="13" height="13" x="9" y="9" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
           <svg class="icon-copied" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
         </button>
+        <!-- Quick-switch to a recently-visited window across ANY machine. Sits
+             right of the copy button; opens the global-recents popup below it.
+             Items are formatted exactly like the window title (the descriptor). -->
+        <div class="recents-menu">
+          <button id="globalRecentsToggle" class="icon-button" type="button" title="Recent windows" aria-label="Recent windows" aria-haspopup="true" aria-expanded="false">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+          </button>
+          <div id="globalRecentsMenu" class="recents-menu-popup" hidden role="menu" aria-label="Recent windows"></div>
+        </div>
         <!-- "Needs you" pill: shown when one or more other windows' agents have
              finished (unread) or are waiting on a question. Tap to jump. -->
         <button id="needsAttention" class="needs-attention" type="button" hidden aria-live="polite"></button>

@@ -19,6 +19,14 @@ export function windowKey({ machineId, sessionName, index } = {}) {
   return [machineId || "local", sessionName ?? "", index].join("");
 }
 
+// MRU insert into a recents list: drop any existing entry with the same key,
+// put the new one at the front, cap the length. Pure so the global-recents
+// store logic is unit-testable. entries/entry are {key, ...} objects.
+export function mergeRecent(entries, entry, max) {
+  const rest = (entries || []).filter((e) => e.key !== entry.key);
+  return [entry, ...rest].slice(0, max);
+}
+
 // Collapse a /home/<user> or /Users/<user> or /root prefix to "~". Mirrors
 // app.js abbrevHome so the descriptor's path matches what the topbar shows.
 export function abbrevHome(value) {

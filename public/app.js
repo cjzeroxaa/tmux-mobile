@@ -1,6 +1,6 @@
 import { escapeHtml, linkifyEscaped } from "./linkify.js";
 import { playNotifySound, shouldChime } from "./notify-sound.js";
-import { windowKey, windowStableId, windowDescriptor } from "./window-id.js";
+import { windowKey, windowStableId, windowDescriptor, mergeRecent } from "./window-id.js";
 
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
@@ -136,14 +136,6 @@ function pushComposerHistory(text) {
   composerHistoryAtom.set({ items });
 }
 
-// Most-recently-used windows, newest first, for quick switching. Keyed by a
-// stable identity (machine + session name + window index) rather than the
-// ephemeral tmux window id (@N), which changes across tmux/server restarts.
-const RECENT_WINDOWS_MAX = 8;
-const recentWindowsAtom = createPersistedAtom("tmux-mobile-recent-windows", {
-  keys: [],
-});
-
 // "Unread" tracking: the pane content hash each window had when we last visited
 // it. A window is "unread" (worth revisiting) when its current contentHash
 // differs from this; unchanged since the last visit -> nothing new. Keyed by the
@@ -268,24 +260,39 @@ function activeWindowHasQuestion() {
   return Boolean(d && d.waitingForInput && d.waitingConfidence !== "low");
 }
 
-function recordRecentWindow(win) {
-  const key = windowRecentKey(win);
+// Global cross-machine window list for the quick-switch popup. Stores the full
+// descriptor fields for each window we've visited — keyed by the stable
+// (machine+session+index) identity — so the popup can list, label, and switch
+// to windows on OTHER machines too, even while we're not on them (the ephemeral
+// tmux window id can't do this). MRU, deduped by stable key, capped at 20.
+const GLOBAL_RECENTS_MAX = 20;
+const globalRecentsAtom = createPersistedAtom("tmux-mobile-global-recents", {
+  entries: [], // [{ key, machineId, host, sessionName, index, name, cwd, branch, worktree }]
+});
+
+// Record the just-visited window into the global list (MRU, deduped, capped).
+// Builds the same field bag the descriptor/id helpers consume.
+function recordGlobalRecent(win) {
+  const fields = windowIdFields(win);
+  if (!fields) return;
+  const key = windowKey({
+    machineId: state.machineId,
+    sessionName: fields.sessionName,
+    index: fields.index,
+  });
   if (!key) return;
-  const existing = recentWindowsAtom.get().keys.filter((k) => k !== key);
-  recentWindowsAtom.set({ keys: [key, ...existing].slice(0, RECENT_WINDOWS_MAX) });
+  const entry = { key, machineId: state.machineId || "", ...fields };
+  globalRecentsAtom.set({
+    entries: mergeRecent(globalRecentsAtom.get().entries, entry, GLOBAL_RECENTS_MAX),
+  });
 }
 
-// Resolve recent keys back to currently-live windows, newest first, excluding
-// the active window (no point switching to where you already are). Stale keys
-// (closed windows / other machines) simply don't resolve and are skipped.
-function recentWindows() {
-  const byKey = new Map(state.windows.map((win) => [windowRecentKey(win), win]));
-  const out = [];
-  for (const key of recentWindowsAtom.get().keys) {
-    const win = byKey.get(key);
-    if (win && win.id !== state.windowId) out.push(win);
-  }
-  return out;
+// The global list for display, newest first, excluding the active window.
+function globalRecents() {
+  const activeKey = activeWindowKey();
+  return globalRecentsAtom
+    .get()
+    .entries.filter((e) => e.key !== activeKey);
 }
 
 // Snapshot tail depth (lines shown in the terminal pane). Persisted so the
@@ -569,6 +576,8 @@ const els = {
   directorySheet: document.querySelector("#directorySheet"),
   openTargetPicker: document.querySelector("#openTargetPicker"),
   copyWindowId: document.querySelector("#copyWindowId"),
+  globalRecentsToggle: document.querySelector("#globalRecentsToggle"),
+  globalRecentsMenu: document.querySelector("#globalRecentsMenu"),
   closeTargetPicker: document.querySelector("#closeTargetPicker"),
   targetBackdrop: document.querySelector("#targetBackdrop"),
   targetSheet: document.querySelector("#targetSheet"),
@@ -948,25 +957,6 @@ function windowsForSession(sessionId) {
   return state.windows.filter((win) => win.sessionId === sessionId);
 }
 
-// A compact quick-switch button for the Recent section. Unlike the grouped
-// list (which sits under a session header), a recent entry can be from any
-// session, so it shows the session name inline for context.
-function recentWindowButton(win) {
-  const session = state.sessions.find((s) => s.id === win.sessionId);
-  const sessionName = session?.name ?? "";
-  const live = Boolean(state.windowActivity[win.id]);
-  const summary = state.windowSummaries[win.id];
-  return itemButton({
-    active: win.id === state.windowId,
-    title: `${win.index}: ${win.name}`,
-    meta: sessionName ? `${sessionName} · ${win.activeCommand || win.id}` : win.activeCommand || win.id,
-    badge: live ? "live" : "",
-    badgeGreen: live,
-    onClick: () => selectWindow(win.id),
-    metaClassName: summary ? "summary" : "",
-  });
-}
-
 // A per-window annotation row, shown right under a window's button in the list:
 // a free-text follow-up note (e.g. "waiting on CI #4567") useful for tracking a
 // long-running task in that window. Click to edit; stored server-side on the
@@ -1026,23 +1016,9 @@ function renderWindows() {
     return;
   }
 
-  // Recent quick-switch section: the windows you've most recently switched to
-  // (excluding the current one), newest first. Lets you jump back without
-  // hunting through the full session-grouped list below.
-  const recents = recentWindows();
-  if (recents.length > 0) {
-    const header = document.createElement("div");
-    header.className = "window-group-header";
-    header.innerHTML = `
-      <span>Recent</span>
-      <span class="window-group-count">${recents.length}</span>
-    `;
-    els.mobileWindows.append(header);
-    for (const win of recents) {
-      els.mobileWindows.append(recentWindowButton(win));
-    }
-  }
-
+  // The picker is now solely the full, all-windows browser (grouped by session)
+  // — no Recent section. Quick-switch-to-recent lives in the dedicated global
+  // recents popup in the topbar, so it isn't duplicated here.
   for (const session of state.sessions) {
     const wins = windowsForSession(session.id);
     if (wins.length === 0) continue;
@@ -3592,8 +3568,8 @@ document.addEventListener("visibilitychange", () => {
 async function selectWindow(windowId) {
   const win = state.windows.find((item) => item.id === windowId);
   // Record the window we're switching to as most-recent, so it surfaces in the
-  // Recent quick-switch list next time (MRU order).
-  if (win) recordRecentWindow(win);
+  // global quick-switch popup next time (MRU order).
+  if (win) recordGlobalRecent(win);
   state.windowId = windowId;
   state.sessionId = win?.sessionId || state.sessionId;
   state.paneId = "";
@@ -5229,6 +5205,82 @@ if (els.copyWindowId) {
     }
   });
 }
+// Global recents popup: a quick-switch list of recently-visited windows across
+// ALL machines, each labelled with the same descriptor format as the window
+// title. Switching is cross-machine aware (selectMachine first in hub mode,
+// then resolve the stable key to a live window).
+function setGlobalRecentsOpen(open) {
+  if (!els.globalRecentsMenu) return;
+  if (open) renderGlobalRecentsMenu();
+  els.globalRecentsMenu.hidden = !open;
+  els.globalRecentsToggle?.setAttribute("aria-expanded", String(open));
+}
+
+function renderGlobalRecentsMenu() {
+  if (!els.globalRecentsMenu) return;
+  els.globalRecentsMenu.innerHTML = "";
+  const entries = globalRecents();
+  if (entries.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "recents-menu-empty";
+    empty.textContent = "No recent windows yet.";
+    els.globalRecentsMenu.append(empty);
+    return;
+  }
+  for (const entry of entries) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "recents-menu-item";
+    item.setAttribute("role", "menuitem");
+    // Same one-line format as the window title / copied id.
+    item.textContent = windowDescriptor(entry);
+    item.title = windowDescriptor(entry);
+    item.addEventListener("click", () => {
+      setGlobalRecentsOpen(false);
+      switchToGlobalRecent(entry);
+    });
+    els.globalRecentsMenu.append(item);
+  }
+}
+
+async function switchToGlobalRecent(entry) {
+  // Hop machines first if this window lives on another one (hub mode).
+  if (
+    state.runtimeMode === "hub" &&
+    entry.machineId &&
+    entry.machineId !== state.machineId
+  ) {
+    await selectMachine(entry.machineId);
+  }
+  // Resolve the stable key to a live window on the (now-current) machine.
+  const win = state.windows.find((w) => windowRecentKey(w) === entry.key);
+  if (win) {
+    await selectWindow(win.id);
+  } else {
+    // The window is gone / not loaded — fall back to the full picker so the
+    // user can find it (or confirm it's closed).
+    showTargetPicker();
+  }
+}
+
+if (els.globalRecentsToggle && els.globalRecentsMenu) {
+  els.globalRecentsToggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setGlobalRecentsOpen(els.globalRecentsMenu.hidden);
+  });
+  document.addEventListener("click", (event) => {
+    if (els.globalRecentsMenu.hidden) return;
+    if (els.globalRecentsMenu.contains(event.target)) return;
+    if (els.globalRecentsToggle.contains(event.target)) return;
+    setGlobalRecentsOpen(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !els.globalRecentsMenu.hidden) {
+      setGlobalRecentsOpen(false);
+    }
+  });
+}
+
 if (els.needsAttention) {
   els.needsAttention.addEventListener("click", jumpToFirstAttention);
 }
