@@ -8,7 +8,34 @@ import {
   windowStableId,
   windowDescriptor,
   mergeRecent,
+  pruneRecent,
 } from "../public/window-id.js";
+
+// --- pruneRecent: drop closed windows, but only on the machine we can see ---
+{
+  const entries = [
+    { key: "k-live", machineId: "m1" }, // on current machine, still live → keep
+    { key: "k-dead", machineId: "m1" }, // on current machine, gone → DROP
+    { key: "k-other", machineId: "m2" }, // other machine → keep (unverifiable)
+  ];
+  const live = new Set(["k-live", "k-someoneelse"]);
+  const kept = pruneRecent(entries, "m1", live).map((e) => e.key);
+  assert.deepEqual(kept, ["k-live", "k-other"]);
+}
+// local mode (machineId "" on both entry and current): pure live-set filter
+{
+  const entries = [
+    { key: "a", machineId: "" },
+    { key: "b", machineId: "" },
+  ];
+  assert.deepEqual(
+    pruneRecent(entries, "", new Set(["a"])).map((e) => e.key),
+    ["a"],
+  );
+}
+// accepts an array for liveKeys too, and tolerates empty inputs
+assert.deepEqual(pruneRecent([{ key: "x", machineId: "m" }], "m", ["x"]).map((e) => e.key), ["x"]);
+assert.deepEqual(pruneRecent(undefined, "m", []), []);
 
 // --- mergeRecent: MRU insert, dedupe by key, cap length ---
 // new key goes to the front
