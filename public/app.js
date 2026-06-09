@@ -1,5 +1,6 @@
 import { escapeHtml, linkifyEscaped } from "./linkify.js";
 import { playNotifySound, shouldChime } from "./notify-sound.js";
+import { windowKey, windowStableId, windowDescriptor, windowTitleText, mergeRecent, pruneRecent } from "./window-id.js";
 
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
@@ -135,14 +136,6 @@ function pushComposerHistory(text) {
   composerHistoryAtom.set({ items });
 }
 
-// Most-recently-used windows, newest first, for quick switching. Keyed by a
-// stable identity (machine + session name + window index) rather than the
-// ephemeral tmux window id (@N), which changes across tmux/server restarts.
-const RECENT_WINDOWS_MAX = 8;
-const recentWindowsAtom = createPersistedAtom("tmux-mobile-recent-windows", {
-  keys: [],
-});
-
 // "Unread" tracking: the pane content hash each window had when we last visited
 // it. A window is "unread" (worth revisiting) when its current contentHash
 // differs from this; unchanged since the last visit -> nothing new. Keyed by the
@@ -182,13 +175,20 @@ function windowRecentKey(win) {
   if (!win) return "";
   const session = state.sessions.find((s) => s.id === win.sessionId);
   const sessionName = session?.name ?? win.sessionId;
-  return [state.machineId || "local", sessionName, win.index].join("\u001f");
+  return windowKey({ machineId: state.machineId, sessionName, index: win.index });
 }
 
-// Stable identity key for a cross-machine attention descriptor — must match
-// windowRecentKey's format so unread/seen-hashes line up across machines.
+// Stable identity key for a cross-machine attention descriptor. Goes through
+// the SAME windowKey() as windowRecentKey so the two always produce identical
+// strings — earlier these used different join separators, which silently broke
+// "is the active window the one needing attention?" and jump-to-window from the
+// Needs-you pill (the keys never matched, so it fell back to opening the picker).
 function attentionKey(d) {
-  return [d.machineId || "local", d.sessionName, d.windowIndex].join("");
+  return windowKey({
+    machineId: d.machineId,
+    sessionName: d.sessionName,
+    index: d.windowIndex,
+  });
 }
 
 // The stable key of the window the user is currently looking at (so it never
@@ -245,24 +245,71 @@ function windowsNeedingAttention() {
   return out;
 }
 
-function recordRecentWindow(win) {
-  const key = windowRecentKey(win);
-  if (!key) return;
-  const existing = recentWindowsAtom.get().keys.filter((k) => k !== key);
-  recentWindowsAtom.set({ keys: [key, ...existing].slice(0, RECENT_WINDOWS_MAX) });
+// Is the window the user is CURRENTLY VIEWING confidently blocked on a question
+// (AskUserQuestion / exit-plan)? windowsNeedingAttention() deliberately excludes
+// the active window — the topbar pill shouldn't tell you to jump to where you
+// already are. But that's exactly the window where "Answer question" is the
+// relevant action, so we surface it on the More button instead. Mirrors the
+// "question" branch of descriptorNeedsAttention without the active-key exclusion.
+function activeWindowHasQuestion() {
+  const activeKey = activeWindowKey();
+  if (!activeKey) return false;
+  const d = state.attention.find((x) => attentionKey(x) === activeKey);
+  // waitingConfidence "low" is an unverified hedge, not a confident question —
+  // don't light the affordance on a maybe.
+  return Boolean(d && d.waitingForInput && d.waitingConfidence !== "low");
 }
 
-// Resolve recent keys back to currently-live windows, newest first, excluding
-// the active window (no point switching to where you already are). Stale keys
-// (closed windows / other machines) simply don't resolve and are skipped.
-function recentWindows() {
-  const byKey = new Map(state.windows.map((win) => [windowRecentKey(win), win]));
-  const out = [];
-  for (const key of recentWindowsAtom.get().keys) {
-    const win = byKey.get(key);
-    if (win && win.id !== state.windowId) out.push(win);
-  }
-  return out;
+// Global cross-machine window list for the quick-switch popup. Stores the full
+// descriptor fields for each window we've visited — keyed by the stable
+// (machine+session+index) identity — so the popup can list, label, and switch
+// to windows on OTHER machines too, even while we're not on them (the ephemeral
+// tmux window id can't do this). MRU, deduped by stable key, capped at 20.
+const GLOBAL_RECENTS_MAX = 20;
+const globalRecentsAtom = createPersistedAtom("tmux-mobile-global-recents", {
+  entries: [], // [{ key, machineId, host, sessionName, index, name, cwd, branch, worktree }]
+});
+
+// Record the just-visited window into the global list (MRU, deduped, capped).
+// Builds the same field bag the descriptor/id helpers consume.
+function recordGlobalRecent(win) {
+  const fields = windowIdFields(win);
+  if (!fields) return;
+  const key = windowKey({
+    machineId: state.machineId,
+    sessionName: fields.sessionName,
+    index: fields.index,
+  });
+  if (!key) return;
+  const entry = { key, machineId: state.machineId || "", ...fields };
+  globalRecentsAtom.set({
+    entries: mergeRecent(globalRecentsAtom.get().entries, entry, GLOBAL_RECENTS_MAX),
+  });
+}
+
+// The global list for display, newest first, excluding the active window.
+function globalRecents() {
+  const activeKey = activeWindowKey();
+  return globalRecentsAtom
+    .get()
+    .entries.filter((e) => e.key !== activeKey);
+}
+
+// Drop closed windows from the global recents. We only have ground truth for
+// the CURRENT machine (state.windows holds its live windows), so we prune only
+// entries belonging to this machine whose stable key is no longer live —
+// entries for OTHER machines are left alone (their windows may well be alive; we
+// just can't see them from here). Runs on every window-list refresh, so a
+// window closed by us, by another client, or directly in tmux all get cleaned
+// up the next time we load this machine's windows.
+function pruneGlobalRecents() {
+  const liveKeys = new Set(state.windows.map((win) => windowRecentKey(win)));
+  const kept = pruneRecent(
+    globalRecentsAtom.get().entries,
+    state.machineId,
+    liveKeys,
+  );
+  globalRecentsAtom.set({ entries: kept });
 }
 
 // Snapshot tail depth (lines shown in the terminal pane). Persisted so the
@@ -497,6 +544,7 @@ const els = {
   duplicateStatus: document.querySelector("#duplicateStatus"),
   confirmDuplicate: document.querySelector("#confirmDuplicate"),
   lineCount: document.querySelector("#lineCount"),
+  snapshotNote: document.querySelector("#snapshotNote"),
   autoRefresh: document.querySelector("#autoRefresh"),
   snapshotStaleIcon: document.querySelector("#snapshotStaleIcon"),
   inputArea: document.querySelector("#inputArea"),
@@ -545,6 +593,9 @@ const els = {
   directoryBackdrop: document.querySelector("#directoryBackdrop"),
   directorySheet: document.querySelector("#directorySheet"),
   openTargetPicker: document.querySelector("#openTargetPicker"),
+  copyWindowId: document.querySelector("#copyWindowId"),
+  globalRecentsToggle: document.querySelector("#globalRecentsToggle"),
+  globalRecentsMenu: document.querySelector("#globalRecentsMenu"),
   closeTargetPicker: document.querySelector("#closeTargetPicker"),
   targetBackdrop: document.querySelector("#targetBackdrop"),
   targetSheet: document.querySelector("#targetSheet"),
@@ -924,25 +975,6 @@ function windowsForSession(sessionId) {
   return state.windows.filter((win) => win.sessionId === sessionId);
 }
 
-// A compact quick-switch button for the Recent section. Unlike the grouped
-// list (which sits under a session header), a recent entry can be from any
-// session, so it shows the session name inline for context.
-function recentWindowButton(win) {
-  const session = state.sessions.find((s) => s.id === win.sessionId);
-  const sessionName = session?.name ?? "";
-  const live = Boolean(state.windowActivity[win.id]);
-  const summary = state.windowSummaries[win.id];
-  return itemButton({
-    active: win.id === state.windowId,
-    title: `${win.index}: ${win.name}`,
-    meta: sessionName ? `${sessionName} · ${win.activeCommand || win.id}` : win.activeCommand || win.id,
-    badge: live ? "live" : "",
-    badgeGreen: live,
-    onClick: () => selectWindow(win.id),
-    metaClassName: summary ? "summary" : "",
-  });
-}
-
 // A per-window annotation row, shown right under a window's button in the list:
 // a free-text follow-up note (e.g. "waiting on CI #4567") useful for tracking a
 // long-running task in that window. Click to edit; stored server-side on the
@@ -982,13 +1014,43 @@ async function editWindowAnnotation(win) {
       method: "PATCH",
       body: JSON.stringify({ windowId: win.id, annotation: next }),
     });
-    // Reflect the new value locally and re-render so it shows immediately.
+    // Reflect the new value locally and re-render so it shows immediately, in
+    // both the window list and the snapshot toolbar note.
     const w = state.windows.find((item) => item.id === win.id);
     if (w) w.annotation = updated.annotation || "";
     renderWindows();
+    renderSnapshotNote();
   } catch (error) {
     setStatus(error.message || "Could not save note", false);
   }
+}
+
+// The current window's note, shown in the snapshot toolbar right after the Lines
+// picker. Click to edit (reuses editWindowAnnotation). Mirrors the window-list
+// annotation but for the window you're viewing — so a note is visible and
+// editable without opening the picker.
+function renderSnapshotNote() {
+  const el = els.snapshotNote;
+  if (!el) return;
+  const win = selectedWindow();
+  if (!win) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  const note = (win.annotation || "").trim();
+  if (note) {
+    el.classList.add("has-note");
+    el.textContent = `📝 ${note}`;
+    el.title = "Edit note";
+    el.setAttribute("aria-label", `Window note: ${note}. Tap to edit.`);
+  } else {
+    el.classList.remove("has-note");
+    el.textContent = "+ note";
+    el.title = "Add a follow-up note for this window";
+    el.setAttribute("aria-label", "Add a window note");
+  }
+  el.onclick = () => editWindowAnnotation(win);
 }
 
 // One flat list of every window, grouped under a session header — no session
@@ -1002,23 +1064,9 @@ function renderWindows() {
     return;
   }
 
-  // Recent quick-switch section: the windows you've most recently switched to
-  // (excluding the current one), newest first. Lets you jump back without
-  // hunting through the full session-grouped list below.
-  const recents = recentWindows();
-  if (recents.length > 0) {
-    const header = document.createElement("div");
-    header.className = "window-group-header";
-    header.innerHTML = `
-      <span>Recent</span>
-      <span class="window-group-count">${recents.length}</span>
-    `;
-    els.mobileWindows.append(header);
-    for (const win of recents) {
-      els.mobileWindows.append(recentWindowButton(win));
-    }
-  }
-
+  // The picker is now solely the full, all-windows browser (grouped by session)
+  // — no Recent section. Quick-switch-to-recent lives in the dedicated global
+  // recents popup in the topbar, so it isn't duplicated here.
   for (const session of state.sessions) {
     const wins = windowsForSession(session.id);
     if (wins.length === 0) continue;
@@ -1072,6 +1120,25 @@ function renderWindows() {
   }
 }
 
+// Gather the plain fields the pure window-id helpers need from app state. The
+// hostname falls back to the machine id, then the page host; session falls back
+// to its id. See public/window-id.js.
+function windowIdFields(win) {
+  if (!win) return null;
+  const session = state.sessions.find((s) => s.id === win.sessionId);
+  const meta = state.windowMetadata[win.id] || {};
+  return {
+    host:
+      selectedMachine()?.hostname || state.machineId || location.hostname || "local",
+    sessionName: session?.name ?? win.sessionId ?? "",
+    index: win.index,
+    name: win.name,
+    cwd: win.cwd,
+    branch: meta.git?.branch || "",
+    worktree: Boolean(meta.git?.worktree),
+  };
+}
+
 function renderTargetLabels() {
   renderMachinePicker();
   const win = selectedWindow();
@@ -1083,31 +1150,37 @@ function renderTargetLabels() {
         ? `${selectedMachine()?.hostname || state.machineId || "Machine"} · No window selected`
         : "No window selected";
     }
+    els.openTargetPicker?.removeAttribute("title");
+    renderSnapshotNote();
     return;
   }
-  const meta = state.windowMetadata[win.id] || {};
-  const branch = meta.git?.branch || "";
-  const worktree = Boolean(meta.git?.worktree);
-  // WT chip goes at the START of the label — the target-pill's strong has
-  // text-overflow: ellipsis, so anything tacked on at the end gets clipped
-  // first on long branch names. The chip needs to be unmissable, not the
-  // first thing the ellipsis eats.
-  // The session name no longer prefixes the topbar — host (URL) + window
-  // index already disambiguate, and the session name was just noise.
-  const label = escapeHtml(`${win.index}:${win.name}`);
-  const branchPart = branch ? ` ⎇ ${escapeHtml(branch)}` : "";
-  // Show the FULL home-relative path. Path is the most useful "where am I"
-  // signal and the user explicitly wants it in the header. The strong tag
-  // truncates with ellipsis on overflow, which is fine — if it doesn't fit,
-  // the path tail gets the dots and we move on.
-  const cwdAbbr = abbrevHome(win.cwd) || "";
-  const cwdPart = cwdAbbr ? ` · ${escapeHtml(cwdAbbr)}` : "";
-  const machinePart =
+  // The title text is built by the shared windowTitleText() so the recents menu
+  // items render in the EXACT same format. The session name is intentionally
+  // not shown (host + index disambiguate), and the WT chip is gone — the cwd
+  // already says where you are; worktree status lives in the hover tooltip /
+  // copied descriptor. The machine prefix only shows in hub mode (the recents
+  // popup always passes it, since it's cross-machine).
+  const machine =
     state.runtimeMode === "hub"
-      ? `${escapeHtml(selectedMachine()?.hostname || state.machineId || "Machine")} · `
+      ? selectedMachine()?.hostname || state.machineId || "Machine"
       : "";
-  const wtChip = worktree ? `<span class="target-pill-wt-chip">WT</span> ` : "";
-  els.mobileTargetLabel.innerHTML = `${wtChip}${machinePart}${label}${cwdPart}${branchPart}`;
+  const branch = (state.windowMetadata[win.id] || {}).git?.branch || "";
+  const titleText = windowTitleText({
+    machine,
+    index: win.index,
+    name: win.name,
+    cwd: win.cwd,
+    branch,
+  });
+  // innerHTML for ellipsis behaviour on the <strong>; escape since the text can
+  // contain a window name / branch / path with HTML-special chars.
+  els.mobileTargetLabel.innerHTML = escapeHtml(titleText);
+  // Richer detail on hover (desktop) — the full descriptor including the stable
+  // id and worktree status that we no longer show inline. (Copy lives in the
+  // More menu now; its item label carries the action text.)
+  const fields = windowIdFields(win);
+  els.openTargetPicker?.setAttribute("title", windowDescriptor(fields));
+  renderSnapshotNote();
 }
 
 function abbrevHome(value) {
@@ -1195,6 +1268,10 @@ function syncSheetOpenClass() {
 
 function showTargetPicker() {
   closeDirectoryPicker();
+  // The full window list and the recents quick-switch popup are two views of
+  // the same "switch window" intent — don't show both at once. Opening the
+  // picker dismisses the recents popup.
+  setGlobalRecentsOpen(false);
   state.targetPickerOpen = true;
   els.targetSheet.hidden = false;
   syncSheetOpenClass();
@@ -3094,6 +3171,7 @@ async function loadWindows({ urlTarget = readUrlTarget(), forceUrlTarget = false
   );
   state.windows = lists.flat();
   pruneWindowSummaries();
+  pruneGlobalRecents();
 
   const currentWindowExists = state.windows.some((item) => item.id === state.windowId);
   if (forceUrlTarget || !currentWindowExists) {
@@ -3278,6 +3356,27 @@ function updateAttentionIndicators() {
     } else {
       els.needsAttention.hidden = true;
     }
+  }
+
+  updateAnswerAffordance();
+}
+
+// Light up the path to the answer overlay when the window you're LOOKING AT is
+// waiting on a question. The two-finger pane gesture is a hidden power shortcut;
+// this makes the obvious button signal exactly when it's the thing to tap, so
+// nobody has to know the gesture exists. A dot on the More button (always
+// visible) plus a highlight on the "Answer question" item inside the menu.
+function updateAnswerAffordance() {
+  const pending = activeWindowHasQuestion();
+  if (els.moreActionsToggle) {
+    els.moreActionsToggle.classList.toggle("has-question", pending);
+    els.moreActionsToggle.setAttribute(
+      "aria-label",
+      pending ? "More actions — a question is waiting" : "More actions",
+    );
+  }
+  if (els.answerQuestion) {
+    els.answerQuestion.classList.toggle("has-question", pending);
   }
 }
 
@@ -3523,8 +3622,8 @@ document.addEventListener("visibilitychange", () => {
 async function selectWindow(windowId) {
   const win = state.windows.find((item) => item.id === windowId);
   // Record the window we're switching to as most-recent, so it surfaces in the
-  // Recent quick-switch list next time (MRU order).
-  if (win) recordRecentWindow(win);
+  // global quick-switch popup next time (MRU order).
+  if (win) recordGlobalRecent(win);
   state.windowId = windowId;
   state.sessionId = win?.sessionId || state.sessionId;
   state.paneId = "";
@@ -4886,30 +4985,52 @@ function openFileViewer(filePath) {
 
 
 
-// Long-press the pane to open the "Answer question" overlay — the gesture the
-// user reaches for when they see Claude waiting on an AskUserQuestion. Like the
-// More-menu item, this is an explicit, user-triggered scan: the long-press just
-// calls openAskOverlay(), which fetches/parses on demand.
+// Hold the pane to open the "Answer question" overlay — the gesture the user
+// reaches for when they see Claude waiting on an AskUserQuestion. Like the
+// More-menu item, this is an explicit, user-triggered scan: it just calls
+// openAskOverlay(), which fetches/parses on demand.
 //
-// It must not interfere with the pane's existing touch behaviour — tapping a
-// link/file, scrolling, or selecting text. So we only fire when the finger (or
-// mouse) is held still for LONG_PRESS_MS, cancel on any movement past a small
-// slop, on early release, on scroll, or when the user is selecting text; and we
-// suppress the synthetic click that follows a long press so it doesn't also
-// grab pane focus.
+// The trigger differs by input so it NEVER competes with copying text:
+//   • Touch  — TWO fingers held still. A single-finger press-and-hold is the
+//              native OS gesture for starting a text selection / showing the
+//              copy callout, so we leave it completely alone (a one-finger hold
+//              used to race the selection and pop this overlay over the text the
+//              user was trying to copy — especially on mobile Safari/Chrome).
+//   • Mouse  — left button held still (desktop has no native finger-selection
+//              race, and drag-select still cancels via the move slop).
+//
+// In both cases we cancel on movement past a small slop (scroll/select), on
+// early release, and bail if a text selection is already in progress; and we
+// suppress the synthetic click that follows so it doesn't also grab pane focus.
+//
+// Arming feedback: a held gesture is otherwise silent for the full 500ms and
+// then the overlay appears all at once, which feels laggy/uncertain. Partway
+// through (ARM_MS) we add a faint "arming" highlight to the pane so the hold
+// reads as intentional — removed the instant it fires or cancels.
 function setupSnapshotLongPress() {
   const LONG_PRESS_MS = 500;
+  const ARM_MS = 220; // show the arming cue partway through the hold
   const MOVE_SLOP_PX = 10; // movement beyond this = a scroll/select, not a press
   let timer = null;
+  let armTimer = null;
   let startX = 0;
   let startY = 0;
   let fired = false; // a long-press fired for the current gesture
+
+  const disarm = () => {
+    if (armTimer !== null) {
+      clearTimeout(armTimer);
+      armTimer = null;
+    }
+    els.snapshot.classList.remove("press-arming");
+  };
 
   const clear = () => {
     if (timer !== null) {
       clearTimeout(timer);
       timer = null;
     }
+    disarm();
   };
 
   const start = (x, y, target) => {
@@ -4920,8 +5041,16 @@ function setupSnapshotLongPress() {
     startX = x;
     startY = y;
     clear();
+    armTimer = setTimeout(() => {
+      armTimer = null;
+      // Only show the cue if the user isn't actually selecting text — same bail
+      // the fire path uses, so we never glow during a real selection.
+      if (hasSnapshotSelection()) return;
+      els.snapshot.classList.add("press-arming");
+    }, ARM_MS);
     timer = setTimeout(() => {
       timer = null;
+      disarm();
       // If the user has started selecting text, this is a selection gesture, not
       // a long-press — leave it alone.
       if (hasSnapshotSelection()) return;
@@ -4938,23 +5067,31 @@ function setupSnapshotLongPress() {
     }
   };
 
+  // Touch: arm only on a deliberate TWO-finger hold. One finger (native copy) or
+  // three+ never arms. The midpoint of the two fingers is the anchor; if a
+  // finger lifts (back to one) or another lands (three+), cancel — the gesture
+  // is only valid while exactly two fingers are down and still.
   els.snapshot.addEventListener(
     "touchstart",
     (e) => {
-      if (e.touches.length !== 1) {
-        clear();
+      if (e.touches.length !== 2) {
+        clear(); // one finger = let the OS handle selection; 3+ = not our gesture
         return;
       }
-      const t = e.touches[0];
-      start(t.clientX, t.clientY, e.target);
+      const [a, b] = e.touches;
+      start((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2, e.target);
     },
     { passive: true },
   );
   els.snapshot.addEventListener(
     "touchmove",
     (e) => {
-      const t = e.touches[0];
-      if (t) move(t.clientX, t.clientY);
+      if (e.touches.length !== 2) {
+        clear(); // finger count changed mid-hold — no longer the two-finger gesture
+        return;
+      }
+      const [a, b] = e.touches;
+      move((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2);
     },
     { passive: true },
   );
@@ -5099,6 +5236,133 @@ els.machineSelect?.addEventListener("change", () => {
   });
 });
 els.openTargetPicker.addEventListener("click", openTargetPicker);
+// Copy the current window's full descriptor (stable id + context). Lives on its
+// own button so the title keeps its tap-to-open-picker behavior. Flips to a
+// check icon for ~1.2s on success; falls back to selecting the title text if
+// the clipboard is blocked (insecure context).
+if (els.copyWindowId) {
+  const copyLabel = els.copyWindowId.querySelector("[data-copy-label]");
+  els.copyWindowId.addEventListener("click", async (event) => {
+    // Keep the More menu open briefly so the "Copied" confirmation is visible
+    // (stopPropagation prevents the menu's close-on-item-click), then close it.
+    event.stopPropagation();
+    const win = selectedWindow();
+    if (!win) return;
+    const text = windowDescriptor(windowIdFields(win));
+    const flash = (msg) => {
+      if (!copyLabel) return;
+      copyLabel.textContent = msg;
+      els.copyWindowId.classList.add("copied");
+      setTimeout(() => {
+        copyLabel.textContent = "Copy window id";
+        els.copyWindowId.classList.remove("copied");
+        setMoreActionsOpen(false);
+      }, 1000);
+    };
+    try {
+      await navigator.clipboard.writeText(text);
+      flash("Copied!");
+    } catch {
+      // Clipboard blocked (insecure context): select the title text so the user
+      // can copy it manually, and say so.
+      const range = document.createRange();
+      range.selectNodeContents(els.mobileTargetLabel);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      flash("Select + copy ↑");
+    }
+  });
+}
+// Global recents popup: a quick-switch list of recently-visited windows across
+// ALL machines, each labelled with the same descriptor format as the window
+// title. Switching is cross-machine aware (selectMachine first in hub mode,
+// then resolve the stable key to a live window).
+function setGlobalRecentsOpen(open) {
+  if (!els.globalRecentsMenu) return;
+  if (open) {
+    // Mutually exclusive with the full window-list picker (same intent).
+    if (state.targetPickerOpen) closeTargetPicker();
+    renderGlobalRecentsMenu();
+  }
+  els.globalRecentsMenu.hidden = !open;
+  els.globalRecentsToggle?.setAttribute("aria-expanded", String(open));
+}
+
+function renderGlobalRecentsMenu() {
+  if (!els.globalRecentsMenu) return;
+  els.globalRecentsMenu.innerHTML = "";
+  const entries = globalRecents();
+  if (entries.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "recents-menu-empty";
+    empty.textContent = "No recent windows yet.";
+    els.globalRecentsMenu.append(empty);
+    return;
+  }
+  for (const entry of entries) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "recents-menu-item";
+    item.setAttribute("role", "menuitem");
+    // Exact same format as the top-left window title — built by the shared
+    // windowTitleText(). Recents is cross-machine, so always include the host
+    // prefix (the title does this in hub mode).
+    const text = windowTitleText({
+      machine: entry.host || entry.machineId || "",
+      index: entry.index,
+      name: entry.name,
+      cwd: entry.cwd,
+      branch: entry.branch,
+    });
+    item.textContent = text;
+    item.title = text;
+    item.addEventListener("click", () => {
+      setGlobalRecentsOpen(false);
+      switchToGlobalRecent(entry);
+    });
+    els.globalRecentsMenu.append(item);
+  }
+}
+
+async function switchToGlobalRecent(entry) {
+  // Hop machines first if this window lives on another one (hub mode).
+  if (
+    state.runtimeMode === "hub" &&
+    entry.machineId &&
+    entry.machineId !== state.machineId
+  ) {
+    await selectMachine(entry.machineId);
+  }
+  // Resolve the stable key to a live window on the (now-current) machine.
+  const win = state.windows.find((w) => windowRecentKey(w) === entry.key);
+  if (win) {
+    await selectWindow(win.id);
+  } else {
+    // The window is gone / not loaded — fall back to the full picker so the
+    // user can find it (or confirm it's closed).
+    showTargetPicker();
+  }
+}
+
+if (els.globalRecentsToggle && els.globalRecentsMenu) {
+  els.globalRecentsToggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setGlobalRecentsOpen(els.globalRecentsMenu.hidden);
+  });
+  document.addEventListener("click", (event) => {
+    if (els.globalRecentsMenu.hidden) return;
+    if (els.globalRecentsMenu.contains(event.target)) return;
+    if (els.globalRecentsToggle.contains(event.target)) return;
+    setGlobalRecentsOpen(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !els.globalRecentsMenu.hidden) {
+      setGlobalRecentsOpen(false);
+    }
+  });
+}
+
 if (els.needsAttention) {
   els.needsAttention.addEventListener("click", jumpToFirstAttention);
 }

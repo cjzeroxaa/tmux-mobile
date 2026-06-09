@@ -158,6 +158,72 @@ h3 {
   line-height: 1.25;
 }
 
+/* "Copy window id" lives in the More menu. On success its label flips to
+   "Copied!" and the row goes green briefly (JS timeout restores it). */
+.more-actions-item.copied,
+.more-actions-item.copied svg {
+  color: #2e7d32;
+}
+
+/* Global-recents quick-switch: toggle button + popup, right of the copy button.
+   Mirrors the More menu's structure. The isolate+z-index lifts the popup above
+   the terminal .snapshot so its items stay clickable (same stacking fix the
+   More menu needed). */
+.recents-menu {
+  position: relative;
+  flex: 0 0 auto;
+  isolation: isolate;
+  z-index: 60;
+}
+.recents-menu-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  max-width: min(86vw, 460px);
+  max-height: 70vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 6px;
+  gap: 2px;
+}
+.recents-menu-item {
+  display: block;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  padding: 7px 9px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.35;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  /* Long descriptors wrap rather than truncate — the whole id should be
+     readable in the list. */
+  white-space: normal;
+  word-break: break-word;
+  cursor: pointer;
+}
+.recents-menu-item:hover,
+.recents-menu-item:focus-visible {
+  background: var(--accent);
+  color: var(--surface);
+  border-color: var(--accent);
+}
+.recents-menu-empty {
+  padding: 10px 9px;
+  color: var(--muted, #888);
+  font-size: 12px;
+}
+
 .directory-trigger {
   color: var(--accent-dark);
 }
@@ -253,6 +319,56 @@ h3 {
 
 .more-actions-item.directory-trigger svg {
   color: var(--accent-dark);
+}
+
+/* "A question is waiting in THIS window" affordance. The two-finger pane gesture
+ * is a hidden shortcut; this lights the obvious path so nobody needs to know it.
+ * A pulsing red notification dot on the More button (always visible in the
+ * topbar), and a highlight on the "Answer question" item once the menu is open.
+ * Toggled by updateAnswerAffordance() via .has-question. */
+.more-actions {
+  /* contain the absolutely-positioned dot below */
+  isolation: isolate;
+  /* isolation creates a new stacking context, which would otherwise trap the
+     dropdown's z-index inside .more-actions and let the .snapshot terminal area
+     paint over the open menu. Lift the whole context above the snapshot so the
+     dropdown stays clickable. */
+  z-index: 60;
+}
+
+.icon-button.has-question {
+  position: relative; /* anchor for the corner dot */
+}
+
+.icon-button.has-question::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #b3261e;
+  border: 1.5px solid var(--surface, #fff);
+  animation: agentPulse 1.4s ease-in-out infinite;
+}
+
+.more-actions-item.has-question {
+  background: color-mix(in srgb, #b3261e 12%, transparent);
+  border-color: color-mix(in srgb, #b3261e 35%, transparent);
+}
+
+.more-actions-item.has-question svg {
+  color: #b3261e;
+}
+
+/* Leading "❓" marker on the highlighted item, so it reads as the live action
+ * even for users who can't perceive the color change. */
+.more-actions-item.has-question::before {
+  content: "❓";
+  margin-right: -2px;
+  font-size: 12px;
+  line-height: 1;
 }
 
 /* Destructive item (Close window). */
@@ -579,6 +695,18 @@ input {
   user-select: text;
   -webkit-user-select: text;
   -webkit-touch-callout: default;
+  /* Smooth the arming cue in/out so it reads as a deliberate response to the
+     two-finger hold rather than a flicker. */
+  transition: box-shadow 140ms ease-out;
+}
+
+/* Arming cue: a held two-finger (or mouse) gesture is partway to opening the
+   answer overlay. A faint inset ring confirms the hold is registering before it
+   fires, so the gesture doesn't feel silent-then-sudden. Added/removed by
+   setupSnapshotLongPress() via .press-arming. Uses an inset shadow (no layout
+   shift, no positioning context needed). */
+.snapshot.press-arming {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent, #35597a) 55%, transparent);
 }
 
 /* URLs auto-detected in the tmux pane. Inherit the terminal text color (so an
@@ -2204,6 +2332,41 @@ input {
   border-color: var(--accent, #6c88a6);
 }
 
+/* The current window's note in the snapshot toolbar, right after the Lines
+   picker. Inline + compact to live in the toolbar row; click to edit. Empty
+   state is a quiet "+ note" affordance, a set note gets the solid accent box.
+   Truncates with ellipsis so a long note can't push the toolbar around. */
+.snapshot-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 8px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+}
+.snapshot-note:not(.has-note) {
+  opacity: 0.6;
+}
+.snapshot-note.has-note {
+  border-style: solid;
+  background: var(--surface-soft);
+  color: var(--ink);
+  opacity: 1;
+  max-width: 28ch;
+}
+.snapshot-note:hover {
+  border-color: var(--accent, #6c88a6);
+}
+
 .mobile-target-groups {
   display: grid;
   min-height: 0;
@@ -2345,27 +2508,6 @@ input {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* Solid indigo chip in the topbar — sits at the START of the label so it
- * can't be truncated by text-overflow: ellipsis on long branch names. More
- * prominent than the inline tinted chip in the window selector because
- * it's the one persistent affordance saying "you're in a linked worktree
- * right now." */
-.target-pill-wt-chip {
-  display: inline-block;
-  flex: 0 0 auto;
-  margin-right: 6px;
-  border-radius: 999px;
-  padding: 1px 7px;
-  background: var(--accent);
-  color: var(--surface);
-  font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  vertical-align: middle;
 }
 
 /* Tiny chip next to the branch to flag "this checkout is a linked git
