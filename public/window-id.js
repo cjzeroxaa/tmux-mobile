@@ -64,12 +64,15 @@ export function windowStableId({ host, sessionName, index } = {}) {
 // recognizable at a glance.
 //
 // fields: { host, sessionName, index, name, cwd, branch, worktree }
-export function windowDescriptor(fields = {}) {
+// opts.worktree: set false to omit the "· worktree" flag (the recents menu does
+//   this — the flag is noise there; copy/title still include it).
+export function windowDescriptor(fields = {}, opts = {}) {
+  const showWorktree = opts.worktree !== false;
   const id = windowStableId(fields);
   const cwdAbbr = abbrevHome(fields.cwd) || "";
   let tail = "";
   if (cwdAbbr) tail += ` · ${cwdAbbr}`;
   if (fields.branch) tail += ` ⎇ ${fields.branch}`;
-  if (fields.worktree) tail += " · worktree";
+  if (showWorktree && fields.worktree) tail += " · worktree";
   return `${id} (${fields.index}:${fields.name}${tail})`;
 }

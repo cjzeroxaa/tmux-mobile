@@ -5095,9 +5095,11 @@ function renderGlobalRecentsMenu() {
     item.type = "button";
     item.className = "recents-menu-item";
     item.setAttribute("role", "menuitem");
-    // Same one-line format as the window title / copied id.
-    item.textContent = windowDescriptor(entry);
-    item.title = windowDescriptor(entry);
+    // Same one-line format as the window title / copied id, minus the worktree
+    // flag (noise in the quick-switch list).
+    const text = windowDescriptor(entry, { worktree: false });
+    item.textContent = text;
+    item.title = text;
     item.addEventListener("click", () => {
       setGlobalRecentsOpen(false);
       switchToGlobalRecent(entry);
