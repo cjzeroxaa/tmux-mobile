@@ -32,6 +32,10 @@ Tailscale HTTPS URL.
 
 ## Cloud Run controller
 
+> **Want to join an already-running controller (e.g. https://eng.impo.ai)?**
+> Skip everything below — see [docs/join-network.md](docs/join-network.md)
+> for the one-command device-login flow.
+
 Controller mode removes the Tailscale requirement for browser access. The same
 A short screen recording of the core flow (window switching, snippet send, PR
 links, the smart content viewer rendering a Mermaid diagram) is at
