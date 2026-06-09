@@ -27,6 +27,20 @@ export function mergeRecent(entries, entry, max) {
   return [entry, ...rest].slice(0, max);
 }
 
+// Drop closed windows from a cross-machine recents list. We only have ground
+// truth for ONE machine at a time (myMachine + the set of its live window
+// keys), so an entry is removed only when it belongs to that machine AND its
+// key is no longer live. Entries for other machines are kept (unverifiable from
+// here). Pure; entries are {key, machineId, ...}.
+export function pruneRecent(entries, myMachine, liveKeys) {
+  const my = myMachine || "";
+  const live = liveKeys instanceof Set ? liveKeys : new Set(liveKeys || []);
+  return (entries || []).filter((e) => {
+    const onThisMachine = (e.machineId || "") === my;
+    return !onThisMachine || live.has(e.key);
+  });
+}
+
 // Collapse a /home/<user> or /Users/<user> or /root prefix to "~". Mirrors
 // app.js abbrevHome so the descriptor's path matches what the topbar shows.
 export function abbrevHome(value) {

@@ -1,6 +1,6 @@
 import { escapeHtml, linkifyEscaped } from "./linkify.js";
 import { playNotifySound, shouldChime } from "./notify-sound.js";
-import { windowKey, windowStableId, windowDescriptor, mergeRecent } from "./window-id.js";
+import { windowKey, windowStableId, windowDescriptor, mergeRecent, pruneRecent } from "./window-id.js";
 
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
@@ -293,6 +293,23 @@ function globalRecents() {
   return globalRecentsAtom
     .get()
     .entries.filter((e) => e.key !== activeKey);
+}
+
+// Drop closed windows from the global recents. We only have ground truth for
+// the CURRENT machine (state.windows holds its live windows), so we prune only
+// entries belonging to this machine whose stable key is no longer live —
+// entries for OTHER machines are left alone (their windows may well be alive; we
+// just can't see them from here). Runs on every window-list refresh, so a
+// window closed by us, by another client, or directly in tmux all get cleaned
+// up the next time we load this machine's windows.
+function pruneGlobalRecents() {
+  const liveKeys = new Set(state.windows.map((win) => windowRecentKey(win)));
+  const kept = pruneRecent(
+    globalRecentsAtom.get().entries,
+    state.machineId,
+    liveKeys,
+  );
+  globalRecentsAtom.set({ entries: kept });
 }
 
 // Snapshot tail depth (lines shown in the terminal pane). Persisted so the
@@ -3151,6 +3168,7 @@ async function loadWindows({ urlTarget = readUrlTarget(), forceUrlTarget = false
   );
   state.windows = lists.flat();
   pruneWindowSummaries();
+  pruneGlobalRecents();
 
   const currentWindowExists = state.windows.some((item) => item.id === state.windowId);
   if (forceUrlTarget || !currentWindowExists) {
