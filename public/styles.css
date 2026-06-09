@@ -218,6 +218,11 @@ h3 {
 .more-actions {
   /* contain the absolutely-positioned dot below */
   isolation: isolate;
+  /* isolation creates a new stacking context, which would otherwise trap the
+     dropdown's z-index inside .more-actions and let the .snapshot terminal area
+     paint over the open menu. Lift the whole context above the snapshot so the
+     dropdown stays clickable. */
+  z-index: 60;
 }
 
 .icon-button.has-question {
