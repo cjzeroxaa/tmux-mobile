@@ -3217,22 +3217,36 @@ async function jumpToFirstAttention() {
     (a, b) => (ATTENTION_RANK[a.reason] ?? 9) - (ATTENTION_RANK[b.reason] ?? 9),
   );
   const { descriptor, reason } = pending[0];
-
-  // Switch machines first if needed (hub mode); selectMachine reloads the tree.
-  if (state.runtimeMode === "hub" && descriptor.machineId && descriptor.machineId !== state.machineId) {
-    await selectMachine(descriptor.machineId);
-  }
-  // Resolve the descriptor to a live window on the (now-current) machine by its
-  // stable key, then select it.
   const targetKey = attentionKey(descriptor);
-  const win = state.windows.find((w) => windowRecentKey(w) === targetKey);
-  if (win) {
-    await selectWindow(win.id);
+
+  if (
+    state.runtimeMode === "hub" &&
+    descriptor.machineId &&
+    descriptor.machineId !== state.machineId
+  ) {
+    // Hop to the other machine AND land directly on the window in one step —
+    // pass the target so refreshTree's urlTarget resolution selects it once the
+    // new machine's windows load (avoids a switch-then-find race where the
+    // window list isn't ready yet and we'd fall back to the picker).
+    await selectMachine(descriptor.machineId, {
+      session: descriptor.sessionName,
+      windowIndex: descriptor.windowIndex,
+    });
+    if (!state.windows.find((w) => windowRecentKey(w) === targetKey)) {
+      showTargetPicker();
+      return;
+    }
   } else {
-    // Couldn't resolve (windows not loaded yet / vanished) — open the picker so
-    // the user can pick it; the attention chip on that machine guides them.
-    showTargetPicker();
-    return;
+    // Same machine: resolve the descriptor's stable key to a live window.
+    const win = state.windows.find((w) => windowRecentKey(w) === targetKey);
+    if (win) {
+      await selectWindow(win.id);
+    } else {
+      // Couldn't resolve (windows not loaded yet / vanished) — open the picker
+      // so the user can pick it; the attention chip on that machine guides them.
+      showTargetPicker();
+      return;
+    }
   }
   if (reason === "question") {
     window.setTimeout(() => openAskOverlay(), 400);
