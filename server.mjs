@@ -3315,6 +3315,10 @@ if (MODE.kind === "register") {
       if (
         REQUIRE_BROWSER_AUTH &&
         url.pathname !== "/api/health" &&
+        // The admin redial endpoint carries its own shared-secret header (it's
+        // called by the deploy script, not a browser), so it bypasses the
+        // Google browser-auth gate.
+        url.pathname !== "/api/admin/redial-agents" &&
         !authenticateBrowser(req)
       ) {
         if (url.pathname.startsWith("/api/")) {
@@ -3435,7 +3439,35 @@ if (MODE.kind === "register") {
             return;
           }
           if (url.pathname === "/api/health") {
-            sendJson(res, 200, { ok: true, revision: APP_REVISION });
+            // `agents` lets a deploy poll until an agent has (re)connected to the
+            // freshly-rolled-out revision before declaring the deploy done — so
+            // we don't leave browsers on an agent-less revision (empty window
+            // list). Public (no browser auth) like the rest of /api/health.
+            sendJson(res, 200, {
+              ok: true,
+              revision: APP_REVISION,
+              agents: hub ? hub.connectedCount() : 0,
+            });
+            return;
+          }
+          // Graceful deploy handoff: the deploy script calls this right after
+          // shifting traffic to a new revision. We push REDIAL down every live
+          // agent WebSocket so each agent reconnects NOW (landing on the new
+          // revision) instead of waiting up to ~5s to notice via polling —
+          // shrinking the window where the new revision has no agent. Authed by
+          // a shared secret (SESSION_SECRET) in the x-admin-secret header, not
+          // browser auth, since it's a machine-to-machine call.
+          if (
+            req.method === "POST" &&
+            url.pathname === "/api/admin/redial-agents"
+          ) {
+            const expected = process.env.SESSION_SECRET || "";
+            if (!expected || !safeEqual(req.headers["x-admin-secret"], expected)) {
+              sendJson(res, 403, { error: "forbidden" });
+              return;
+            }
+            const signalled = hub ? hub.redialAgents() : 0;
+            sendJson(res, 200, { ok: true, redialed: signalled });
             return;
           }
           // Command Center spans every online machine this user can access.
