@@ -158,24 +158,11 @@ h3 {
   line-height: 1.25;
 }
 
-/* Copy-window-id button: sits between the title pill and the rest of the topbar
-   actions. Idle shows a clipboard icon; on success the .copied class swaps to a
-   green check for ~1.2s (handled by the JS timeout). */
-.copy-window-id {
-  flex: 0 0 auto;
-  color: var(--accent-dark);
-}
-.copy-window-id .icon-copied {
-  display: none;
-}
-.copy-window-id.copied {
+/* "Copy window id" lives in the More menu. On success its label flips to
+   "Copied!" and the row goes green briefly (JS timeout restores it). */
+.more-actions-item.copied,
+.more-actions-item.copied svg {
   color: #2e7d32;
-}
-.copy-window-id.copied .icon-copy {
-  display: none;
-}
-.copy-window-id.copied .icon-copied {
-  display: inline-block;
 }
 
 /* Global-recents quick-switch: toggle button + popup, right of the copy button.

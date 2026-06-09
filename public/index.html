@@ -43,13 +43,6 @@
         <button id="openTargetPicker" class="target-pill" type="button">
           <strong id="mobileTargetLabel">No window selected</strong>
         </button>
-        <!-- Copy the current window's stable id ("host/session:index") for bug
-             reports / switching back later. Separate from the title so tapping
-             the title still opens the window picker. -->
-        <button id="copyWindowId" class="icon-button copy-window-id" type="button" hidden title="Copy window id" aria-label="Copy window id">
-          <svg class="icon-copy" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="13" height="13" x="9" y="9" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-          <svg class="icon-copied" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-        </button>
         <!-- Quick-switch to a recently-visited window across ANY machine. Sits
              right of the copy button; opens the global-recents popup below it.
              Items are formatted exactly like the window title (the descriptor). -->
@@ -78,6 +71,13 @@
             <button id="answerQuestion" class="more-actions-item" type="button" role="menuitem">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
               <span>Answer question</span>
+            </button>
+            <!-- Copy the current window's full descriptor (stable id + context)
+                 for bug reports / switching back later. Moved here from the
+                 topbar to save space. The label flips to "Copied" briefly. -->
+            <button id="copyWindowId" class="more-actions-item" type="button" role="menuitem">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="13" height="13" x="9" y="9" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span data-copy-label>Copy window id</span>
             </button>
             <button id="renameWindow" class="more-actions-item" type="button" role="menuitem">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>

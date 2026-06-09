@@ -1151,7 +1151,6 @@ function renderTargetLabels() {
         : "No window selected";
     }
     els.openTargetPicker?.removeAttribute("title");
-    if (els.copyWindowId) els.copyWindowId.hidden = true;
     renderSnapshotNote();
     return;
   }
@@ -1174,13 +1173,10 @@ function renderTargetLabels() {
       : "";
   els.mobileTargetLabel.innerHTML = `${machinePart}${label}${cwdPart}${branchPart}`;
   // Richer detail on hover (desktop) — the full descriptor including the stable
-  // id and worktree status that we no longer show inline.
+  // id and worktree status that we no longer show inline. (Copy lives in the
+  // More menu now; its item label carries the action text.)
   const fields = windowIdFields(win);
   els.openTargetPicker?.setAttribute("title", windowDescriptor(fields));
-  if (els.copyWindowId) {
-    els.copyWindowId.hidden = false;
-    els.copyWindowId.title = `Copy window id — ${windowStableId(fields)}`;
-  }
   renderSnapshotNote();
 }
 
@@ -5238,21 +5234,36 @@ els.openTargetPicker.addEventListener("click", openTargetPicker);
 // check icon for ~1.2s on success; falls back to selecting the title text if
 // the clipboard is blocked (insecure context).
 if (els.copyWindowId) {
+  const copyLabel = els.copyWindowId.querySelector("[data-copy-label]");
   els.copyWindowId.addEventListener("click", async (event) => {
+    // Keep the More menu open briefly so the "Copied" confirmation is visible
+    // (stopPropagation prevents the menu's close-on-item-click), then close it.
     event.stopPropagation();
     const win = selectedWindow();
     if (!win) return;
     const text = windowDescriptor(windowIdFields(win));
+    const flash = (msg) => {
+      if (!copyLabel) return;
+      copyLabel.textContent = msg;
+      els.copyWindowId.classList.add("copied");
+      setTimeout(() => {
+        copyLabel.textContent = "Copy window id";
+        els.copyWindowId.classList.remove("copied");
+        setMoreActionsOpen(false);
+      }, 1000);
+    };
     try {
       await navigator.clipboard.writeText(text);
-      els.copyWindowId.classList.add("copied");
-      setTimeout(() => els.copyWindowId.classList.remove("copied"), 1200);
+      flash("Copied!");
     } catch {
+      // Clipboard blocked (insecure context): select the title text so the user
+      // can copy it manually, and say so.
       const range = document.createRange();
       range.selectNodeContents(els.mobileTargetLabel);
       const selection = window.getSelection();
       selection.removeAllRanges();
       selection.addRange(range);
+      flash("Select + copy ↑");
     }
   });
 }
