@@ -2916,7 +2916,12 @@ async function applyTreeAndSelectWindow({
     renderTargetLabels();
     return;
   }
+
   pruneWindowSummaries();
+  // Only prune recents when we have a COMPLETE, trustworthy window list for
+  // this machine. On a partial load, leave recents intact — a stale entry is
+  // harmless (switching to it falls back to the picker) but a wrongly-dropped
+  // live window is not recoverable without re-visiting.
   pruneGlobalRecents();
 
   const currentWindowExists = state.windows.some((item) => item.id === state.windowId);
