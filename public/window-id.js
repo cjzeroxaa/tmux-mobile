@@ -7,6 +7,18 @@
 // Unlike the live tmux pane id, it survives tmux restarts, so it's the right
 // thing to quote in a bug report or to switch back to a window later.
 
+// Stable identity key for a window, used to line up "unread/seen" content
+// hashes and attention descriptors across machines. Both the live-window side
+// (windowRecentKey) and the cross-machine attention side (attentionKey) MUST
+// build the key the same way — route both through this one function so they
+// can never drift. The unit-separator (U+001F) join keeps segments unambiguous
+// even if a session name contains other punctuation.
+//
+// fields: { machineId, sessionName, index }
+export function windowKey({ machineId, sessionName, index } = {}) {
+  return [machineId || "local", sessionName ?? "", index].join("");
+}
+
 // Collapse a /home/<user> or /Users/<user> or /root prefix to "~". Mirrors
 // app.js abbrevHome so the descriptor's path matches what the topbar shows.
 export function abbrevHome(value) {

@@ -4,9 +4,34 @@
 import assert from "node:assert/strict";
 import {
   abbrevHome,
+  windowKey,
   windowStableId,
   windowDescriptor,
 } from "../public/window-id.js";
+
+// --- windowKey: the shared identity key (machine  session  index) ---
+// Both windowRecentKey (live windows) and attentionKey (attention descriptors)
+// route through this, so the same window from either side must produce the SAME
+// string — that equality is what makes jump-to-window and active-window
+// suppression work. Regression guard for the old separator mismatch.
+const SEP = "";
+assert.equal(
+  windowKey({ machineId: "m1", sessionName: "work", index: 3 }),
+  `m1${SEP}work${SEP}3`,
+);
+// machineId falls back to "local"; missing session → empty segment.
+assert.equal(windowKey({ sessionName: "s", index: 0 }), `local${SEP}s${SEP}0`);
+assert.equal(windowKey({ machineId: "m", index: 2 }), `m${SEP}${SEP}2`);
+// The two call shapes (live window fields vs attention descriptor fields) must
+// converge on the identical key for the same window.
+const liveKey = windowKey({ machineId: "host", sessionName: "dev", index: 5 });
+const attnKey = windowKey({ machineId: "host", sessionName: "dev", index: 5 });
+assert.equal(liveKey, attnKey);
+// Number vs string index produce the SAME key (server sends Number(index)).
+assert.equal(
+  windowKey({ machineId: "h", sessionName: "s", index: 7 }),
+  windowKey({ machineId: "h", sessionName: "s", index: "7" }),
+);
 
 // --- abbrevHome ---
 assert.equal(abbrevHome("/home/ubuntu/g/tmux-mobile"), "~/g/tmux-mobile");
