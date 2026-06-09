@@ -13,9 +13,8 @@
 }
 
 .cc-shell {
-  width: min(100vw, 720px);
+  width: 100%;
   min-height: 100dvh;
-  margin: 0 auto;
   display: grid;
   grid-template-rows: auto 1fr;
   gap: 12px;
