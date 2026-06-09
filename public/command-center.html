@@ -29,12 +29,35 @@
           <h1 class="cc-title">Command Center</h1>
           <span id="ccStatus" class="cc-status" aria-live="polite">Loading…</span>
         </div>
+        <button id="ccWelcomeShow" class="cc-icon-button" type="button" title="Help (how to join, who can see what)" aria-label="Show help">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </button>
         <button id="ccRefresh" class="cc-icon-button" type="button" title="Refresh" aria-label="Refresh agents">
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
         </button>
         <a class="cc-link" href="/auth/logout">Logout</a>
         <a id="ccBackToApp" class="cc-link" href="/app">Main app →</a>
       </header>
+
+      <!-- Onboarding/permissions block. Dismissible per-browser via the ✕
+           (key "cc-welcome-dismissed" in localStorage). Always available
+           again from the "?" link in the topbar if the user wants it back. -->
+      <section id="ccWelcome" class="cc-welcome" aria-label="Getting started">
+        <button id="ccWelcomeClose" class="cc-welcome-close" type="button" aria-label="Dismiss">×</button>
+        <div class="cc-welcome-block">
+          <h2>Add a machine</h2>
+          <p>On any Mac or Linux box you want to drive from here, with tmux running, sign in once:</p>
+          <pre><code>git clone https://github.com/cjzeroxaa/tmux-mobile &amp;&amp; cd tmux-mobile
+npm ci
+node server.mjs --register https://eng.impo.ai --login</code></pre>
+          <p class="cc-welcome-muted">The CLI prints a Google device-login code; sign in with any allowed account. Full instructions: <a href="https://github.com/cjzeroxaa/tmux-mobile/blob/main/docs/join-network.md">docs/join-network.md</a>.</p>
+        </div>
+        <div class="cc-welcome-block">
+          <h2>Who can see what</h2>
+          <p><strong>Open team.</strong> Anyone signed in to <code>eng.impo.ai</code> with an allowed Google account (<code>sonicgg@gmail.com</code> or any <code>@rebyte.ai</code> address) sees every machine on this controller, no matter who registered it.</p>
+          <p class="cc-welcome-muted">Each agent card is tagged with the email of whoever registered it. To make a machine invisible to others, stop the agent process on that machine.</p>
+        </div>
+      </section>
 
       <!-- Filter + sort controls. Machine and status chips are populated
            by command-center.js once the first payload lands; sort is a

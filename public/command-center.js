@@ -11,6 +11,9 @@ const els = {
   refresh: document.querySelector("#ccRefresh"),
   filterRow: document.querySelector("#ccFilterRow"),
   sortSelect: document.querySelector("#ccSort"),
+  welcome: document.querySelector("#ccWelcome"),
+  welcomeClose: document.querySelector("#ccWelcomeClose"),
+  welcomeShow: document.querySelector("#ccWelcomeShow"),
 };
 
 // Persisted view prefs — sort + status/machine filters stay across reloads
@@ -344,6 +347,25 @@ function stopPolling() {
 }
 
 els.refresh.addEventListener("click", () => loadAgents());
+
+// Welcome block: hidden if the user dismissed it previously, recoverable
+// via the "?" topbar button. Stored as a plain string flag in localStorage
+// so we don't have to expand the prefs schema.
+function showWelcome(visible) {
+  els.welcome.hidden = !visible;
+}
+const WELCOME_KEY = "cc-welcome-dismissed";
+showWelcome(localStorage.getItem(WELCOME_KEY) !== "1");
+els.welcomeClose.addEventListener("click", () => {
+  localStorage.setItem(WELCOME_KEY, "1");
+  showWelcome(false);
+});
+els.welcomeShow.addEventListener("click", () => {
+  // "?" reopens the block AND clears the dismissal so it sticks.
+  localStorage.removeItem(WELCOME_KEY);
+  showWelcome(true);
+  els.welcome.scrollIntoView({ behavior: "smooth", block: "start" });
+});
 
 // Sort dropdown — hydrate the persisted selection, fire on change.
 els.sortSelect.value = state.sortBy;

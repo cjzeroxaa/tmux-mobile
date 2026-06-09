@@ -81,6 +81,94 @@
   flex: 0 0 auto;
 }
 
+/* "How to join" + "Who can see what" — the only onboarding block. Sits
+ * above the controls when present; dismissed by ✕ (persisted), recovered
+ * via the ? in the topbar. Two short blocks in a card; intentionally
+ * plain so it doesn't compete with the agent feed visually. */
+.cc-welcome {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.cc-welcome[hidden] { display: none; }
+
+.cc-welcome-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cc-welcome-close:hover,
+.cc-welcome-close:focus-visible {
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
+.cc-welcome-block { display: flex; flex-direction: column; gap: 6px; }
+
+.cc-welcome-block h2 {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-dark);
+  margin: 0;
+}
+
+.cc-welcome-block p { margin: 0; }
+
+.cc-welcome-block pre {
+  margin: 2px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.cc-welcome-block code:not(pre code) {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+}
+
+.cc-welcome-block a {
+  color: var(--accent-dark);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cc-welcome-muted {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
 /* Sort + filter row between the topbar and the cards. Wraps on narrow
  * viewports so the chips stack cleanly under the sort picker on phones. */
 .cc-controls {
