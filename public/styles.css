@@ -2345,6 +2345,41 @@ input {
   border-color: var(--accent, #6c88a6);
 }
 
+/* The current window's note in the snapshot toolbar, right after the Lines
+   picker. Inline + compact to live in the toolbar row; click to edit. Empty
+   state is a quiet "+ note" affordance, a set note gets the solid accent box.
+   Truncates with ellipsis so a long note can't push the toolbar around. */
+.snapshot-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 8px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+}
+.snapshot-note:not(.has-note) {
+  opacity: 0.6;
+}
+.snapshot-note.has-note {
+  border-style: solid;
+  background: var(--surface-soft);
+  color: var(--ink);
+  opacity: 1;
+  max-width: 28ch;
+}
+.snapshot-note:hover {
+  border-color: var(--accent, #6c88a6);
+}
+
 .mobile-target-groups {
   display: grid;
   min-height: 0;

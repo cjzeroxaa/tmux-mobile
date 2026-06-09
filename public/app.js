@@ -527,6 +527,7 @@ const els = {
   duplicateStatus: document.querySelector("#duplicateStatus"),
   confirmDuplicate: document.querySelector("#confirmDuplicate"),
   lineCount: document.querySelector("#lineCount"),
+  snapshotNote: document.querySelector("#snapshotNote"),
   autoRefresh: document.querySelector("#autoRefresh"),
   snapshotStaleIcon: document.querySelector("#snapshotStaleIcon"),
   inputArea: document.querySelector("#inputArea"),
@@ -996,13 +997,43 @@ async function editWindowAnnotation(win) {
       method: "PATCH",
       body: JSON.stringify({ windowId: win.id, annotation: next }),
     });
-    // Reflect the new value locally and re-render so it shows immediately.
+    // Reflect the new value locally and re-render so it shows immediately, in
+    // both the window list and the snapshot toolbar note.
     const w = state.windows.find((item) => item.id === win.id);
     if (w) w.annotation = updated.annotation || "";
     renderWindows();
+    renderSnapshotNote();
   } catch (error) {
     setStatus(error.message || "Could not save note", false);
   }
+}
+
+// The current window's note, shown in the snapshot toolbar right after the Lines
+// picker. Click to edit (reuses editWindowAnnotation). Mirrors the window-list
+// annotation but for the window you're viewing — so a note is visible and
+// editable without opening the picker.
+function renderSnapshotNote() {
+  const el = els.snapshotNote;
+  if (!el) return;
+  const win = selectedWindow();
+  if (!win) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  const note = (win.annotation || "").trim();
+  if (note) {
+    el.classList.add("has-note");
+    el.textContent = `📝 ${note}`;
+    el.title = "Edit note";
+    el.setAttribute("aria-label", `Window note: ${note}. Tap to edit.`);
+  } else {
+    el.classList.remove("has-note");
+    el.textContent = "+ note";
+    el.title = "Add a follow-up note for this window";
+    el.setAttribute("aria-label", "Add a window note");
+  }
+  el.onclick = () => editWindowAnnotation(win);
 }
 
 // One flat list of every window, grouped under a session header — no session
@@ -1104,6 +1135,7 @@ function renderTargetLabels() {
     }
     els.openTargetPicker?.removeAttribute("title");
     if (els.copyWindowId) els.copyWindowId.hidden = true;
+    renderSnapshotNote();
     return;
   }
   const branch = (state.windowMetadata[win.id] || {}).git?.branch || "";
@@ -1132,6 +1164,7 @@ function renderTargetLabels() {
     els.copyWindowId.hidden = false;
     els.copyWindowId.title = `Copy window id — ${windowStableId(fields)}`;
   }
+  renderSnapshotNote();
 }
 
 function abbrevHome(value) {
