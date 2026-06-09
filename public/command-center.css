@@ -159,8 +159,9 @@
 }
 
 .cc-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: start;
   gap: 10px;
 }
 
@@ -381,4 +382,15 @@
   color: var(--muted);
   font-size: 13px;
   text-align: center;
+}
+
+@media (min-width: 860px) {
+  .cc-list {
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 12px;
+  }
+
+  .cc-empty {
+    grid-column: 1 / -1;
+  }
 }
