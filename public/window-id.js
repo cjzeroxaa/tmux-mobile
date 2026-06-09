@@ -74,6 +74,22 @@ export function windowTitleText(fields = {}) {
   return `${machinePart}${fields.index}:${fields.name}${cwdPart}${branchPart}`;
 }
 
+// Hover tooltip for a recents menu item: the title line, then the captured
+// note / agent type / activity state (each on its own line, omitted when
+// absent). Plain multi-line text for a native title= tooltip.
+//
+// fields: windowTitleText fields + { note, agentType, turn, live }
+export function windowHoverDetail(fields = {}) {
+  const lines = [windowTitleText(fields)];
+  const activity = fields.live
+    ? `active${fields.turn ? ` · ${fields.turn}` : ""}`
+    : fields.turn || "idle";
+  if (fields.agentType) lines.push(`agent: ${fields.agentType} (${activity})`);
+  else lines.push(`activity: ${activity}`);
+  if (fields.note) lines.push(`note: ${fields.note}`);
+  return lines.join("\n");
+}
+
 // Full one-line descriptor for clipboard / hover: the stable id plus human
 // context (window name, cwd, branch, worktree). Pasteable into a bug report and
 // recognizable at a glance.
