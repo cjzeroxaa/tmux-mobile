@@ -15,6 +15,8 @@ const DEVICE_CLIENT_ID = "device-client.test";
 const DEVICE_CLIENT_SECRET = "device-secret";
 const ALICE = "alice@example.com";
 const BOB = "bob@example.com";
+const CONSUMER = "consumer@gmail.com";
+const ADMIN = "sonicgg@gmail.com";
 const children = [];
 const sessionsToClean = new Set();
 
@@ -137,6 +139,7 @@ async function startFakeGoogle(deviceEmails) {
         aud: item.aud,
         email: item.email,
         email_verified: "true",
+        ...(hostedDomainFor(item.email) ? { hd: hostedDomainFor(item.email) } : {}),
         sub: `sub-${item.email}`,
       });
       sendJson(res, 200, {
@@ -169,6 +172,12 @@ async function startFakeGoogle(deviceEmails) {
     url: `http://127.0.0.1:${port}`,
     close: () => new Promise((resolve) => server.close(resolve)),
   };
+}
+
+function hostedDomainFor(email) {
+  const normalized = String(email || "").toLowerCase();
+  if (normalized.endsWith("@example.com")) return "example.com";
+  return "";
 }
 
 function baseUrl(server) {
@@ -252,11 +261,17 @@ async function stopChildren() {
 async function waitForMachines(baseUrl, cookie, expectedIds) {
   return waitFor(`machines ${expectedIds.join(",")}`, async () => {
     const machines = await requestJson(baseUrl, "/api/machines", { cookie });
-    const ids = machines.map((machine) => machine.id).sort();
+    const ids = machines.map((machine) => machine.machineId || machine.id).sort();
     assert.deepEqual(ids, [...expectedIds].sort());
     assert.ok(machines.every((machine) => machine.online));
     return machines;
   });
+}
+
+function routeForMachine(machines, machineId) {
+  const machine = machines.find((item) => (item.machineId || item.id) === machineId);
+  assert.ok(machine, `missing machine ${machineId}`);
+  return machine.id;
 }
 
 async function exerciseTmux(baseUrl, cookie, email, machineId) {
@@ -374,7 +389,7 @@ let fakeGoogle;
 let tmpDir;
 
 try {
-  fakeGoogle = await startFakeGoogle([ALICE, ALICE, BOB]);
+  fakeGoogle = await startFakeGoogle([ALICE, ALICE, BOB, CONSUMER]);
   tmpDir = await mkdtemp(path.join(tmpdir(), "tmux-mobile-e2e-"));
   const port = await getFreePort();
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -392,7 +407,8 @@ try {
     GOOGLE_DEVICE_CLIENT_SECRET: DEVICE_CLIENT_SECRET,
     OPENAI_API_KEY: "test-openai-key",
     SESSION_SECRET: `session-secret-${process.pid}`,
-    ALLOWED_GOOGLE_DOMAINS: "example.com",
+    ALLOW_ALL_GOOGLE_USERS: "1",
+    SUPER_ADMIN_EMAILS: ADMIN,
   });
 
   await waitFor("controller health", async () => {
@@ -409,41 +425,58 @@ try {
 
   const aliceCookie = await loginBrowser(baseUrl, ALICE);
   const bobCookie = await loginBrowser(baseUrl, BOB);
+  const consumerCookie = await loginBrowser(baseUrl, CONSUMER);
+  const adminCookie = await loginBrowser(baseUrl, ADMIN);
 
   const aliceOne = `alice-one-${process.pid}`;
   const aliceTwo = `alice-two-${process.pid}`;
   const bobOne = `bob-one-${process.pid}`;
+  const consumerOne = `consumer-one-${process.pid}`;
 
   const aliceAgentOne = startAgent(baseUrl, ALICE, aliceOne, tmpDir);
-  await waitForMachines(baseUrl, aliceCookie, [aliceOne]);
+  let aliceMachines = await waitForMachines(baseUrl, aliceCookie, [aliceOne]);
+  await waitForMachines(baseUrl, bobCookie, [aliceOne]);
+  assert.deepEqual(await requestJson(baseUrl, "/api/machines", { cookie: consumerCookie }), []);
   assertAlive("alice-agent-one", aliceAgentOne);
 
   const aliceAgentTwo = startAgent(baseUrl, ALICE, aliceTwo, tmpDir);
-  await waitForMachines(baseUrl, aliceCookie, [aliceOne, aliceTwo]);
+  aliceMachines = await waitForMachines(baseUrl, aliceCookie, [aliceOne, aliceTwo]);
+  await waitForMachines(baseUrl, bobCookie, [aliceOne, aliceTwo]);
   assertAlive("alice-agent-two", aliceAgentTwo);
 
-  assert.deepEqual(await requestJson(baseUrl, "/api/machines", { cookie: bobCookie }), []);
+  const aliceOneRoute = routeForMachine(aliceMachines, aliceOne);
   await requestJson(baseUrl, "/api/sessions", {
-    cookie: bobCookie,
-    machineId: aliceOne,
+    cookie: consumerCookie,
+    machineId: aliceOneRoute,
     status: 503,
   });
+  await requestJson(baseUrl, "/api/sessions", { cookie: bobCookie, machineId: aliceOneRoute });
 
   const bobAgent = startAgent(baseUrl, BOB, bobOne, tmpDir);
-  await waitForMachines(baseUrl, bobCookie, [bobOne]);
+  const bobMachines = await waitForMachines(baseUrl, bobCookie, [aliceOne, aliceTwo, bobOne]);
+  await waitForMachines(baseUrl, aliceCookie, [aliceOne, aliceTwo, bobOne]);
   assertAlive("bob-agent", bobAgent);
 
+  const bobOneRoute = routeForMachine(bobMachines, bobOne);
+  await requestJson(baseUrl, "/api/sessions", { cookie: aliceCookie, machineId: bobOneRoute });
+
+  const consumerAgent = startAgent(baseUrl, CONSUMER, consumerOne, tmpDir);
+  const consumerMachines = await waitForMachines(baseUrl, consumerCookie, [consumerOne]);
+  assertAlive("consumer-agent", consumerAgent);
+  const consumerOneRoute = routeForMachine(consumerMachines, consumerOne);
   await requestJson(baseUrl, "/api/sessions", {
     cookie: aliceCookie,
-    machineId: bobOne,
+    machineId: consumerOneRoute,
     status: 503,
   });
+  await waitForMachines(baseUrl, adminCookie, [aliceOne, aliceTwo, bobOne, consumerOne]);
 
   const runtime = await requestJson(baseUrl, "/api/runtime", { cookie: aliceCookie });
   assert.equal(runtime.mode, "hub");
 
-  await exerciseTmux(baseUrl, aliceCookie, ALICE, aliceOne);
-  await exerciseTmux(baseUrl, bobCookie, BOB, bobOne);
+  await exerciseTmux(baseUrl, aliceCookie, ALICE, aliceOneRoute);
+  await exerciseTmux(baseUrl, bobCookie, BOB, bobOneRoute);
+  await exerciseTmux(baseUrl, consumerCookie, CONSUMER, consumerOneRoute);
 
   console.log("controller oauth/device multi-user e2e passed");
 } finally {

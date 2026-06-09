@@ -43,8 +43,10 @@ SECRET_NAMES=(
   GOOGLE_DEVICE_CLIENT_ID
   GOOGLE_DEVICE_CLIENT_SECRET
 )
-ALLOWED_GOOGLE_EMAILS="sonicgg@gmail.com"
-ALLOWED_GOOGLE_DOMAINS="rebyte.ai"
+ALLOW_ALL_GOOGLE_USERS="1"
+SUPER_ADMIN_EMAILS="sonicgg@gmail.com"
+ALLOWED_GOOGLE_EMAILS=""
+ALLOWED_GOOGLE_DOMAINS=""
 
 # ---------------------- bootstrap ----------------------
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -497,6 +499,8 @@ ENV_JSON="[
   {\"name\":\"NODE_ENV\",\"value\":\"production\"},
   {\"name\":\"HOST\",\"value\":\"0.0.0.0\"},
   {\"name\":\"PORT\",\"value\":\"$CONTAINER_PORT\"},
+  {\"name\":\"ALLOW_ALL_GOOGLE_USERS\",\"value\":\"$ALLOW_ALL_GOOGLE_USERS\"},
+  {\"name\":\"SUPER_ADMIN_EMAILS\",\"value\":\"$SUPER_ADMIN_EMAILS\"},
   {\"name\":\"ALLOWED_GOOGLE_EMAILS\",\"value\":\"$ALLOWED_GOOGLE_EMAILS\"},
   {\"name\":\"ALLOWED_GOOGLE_DOMAINS\",\"value\":\"$ALLOWED_GOOGLE_DOMAINS\"},
   {\"name\":\"GOOGLE_OAUTH_REDIRECT_URI\",\"value\":\"https://${DOMAIN}/auth/google/callback\"}

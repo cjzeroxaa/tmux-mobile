@@ -67,15 +67,16 @@ function setStatus(text) {
   els.status.textContent = text;
 }
 
-function mainAppHref({ machineId, sessionId, windowIndex }) {
+function mainAppHref({ machineId, sessionName, sessionId, windowIndex, windowName }) {
   // Main app reads its URL target via session + window query params (see
   // public/app.js readUrlTarget). machineId comes along too so controller
   // mode lands on the right machine without an extra round-trip.
   const params = new URLSearchParams({
-    session: sessionId,
+    session: sessionName || sessionId,
     window: String(windowIndex),
   });
   if (machineId) params.set("machineId", machineId);
+  if (windowName) params.set("windowName", windowName);
   return `/app/?${params.toString()}`;
 }
 

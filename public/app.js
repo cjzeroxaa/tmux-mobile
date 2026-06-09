@@ -7,12 +7,6 @@ const WAVEFORM_SAMPLE_INTERVAL_MS = 200;
 
 let screenWakeLock = null;
 
-if (window.location.search) {
-  const cleanUrl = new URL(window.location.href);
-  cleanUrl.search = "";
-  window.history.replaceState({}, "", cleanUrl);
-}
-
 function createPersistedAtom(key, defaultValue) {
   let value = defaultValue;
   try {
@@ -32,15 +26,6 @@ function createPersistedAtom(key, defaultValue) {
     },
   };
 }
-
-const targetAtom = createPersistedAtom("tmux-mobile-target", {
-  session: "0",
-  windowIndex: "1",
-});
-
-const machineAtom = createPersistedAtom("tmux-mobile-machine", {
-  machineId: "",
-});
 
 // "kami" = Japanese washi-paper light theme (default), "dark" = original,
 // "auto" = follow the OS prefers-color-scheme.
@@ -313,12 +298,14 @@ function applyTheme(theme) {
   document.documentElement.dataset.theme = themeIsDark(theme) ? "" : "kami";
 }
 
+const initialUrlTarget = readUrlTarget();
+
 const state = {
   runtimeMode: "local",
   serverRevision: "",
   cloneUrl: "https://github.com/cjzeroxaa/tmux-mobile.git",
   machines: [],
-  machineId: machineAtom.get().machineId || "",
+  machineId: initialUrlTarget.machineId || "",
   sessions: [],
   windows: [],
   windowSummaries: {},
@@ -355,7 +342,7 @@ const state = {
   snapshotPinnedToBottom: true,
   pendingSnapshotText: null,
   snapshotText: null,
-  pendingUrlTarget: readUrlTarget(),
+  pendingUrlTarget: initialUrlTarget,
   directories: {
     cwd: "",
     parent: "",
@@ -395,26 +382,37 @@ const state = {
 };
 
 function readUrlTarget() {
-  return targetAtom.get();
+  const params = new URLSearchParams(window.location.search);
+  return {
+    machineId: params.get("machineId") || "",
+    session: params.get("session") || params.get("sessionName") || "",
+    windowIndex: params.get("window") || params.get("windowIndex") || "",
+    windowName: params.get("windowName") || "",
+  };
 }
 
 function hasUrlTarget(target = readUrlTarget()) {
-  return Boolean(target.session || target.windowIndex);
-}
-
-function targetMatchesSession(target) {
-  const session = selectedSession();
-  return !target.session || session?.name === target.session;
+  return Boolean(target.machineId || target.session || target.windowIndex || target.windowName);
 }
 
 function updateTargetUrl() {
   const session = selectedSession();
   const win = selectedWindow();
-  if (!session || !win) return;
-  targetAtom.set({
-    session: session.name,
-    windowIndex: String(win.index),
-  });
+  const target = {
+    machineId: state.runtimeMode === "hub" ? state.machineId || "" : "",
+    session: session?.name || "",
+    windowIndex: win ? String(win.index) : "",
+    windowName: win?.name || "",
+  };
+  const params = new URLSearchParams();
+  if (target.machineId) params.set("machineId", target.machineId);
+  if (target.session) params.set("session", target.session);
+  if (target.windowIndex) params.set("window", target.windowIndex);
+  if (target.windowName) params.set("windowName", target.windowName);
+
+  const next = new URL(window.location.href);
+  next.search = params.toString();
+  window.history.replaceState({}, "", next);
 }
 
 const els = {
@@ -614,6 +612,16 @@ function selectedMachine() {
   return state.machines.find((item) => item.id === state.machineId);
 }
 
+function resolveMachineRouteId(machineId) {
+  const id = String(machineId || "");
+  if (!id) return "";
+  if (state.machines.some((machine) => machine.id === id)) return id;
+  const matches = state.machines.filter(
+    (machine) => machine.machineId === id || machine.hostname === id,
+  );
+  return matches.length === 1 ? matches[0].id : id;
+}
+
 function selectedMachineOnline() {
   return Boolean(selectedMachine());
 }
@@ -689,16 +697,16 @@ async function loadRuntimeAndMachines() {
   if (state.runtimeMode !== "hub") {
     state.machines = [];
     state.machineId = "";
-    machineAtom.set({ machineId: "" });
     renderMachinePicker();
     return;
   }
 
   state.machines = await api("/api/machines");
-  const stillAvailable = state.machines.some((machine) => machine.id === state.machineId);
-  if (!state.machineId || (state.machineId && !stillAvailable && !machineAtom.get().machineId)) {
+  if (state.machineId) {
+    state.machineId = resolveMachineRouteId(state.machineId);
+  }
+  if (!state.machineId) {
     state.machineId = state.machines.length === 1 ? state.machines[0].id : "";
-    machineAtom.set({ machineId: state.machineId });
   }
   renderMachinePicker();
 }
@@ -793,13 +801,17 @@ function machineLabel(machine) {
 async function selectMachine(machineId) {
   if (machineId === state.machineId) return;
   state.machineId = machineId;
-  machineAtom.set({ machineId });
   resetTmuxState(machineId ? "Loading machine..." : "Select a machine.");
+  updateTargetUrl();
   if (!machineId) {
     setStatus("Select a machine", false);
     return;
   }
-  await refreshTree({ forceUrlTarget: true, syncUrl: true });
+  await refreshTree({
+    urlTarget: { machineId, session: "", windowIndex: "", windowName: "" },
+    forceUrlTarget: true,
+    syncUrl: true,
+  });
 }
 
 function empty(container, text) {
@@ -2947,6 +2959,9 @@ async function refreshTree({
   forceUrlTarget = false,
   syncUrl = false,
 } = {}) {
+  if (urlTarget.machineId && urlTarget.machineId !== state.machineId) {
+    state.machineId = urlTarget.machineId;
+  }
   // Remember whether we were actively viewing a machine's window BEFORE this
   // refresh — so a momentary drop (deploy/wifi/agent restart) can be held in a
   // grace window instead of instantly wiping to "no machine".
@@ -3083,12 +3098,16 @@ async function loadWindows({ urlTarget = readUrlTarget(), forceUrlTarget = false
   const currentWindowExists = state.windows.some((item) => item.id === state.windowId);
   if (forceUrlTarget || !currentWindowExists) {
     let target = null;
-    if (urlTarget.session && urlTarget.windowIndex) {
+    if (urlTarget.session && (urlTarget.windowIndex || urlTarget.windowName)) {
       const session = state.sessions.find((item) => item.name === urlTarget.session);
       if (session) {
-        target = state.windows.find(
-          (win) => win.sessionId === session.id && String(win.index) === urlTarget.windowIndex,
-        );
+        const sessionWindows = state.windows.filter((win) => win.sessionId === session.id);
+        target = urlTarget.windowIndex
+          ? sessionWindows.find((win) => String(win.index) === urlTarget.windowIndex)
+          : null;
+        if (!target && urlTarget.windowName) {
+          target = sessionWindows.find((win) => win.name === urlTarget.windowName) || null;
+        }
       }
     }
     const chosen = target || state.windows.find((win) => win.active) || state.windows[0] || null;

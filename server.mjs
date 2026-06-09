@@ -2047,7 +2047,13 @@ function cookieSecure(req) {
 
 function setSessionCookie(req, res, user) {
   const token = issueSignedToken(
-    { type: "session", userId: user.userId, email: user.email, sub: user.sub },
+    {
+      type: "session",
+      userId: user.userId,
+      email: user.email,
+      hd: user.hd || "",
+      sub: user.sub,
+    },
     SESSION_TTL_SECONDS,
   );
   const parts = [
@@ -2085,12 +2091,13 @@ function bearerToken(req) {
 
 function authenticateAgent(req) {
   const tokenUser = verifySignedToken(bearerToken(req), "agent");
-  if (tokenUser) return tokenUser.userId;
+  if (tokenUser) return tokenUser;
   if (process.env.TMUX_MOBILE_ENABLE_LEGACY_AUTH !== "1") return null;
 
   const legacySecret = process.env.AGENT_SECRET || "";
   if (legacySecret && safeEqual(req.headers["x-agent-secret"], legacySecret)) {
-    return String(process.env.TMUX_MOBILE_USER || "default");
+    const userId = String(process.env.TMUX_MOBILE_USER || "default");
+    return { userId, email: userId, hd: "" };
   }
   return null;
 }
@@ -2109,6 +2116,7 @@ function sendRedirect(res, location) {
 
 function readAllowedGoogleConfig() {
   return {
+    allowAll: process.env.ALLOW_ALL_GOOGLE_USERS !== "0",
     emails: new Set(splitCsv(process.env.ALLOWED_GOOGLE_EMAILS)),
     domains: new Set(splitCsv(process.env.ALLOWED_GOOGLE_DOMAINS)),
   };
@@ -2116,6 +2124,7 @@ function readAllowedGoogleConfig() {
 
 function assertGoogleUserAllowed(user) {
   const allowed = readAllowedGoogleConfig();
+  if (allowed.allowAll) return;
   const email = String(user.email || "").toLowerCase();
   const domain = email.includes("@") ? email.split("@").pop() : "";
   if (allowed.emails.has(email) || allowed.domains.has(domain)) return;
@@ -2170,7 +2179,12 @@ async function googleTokenInfo(idToken, expectedAudience) {
     error.status = 403;
     throw error;
   }
-  const user = { userId: email, email, sub: String(data.sub || "") };
+  const user = {
+    userId: email,
+    email,
+    hd: String(data.hd || "").trim().toLowerCase(),
+    sub: String(data.sub || ""),
+  };
   assertGoogleUserAllowed(user);
   return user;
 }
@@ -2229,7 +2243,7 @@ async function handleAuthRoute(req, res, url) {
       sendJson(res, 401, { error: "Authentication required" });
       return true;
     }
-    sendJson(res, 200, { email: user.email, userId: user.userId });
+    sendJson(res, 200, { email: user.email, userId: user.userId, hd: user.hd || "" });
     return true;
   }
 
@@ -2350,10 +2364,16 @@ async function handleAuthRoute(req, res, url) {
     deviceSessions.delete(id);
     sendJson(res, 200, {
       token: issueSignedToken(
-        { type: "agent", userId: user.userId, email: user.email, sub: user.sub },
+        {
+          type: "agent",
+          userId: user.userId,
+          email: user.email,
+          hd: user.hd || "",
+          sub: user.sub,
+        },
         AGENT_TOKEN_TTL_SECONDS,
       ),
-      user: { email: user.email, userId: user.userId },
+      user: { email: user.email, userId: user.userId, hd: user.hd || "" },
       expiresIn: AGENT_TOKEN_TTL_SECONDS,
     });
     return true;
@@ -3235,7 +3255,11 @@ function validateStartupConfig() {
   ]) {
     if (!process.env[key]) missing.push(key);
   }
-  if (!process.env.ALLOWED_GOOGLE_EMAILS && !process.env.ALLOWED_GOOGLE_DOMAINS) {
+  if (
+    process.env.ALLOW_ALL_GOOGLE_USERS === "0" &&
+    !process.env.ALLOWED_GOOGLE_EMAILS &&
+    !process.env.ALLOWED_GOOGLE_DOMAINS
+  ) {
     missing.push("ALLOWED_GOOGLE_EMAILS or ALLOWED_GOOGLE_DOMAINS");
   }
   if (missing.length > 0) {
@@ -3307,6 +3331,9 @@ if (MODE.kind === "register") {
       const userId = REQUIRE_BROWSER_AUTH
         ? authenticatedUser?.userId
         : String(process.env.TMUX_MOBILE_USER || "default");
+      const viewer = REQUIRE_BROWSER_AUTH
+        ? authenticatedUser
+        : { userId, email: userId, hd: "" };
 
       if (req.method === "GET" && url.pathname === "/api/runtime") {
         sendJson(res, 200, {
@@ -3380,22 +3407,22 @@ if (MODE.kind === "register") {
       if (url.pathname.startsWith("/api/")) {
         if (hub) {
           if (req.method === "GET" && url.pathname === "/api/machines") {
-            sendJson(res, 200, hub.listMachines(userId));
+            sendJson(res, 200, hub.listMachines(viewer));
             return;
           }
           // Cross-machine attention sweep: per-window turn/waitingForInput/
-          // contentHash for EVERY online machine, so the client's "needs you"
-          // pill/title/favicon span all machines (not just the focused one). One
-          // request per poll regardless of machine count. The client applies its
-          // own (local) unread comparison against contentHash.
+          // contentHash for every online machine this user can access, so the
+          // client's "needs you" pill/title/favicon span the full visible set.
+          // One request per poll regardless of machine count. The client applies
+          // its own (local) unread comparison against contentHash.
           if (req.method === "GET" && url.pathname === "/api/attention") {
-            const online = hub.listMachines(userId);
+            const online = hub.listMachines(viewer);
             const machines = await Promise.all(
               online.map(async (machine) => {
                 let windows = [];
                 try {
                   windows = await withBackend(
-                    hub.backendFor(userId, machine.id),
+                    hub.backendFor(viewer, machine.id),
                     () => collectMachineAttention(),
                   );
                 } catch {
@@ -3411,27 +3438,27 @@ if (MODE.kind === "register") {
             sendJson(res, 200, { ok: true, revision: APP_REVISION });
             return;
           }
-          // Command Center spans every machine on the controller — open-
-          // team mode, so the user sees their own machines plus everyone
-          // else's contributed ones in one merged feed. Tag each agent
-          // with which machine + which contributor (ownerId) so the UI
-          // can label cards. Per-machine failures get swallowed so one
-          // hiccupping agent doesn't poison the whole feed.
+          // Command Center spans every online machine this user can access.
+          // Tag each agent with its machine and ownerId for UI labels.
+          // Per-machine failures get swallowed so one hiccupping agent doesn't
+          // poison the whole feed.
           if (req.method === "GET" && url.pathname === "/api/command-center") {
-            const online = hub.listMachines(userId);
+            const online = hub.listMachines(viewer);
             const all = [];
             await Promise.all(
               online.map(async (machine) => {
                 try {
                   const result = await withBackend(
-                    hub.backendFor(userId, machine.id),
+                    hub.backendFor(viewer, machine.id),
                     () => listAgentSessions(),
                   );
                   for (const a of result.agents || []) {
                     all.push({
                       machineId: machine.id,
+                      machineRawId: machine.machineId || "",
                       machineHostname: machine.hostname,
                       machineOwnerId: machine.ownerId || "",
+                      machineOwnerHd: machine.ownerHd || "",
                       ...a,
                     });
                   }
@@ -3446,18 +3473,18 @@ if (MODE.kind === "register") {
           const machineId =
             req.headers["x-machine-id"] ||
             url.searchParams.get("machineId") ||
-            hub.soleMachineId(userId);
+            hub.soleMachineId(viewer);
           if (!machineId) {
             sendJson(res, 400, {
               error: "machineId is required (multiple machines online)",
             });
             return;
           }
-          if (!hub.hasMachine(userId, machineId)) {
+          if (!hub.hasMachine(viewer, machineId)) {
             sendJson(res, 503, { error: `Machine ${machineId} is offline` });
             return;
           }
-          await withBackend(hub.backendFor(userId, machineId), () =>
+          await withBackend(hub.backendFor(viewer, machineId), () =>
             withVoiceUser(userId, () => handleApi(req, res, url)),
           );
           return;
@@ -3487,6 +3514,7 @@ if (MODE.kind === "register") {
       authenticateAgent: MODE.kind === "controller"
         ? authenticateAgent
         : () => String(process.env.TMUX_MOBILE_USER || "default"),
+      superAdminEmails: splitCsv(process.env.SUPER_ADMIN_EMAILS),
     });
   }
 

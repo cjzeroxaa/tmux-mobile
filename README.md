@@ -70,16 +70,19 @@ export GOOGLE_OAUTH_CLIENT_SECRET='...'
 export GOOGLE_DEVICE_CLIENT_ID='...apps.googleusercontent.com'
 export GOOGLE_DEVICE_CLIENT_SECRET='...'
 export GOOGLE_OAUTH_REDIRECT_URI='https://YOUR-CLOUD-RUN-URL/auth/google/callback'
-export ALLOWED_GOOGLE_DOMAINS='example.com'
+export ALLOW_ALL_GOOGLE_USERS='1'
+export SUPER_ADMIN_EMAILS='sonicgg@gmail.com'
 export OPENAI_API_KEY='sk-...'
 export OPENAI_SECRET_NAME='tmux-mobile-openai-api-key'
 export SESSION_SECRET="$(openssl rand -hex 32)"
 ```
 
-You can use `ALLOWED_GOOGLE_EMAILS` instead of, or in addition to,
-`ALLOWED_GOOGLE_DOMAINS`. Browsers only see machines registered by the same
-verified Google email, and API requests cannot route to another user's machine
-id.
+By default, any verified Google account can sign in (`ALLOW_ALL_GOOGLE_USERS=1`).
+Machine visibility is separate from login permission: super-admin emails can
+see every machine, Google Workspace users share machines with users from the
+same `hd` hosted domain, and consumer Google accounts without `hd` only see
+their own machines. Set `ALLOW_ALL_GOOGLE_USERS=0` with `ALLOWED_GOOGLE_EMAILS`
+and/or `ALLOWED_GOOGLE_DOMAINS` for a closed controller.
 
 Controller mode requires `OPENAI_API_KEY` because voice transcription, target
 summaries, and realtime audio reads all call OpenAI from the controller. Store
@@ -112,7 +115,8 @@ GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET},\
 GOOGLE_DEVICE_CLIENT_ID=${GOOGLE_DEVICE_CLIENT_ID},\
 GOOGLE_DEVICE_CLIENT_SECRET=${GOOGLE_DEVICE_CLIENT_SECRET},\
 GOOGLE_OAUTH_REDIRECT_URI=${GOOGLE_OAUTH_REDIRECT_URI},\
-ALLOWED_GOOGLE_DOMAINS=${ALLOWED_GOOGLE_DOMAINS},\
+ALLOW_ALL_GOOGLE_USERS=${ALLOW_ALL_GOOGLE_USERS},\
+SUPER_ADMIN_EMAILS=${SUPER_ADMIN_EMAILS},\
 SESSION_SECRET=${SESSION_SECRET}" \
   --set-secrets "OPENAI_API_KEY=${OPENAI_SECRET_NAME}:latest"
 ```
@@ -151,9 +155,9 @@ Run the local end-to-end test:
 npm test
 ```
 
-It starts a controller with a fake Google OAuth server, signs in two browser
-users, performs device login for multiple agents, verifies each user sees only
-their own machines, checks cross-user machine access is rejected, creates real
+It starts a controller with a fake Google OAuth server, signs in Workspace,
+consumer, and super-admin browser users, performs device login for multiple
+agents, verifies Workspace-domain sharing plus consumer isolation, creates real
 tmux sessions through the controller API, sends text into panes, and verifies
 captured pane output comes back through the correct user route.
 
@@ -161,9 +165,11 @@ captured pane output comes back through the correct user route.
 
 - `GET /api/runtime` → `{ "mode": "local" | "hub" }`.
 - `GET /api/machines` → registered machines and online status.
-- Every other `/api/*` call routes to the machine named in the `x-machine-id`
-  header (or `?machineId=`). With exactly one machine online the hub auto-selects
-  it, so the current frontend works unchanged.
+- Every other `/api/*` call routes to the machine id returned by
+  `GET /api/machines` in the `x-machine-id` header (or `?machineId=`). The raw
+  hostname is still returned as `machineId`/`hostname` for display; the routed
+  `id` stays unambiguous when two visible users register the same hostname. With
+  exactly one visible machine online the hub auto-selects it.
 
 ### Code layout
 
