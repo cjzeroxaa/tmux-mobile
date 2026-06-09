@@ -46,16 +46,21 @@
         <button id="ccWelcomeClose" class="cc-welcome-close" type="button" aria-label="Dismiss">×</button>
         <div class="cc-welcome-block">
           <h2>Add a machine</h2>
-          <p>On any Mac or Linux box you want to drive from here, with tmux running, sign in once:</p>
+          <p>On any Mac or Linux box you want to drive from here, with tmux running, sign in once with the same Google account you log into the site with:</p>
           <pre><code>git clone https://github.com/cjzeroxaa/tmux-mobile &amp;&amp; cd tmux-mobile
 npm ci
 node server.mjs --register https://eng.impo.ai --login</code></pre>
-          <p class="cc-welcome-muted">The CLI prints a Google device-login code; sign in with any allowed account. Full instructions: <a href="https://github.com/cjzeroxaa/tmux-mobile/blob/main/docs/join-network.md">docs/join-network.md</a>.</p>
+          <p class="cc-welcome-muted">The CLI prints a Google device-login code. After approval, the machine appears in everyone's picker who shares your workspace (see below). Full instructions: <a href="https://github.com/cjzeroxaa/tmux-mobile/blob/main/docs/join-network.md">docs/join-network.md</a>.</p>
         </div>
         <div class="cc-welcome-block">
           <h2>Who can see what</h2>
-          <p><strong>Open team.</strong> Anyone signed in to <code>eng.impo.ai</code> with an allowed Google account (<code>sonicgg@gmail.com</code> or any <code>@rebyte.ai</code> address) sees every machine on this controller, no matter who registered it.</p>
-          <p class="cc-welcome-muted">Each agent card is tagged with the email of whoever registered it. To make a machine invisible to others, stop the agent process on that machine.</p>
+          <p>Sign-in is open to any Google account, but what you <em>see</em> depends on the account type:</p>
+          <ul class="cc-welcome-list">
+            <li><strong>Google Workspace</strong> users (e.g. <code>@rebyte.ai</code>) see every machine registered by anyone in the same workspace.</li>
+            <li><strong>Personal Google</strong> accounts (e.g. <code>@gmail.com</code>) only see their own machines.</li>
+            <li><strong>Super-admins</strong> (deployment config, <code>SUPER_ADMIN_EMAILS</code>) see every machine on the controller regardless of workspace.</li>
+          </ul>
+          <p class="cc-welcome-muted">Each agent card shows who registered it. To make a machine invisible to your workspace, stop its agent process.</p>
         </div>
       </section>
 

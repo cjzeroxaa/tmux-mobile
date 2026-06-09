@@ -169,6 +169,16 @@
   font-size: 11.5px;
 }
 
+.cc-welcome-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cc-welcome-list li { margin: 0; }
+
 /* Sort + filter row between the topbar and the cards. Wraps on narrow
  * viewports so the chips stack cleanly under the sort picker on phones. */
 .cc-controls {
