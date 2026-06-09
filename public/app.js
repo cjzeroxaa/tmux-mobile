@@ -3178,16 +3178,28 @@ async function loadWindows({ urlTarget = readUrlTarget(), forceUrlTarget = false
     return;
   }
 
+  // Track per-session fetch failures: a failed call yields [] so the window
+  // list looks SHORTER than reality. We must NOT prune recents on a partial
+  // load (a transient hiccup would permanently drop live windows from the
+  // user's MRU list — recents don't regenerate the way summaries do).
+  let loadComplete = true;
   const lists = await Promise.all(
     state.sessions.map((session) =>
       api(`/api/windows?sessionId=${encodeURIComponent(session.id)}`)
         .then((wins) => wins.map((win) => ({ ...win, sessionId: session.id })))
-        .catch(() => []),
+        .catch(() => {
+          loadComplete = false;
+          return [];
+        }),
     ),
   );
   state.windows = lists.flat();
   pruneWindowSummaries();
-  pruneGlobalRecents();
+  // Only prune recents when we have a COMPLETE, trustworthy window list for
+  // this machine. On a partial load, leave recents intact — a stale entry is
+  // harmless (switching to it falls back to the picker) but a wrongly-dropped
+  // live window is not recoverable without re-visiting.
+  if (loadComplete) pruneGlobalRecents();
 
   const currentWindowExists = state.windows.some((item) => item.id === state.windowId);
   if (forceUrlTarget || !currentWindowExists) {
