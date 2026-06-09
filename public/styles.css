@@ -158,6 +158,26 @@ h3 {
   line-height: 1.25;
 }
 
+/* Copy-window-id button: sits between the title pill and the rest of the topbar
+   actions. Idle shows a clipboard icon; on success the .copied class swaps to a
+   green check for ~1.2s (handled by the JS timeout). */
+.copy-window-id {
+  flex: 0 0 auto;
+  color: var(--accent-dark);
+}
+.copy-window-id .icon-copied {
+  display: none;
+}
+.copy-window-id.copied {
+  color: #2e7d32;
+}
+.copy-window-id.copied .icon-copy {
+  display: none;
+}
+.copy-window-id.copied .icon-copied {
+  display: inline-block;
+}
+
 .directory-trigger {
   color: var(--accent-dark);
 }
@@ -2407,27 +2427,6 @@ input {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* Solid indigo chip in the topbar — sits at the START of the label so it
- * can't be truncated by text-overflow: ellipsis on long branch names. More
- * prominent than the inline tinted chip in the window selector because
- * it's the one persistent affordance saying "you're in a linked worktree
- * right now." */
-.target-pill-wt-chip {
-  display: inline-block;
-  flex: 0 0 auto;
-  margin-right: 6px;
-  border-radius: 999px;
-  padding: 1px 7px;
-  background: var(--accent);
-  color: var(--surface);
-  font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  vertical-align: middle;
 }
 
 /* Tiny chip next to the branch to flag "this checkout is a linked git
