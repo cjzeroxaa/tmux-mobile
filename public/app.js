@@ -1,6 +1,6 @@
 import { escapeHtml, linkifyEscaped } from "./linkify.js";
 import { playNotifySound, shouldChime } from "./notify-sound.js";
-import { windowKey, windowStableId, windowDescriptor, mergeRecent, pruneRecent } from "./window-id.js";
+import { windowKey, windowStableId, windowDescriptor, windowTitleText, mergeRecent, pruneRecent } from "./window-id.js";
 
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
@@ -1154,24 +1154,27 @@ function renderTargetLabels() {
     renderSnapshotNote();
     return;
   }
-  const branch = (state.windowMetadata[win.id] || {}).git?.branch || "";
-  // The session name no longer prefixes the topbar — host (URL) + window
-  // index already disambiguate, and the session name was just noise. The WT
-  // worktree chip is gone too: the directory below already says where you are,
-  // and the worktree fact now lives in the hover tooltip + copied descriptor.
-  const label = escapeHtml(`${win.index}:${win.name}`);
-  const branchPart = branch ? ` ⎇ ${escapeHtml(branch)}` : "";
-  // Show the FULL home-relative path. Path is the most useful "where am I"
-  // signal and the user explicitly wants it in the header. The strong tag
-  // truncates with ellipsis on overflow, which is fine — if it doesn't fit,
-  // the path tail gets the dots and we move on.
-  const cwdAbbr = abbrevHome(win.cwd) || "";
-  const cwdPart = cwdAbbr ? ` · ${escapeHtml(cwdAbbr)}` : "";
-  const machinePart =
+  // The title text is built by the shared windowTitleText() so the recents menu
+  // items render in the EXACT same format. The session name is intentionally
+  // not shown (host + index disambiguate), and the WT chip is gone — the cwd
+  // already says where you are; worktree status lives in the hover tooltip /
+  // copied descriptor. The machine prefix only shows in hub mode (the recents
+  // popup always passes it, since it's cross-machine).
+  const machine =
     state.runtimeMode === "hub"
-      ? `${escapeHtml(selectedMachine()?.hostname || state.machineId || "Machine")} · `
+      ? selectedMachine()?.hostname || state.machineId || "Machine"
       : "";
-  els.mobileTargetLabel.innerHTML = `${machinePart}${label}${cwdPart}${branchPart}`;
+  const branch = (state.windowMetadata[win.id] || {}).git?.branch || "";
+  const titleText = windowTitleText({
+    machine,
+    index: win.index,
+    name: win.name,
+    cwd: win.cwd,
+    branch,
+  });
+  // innerHTML for ellipsis behaviour on the <strong>; escape since the text can
+  // contain a window name / branch / path with HTML-special chars.
+  els.mobileTargetLabel.innerHTML = escapeHtml(titleText);
   // Richer detail on hover (desktop) — the full descriptor including the stable
   // id and worktree status that we no longer show inline. (Copy lives in the
   // More menu now; its item label carries the action text.)
@@ -5302,9 +5305,16 @@ function renderGlobalRecentsMenu() {
     item.type = "button";
     item.className = "recents-menu-item";
     item.setAttribute("role", "menuitem");
-    // Same one-line format as the window title / copied id, minus the worktree
-    // flag (noise in the quick-switch list).
-    const text = windowDescriptor(entry, { worktree: false });
+    // Exact same format as the top-left window title — built by the shared
+    // windowTitleText(). Recents is cross-machine, so always include the host
+    // prefix (the title does this in hub mode).
+    const text = windowTitleText({
+      machine: entry.host || entry.machineId || "",
+      index: entry.index,
+      name: entry.name,
+      cwd: entry.cwd,
+      branch: entry.branch,
+    });
     item.textContent = text;
     item.title = text;
     item.addEventListener("click", () => {

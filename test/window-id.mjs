@@ -7,9 +7,34 @@ import {
   windowKey,
   windowStableId,
   windowDescriptor,
+  windowTitleText,
   mergeRecent,
   pruneRecent,
 } from "../public/window-id.js";
+
+// --- windowTitleText: the top-left title format, shared with recents items ---
+// machine · index:name · cwd ⎇ branch
+assert.equal(
+  windowTitleText({ machine: "host", index: 3, name: "claude", cwd: "/home/ubuntu/g/x", branch: "main" }),
+  "host · 3:claude · ~/g/x ⎇ main",
+);
+// no machine prefix when machine is empty (title in non-hub mode)
+assert.equal(
+  windowTitleText({ index: 0, name: "shell", cwd: "/root/p", branch: "dev" }),
+  "0:shell · ~/p ⎇ dev",
+);
+// optional parts omitted cleanly
+assert.equal(windowTitleText({ index: 2, name: "vim" }), "2:vim");
+assert.equal(
+  windowTitleText({ machine: "m", index: 1, name: "x", branch: "b" }),
+  "m · 1:x ⎇ b",
+);
+// NO stable-id wrapper and NO worktree flag (that's windowDescriptor's job) —
+// this is the bare title format.
+const tt = windowTitleText({ machine: "h", index: 4, name: "y", cwd: "/root/z", branch: "f", worktree: true });
+assert.ok(!tt.includes("("), "title text has no descriptor parens");
+assert.ok(!tt.includes("worktree"), "title text omits worktree flag");
+assert.equal(tt, "h · 4:y · ~/z ⎇ f");
 
 // --- pruneRecent: drop closed windows, but only on the machine we can see ---
 {

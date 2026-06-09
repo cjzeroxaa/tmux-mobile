@@ -59,6 +59,21 @@ export function windowStableId({ host, sessionName, index } = {}) {
   return `${h}/${s}:${index}`;
 }
 
+// The top-left window TITLE text: "[machine · ] index:name[ · cwd][ ⎇ branch]".
+// Shared so the recents menu items render identically to the title. Plain text
+// (no HTML) — callers escape if they inject as innerHTML.
+//
+// fields: { machine, index, name, cwd, branch }
+//   machine: optional host/label to prefix (the title only passes this in hub
+//   mode; the recents popup always passes it, since it's cross-machine).
+export function windowTitleText(fields = {}) {
+  const machinePart = fields.machine ? `${fields.machine} · ` : "";
+  const cwdAbbr = abbrevHome(fields.cwd) || "";
+  const cwdPart = cwdAbbr ? ` · ${cwdAbbr}` : "";
+  const branchPart = fields.branch ? ` ⎇ ${fields.branch}` : "";
+  return `${machinePart}${fields.index}:${fields.name}${cwdPart}${branchPart}`;
+}
+
 // Full one-line descriptor for clipboard / hover: the stable id plus human
 // context (window name, cwd, branch, worktree). Pasteable into a bug report and
 // recognizable at a glance.
