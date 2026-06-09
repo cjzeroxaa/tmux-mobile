@@ -1374,6 +1374,10 @@ function syncSheetOpenClass() {
 
 function showTargetPicker() {
   closeDirectoryPicker();
+  // The full window list and the recents quick-switch popup are two views of
+  // the same "switch window" intent — don't show both at once. Opening the
+  // picker dismisses the recents popup.
+  setGlobalRecentsOpen(false);
   state.targetPickerOpen = true;
   els.targetSheet.hidden = false;
   syncSheetOpenClass();
@@ -5085,7 +5089,11 @@ if (els.copyWindowId) {
 // then resolve the stable key to a live window).
 function setGlobalRecentsOpen(open) {
   if (!els.globalRecentsMenu) return;
-  if (open) renderGlobalRecentsMenu();
+  if (open) {
+    // Mutually exclusive with the full window-list picker (same intent).
+    if (state.targetPickerOpen) closeTargetPicker();
+    renderGlobalRecentsMenu();
+  }
   els.globalRecentsMenu.hidden = !open;
   els.globalRecentsToggle?.setAttribute("aria-expanded", String(open));
 }
