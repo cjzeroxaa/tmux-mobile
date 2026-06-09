@@ -1,6 +1,7 @@
 import { escapeHtml, linkifyEscaped } from "./linkify.js";
 import { playNotifySound, shouldChime } from "./notify-sound.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
+import { windowStableId, windowDescriptor } from "./window-id.js";
 
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
@@ -573,6 +574,7 @@ const els = {
   directoryBackdrop: document.querySelector("#directoryBackdrop"),
   directorySheet: document.querySelector("#directorySheet"),
   openTargetPicker: document.querySelector("#openTargetPicker"),
+  copyWindowId: document.querySelector("#copyWindowId"),
   closeTargetPicker: document.querySelector("#closeTargetPicker"),
   targetBackdrop: document.querySelector("#targetBackdrop"),
   targetSheet: document.querySelector("#targetSheet"),
@@ -1157,6 +1159,25 @@ function renderWindows() {
   }
 }
 
+// Gather the plain fields the pure window-id helpers need from app state. The
+// hostname falls back to the machine id, then the page host; session falls back
+// to its id. See public/window-id.js.
+function windowIdFields(win) {
+  if (!win) return null;
+  const session = state.sessions.find((s) => s.id === win.sessionId);
+  const meta = state.windowMetadata[win.id] || {};
+  return {
+    host:
+      selectedMachine()?.hostname || state.machineId || location.hostname || "local",
+    sessionName: session?.name ?? win.sessionId ?? "",
+    index: win.index,
+    name: win.name,
+    cwd: win.cwd,
+    branch: meta.git?.branch || "",
+    worktree: Boolean(meta.git?.worktree),
+  };
+}
+
 function renderTargetLabels() {
   renderMachinePicker();
   updateDocumentTitle();
@@ -1176,17 +1197,15 @@ function renderTargetLabels() {
         ? `${selectedMachine()?.hostname || state.machineId || "Machine"} · No window selected`
         : "No window selected";
     }
+    els.openTargetPicker?.removeAttribute("title");
+    if (els.copyWindowId) els.copyWindowId.hidden = true;
     return;
   }
-  const meta = state.windowMetadata[win.id] || {};
-  const branch = meta.git?.branch || "";
-  const worktree = Boolean(meta.git?.worktree);
-  // WT chip goes at the START of the label — the target-pill's strong has
-  // text-overflow: ellipsis, so anything tacked on at the end gets clipped
-  // first on long branch names. The chip needs to be unmissable, not the
-  // first thing the ellipsis eats.
+  const branch = (state.windowMetadata[win.id] || {}).git?.branch || "";
   // The session name no longer prefixes the topbar — host (URL) + window
-  // index already disambiguate, and the session name was just noise.
+  // index already disambiguate, and the session name was just noise. The WT
+  // worktree chip is gone too: the directory below already says where you are,
+  // and the worktree fact now lives in the hover tooltip + copied descriptor.
   const label = escapeHtml(`${win.index}:${win.name}`);
   const branchPart = branch ? ` ⎇ ${escapeHtml(branch)}` : "";
   // Show the FULL home-relative path. Path is the most useful "where am I"
@@ -1199,8 +1218,15 @@ function renderTargetLabels() {
     state.runtimeMode === "hub"
       ? `${escapeHtml(selectedMachine()?.hostname || state.machineId || "Machine")} · `
       : "";
-  const wtChip = worktree ? `<span class="target-pill-wt-chip">WT</span> ` : "";
-  els.mobileTargetLabel.innerHTML = `${wtChip}${machinePart}${label}${cwdPart}${branchPart}`;
+  els.mobileTargetLabel.innerHTML = `${machinePart}${label}${cwdPart}${branchPart}`;
+  // Richer detail on hover (desktop) — the full descriptor including the stable
+  // id and worktree status that we no longer show inline.
+  const fields = windowIdFields(win);
+  els.openTargetPicker?.setAttribute("title", windowDescriptor(fields));
+  if (els.copyWindowId) {
+    els.copyWindowId.hidden = false;
+    els.copyWindowId.title = `Copy window id — ${windowStableId(fields)}`;
+  }
 }
 
 function abbrevHome(value) {
@@ -4985,6 +5011,29 @@ els.machineSelect?.addEventListener("change", () => {
   });
 });
 els.openTargetPicker.addEventListener("click", openTargetPicker);
+// Copy the current window's full descriptor (stable id + context). Lives on its
+// own button so the title keeps its tap-to-open-picker behavior. Flips to a
+// check icon for ~1.2s on success; falls back to selecting the title text if
+// the clipboard is blocked (insecure context).
+if (els.copyWindowId) {
+  els.copyWindowId.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    const win = selectedWindow();
+    if (!win) return;
+    const text = windowDescriptor(windowIdFields(win));
+    try {
+      await navigator.clipboard.writeText(text);
+      els.copyWindowId.classList.add("copied");
+      setTimeout(() => els.copyWindowId.classList.remove("copied"), 1200);
+    } catch {
+      const range = document.createRange();
+      range.selectNodeContents(els.mobileTargetLabel);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  });
+}
 if (els.needsAttention) {
   els.needsAttention.addEventListener("click", jumpToFirstAttention);
 }

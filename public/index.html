@@ -43,6 +43,16 @@
         <button id="openTargetPicker" class="target-pill" type="button">
           <strong id="mobileTargetLabel">No window selected</strong>
         </button>
+        <!-- Copy the current window's stable id ("host/session:index") for bug
+             reports / switching back later. Separate from the title so tapping
+             the title still opens the window picker. -->
+        <button id="copyWindowId" class="icon-button copy-window-id" type="button" hidden title="Copy window id" aria-label="Copy window id">
+          <svg class="icon-copy" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="13" height="13" x="9" y="9" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          <svg class="icon-copied" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+        <!-- "Needs you" pill: shown when one or more other windows' agents have
+             finished (unread) or are waiting on a question. Tap to jump. -->
+        <button id="needsAttention" class="needs-attention" type="button" hidden aria-live="polite"></button>
         <!-- Global action: Read the current window aloud (TTS). Promoted to the
              topbar from the composer. -->
         <button id="speakWindow" type="button" class="topbar-read" title="Read current window" aria-label="Read current window">

@@ -1,0 +1,41 @@
+// Pure helpers for a window's stable, copy-pasteable identity. Kept
+// dependency-free (no DOM, no app state) so they can be unit-tested in node and
+// imported by app.js in the browser — same cross-env pattern as linkify.js.
+//
+// The "stable id" is "host/session:index", built from the same
+// [machine, session, index] tuple the attention layer keys on (windowRecentKey).
+// Unlike the live tmux pane id, it survives tmux restarts, so it's the right
+// thing to quote in a bug report or to switch back to a window later.
+
+// Collapse a /home/<user> or /Users/<user> or /root prefix to "~". Mirrors
+// app.js abbrevHome so the descriptor's path matches what the topbar shows.
+export function abbrevHome(value) {
+  return String(value || "")
+    .replace(/^\/(?:Users|home)\/[^/]+/, "~")
+    .replace(/^\/root(?=\/|$)/, "~");
+}
+
+// fields:
+//   host        resolved hostname (machine hostname → machine id → page host)
+//   sessionName tmux session name (falls back to session id upstream)
+//   index       tmux window index
+export function windowStableId({ host, sessionName, index } = {}) {
+  const h = host || "local";
+  const s = sessionName == null ? "" : String(sessionName);
+  return `${h}/${s}:${index}`;
+}
+
+// Full one-line descriptor for clipboard / hover: the stable id plus human
+// context (window name, cwd, branch, worktree). Pasteable into a bug report and
+// recognizable at a glance.
+//
+// fields: { host, sessionName, index, name, cwd, branch, worktree }
+export function windowDescriptor(fields = {}) {
+  const id = windowStableId(fields);
+  const cwdAbbr = abbrevHome(fields.cwd) || "";
+  let tail = "";
+  if (cwdAbbr) tail += ` · ${cwdAbbr}`;
+  if (fields.branch) tail += ` ⎇ ${fields.branch}`;
+  if (fields.worktree) tail += " · worktree";
+  return `${id} (${fields.index}:${fields.name}${tail})`;
+}
