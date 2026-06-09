@@ -9,7 +9,25 @@ const els = {
   list: document.querySelector("#ccList"),
   status: document.querySelector("#ccStatus"),
   refresh: document.querySelector("#ccRefresh"),
+  filterRow: document.querySelector("#ccFilterRow"),
+  sortSelect: document.querySelector("#ccSort"),
 };
+
+// Persisted view prefs — sort + status/machine filters stay across reloads
+// so a user's "only show working on mac-mini" lens is sticky.
+function loadPrefs() {
+  try {
+    const raw = localStorage.getItem("tmux-mobile-cc-prefs");
+    if (!raw) return {};
+    return JSON.parse(raw) || {};
+  } catch { return {}; }
+}
+function savePrefs(prefs) {
+  try {
+    localStorage.setItem("tmux-mobile-cc-prefs", JSON.stringify(prefs));
+  } catch {}
+}
+const SAVED = loadPrefs();
 
 const state = {
   agents: [],
@@ -19,6 +37,11 @@ const state = {
   expanded: new Set(),
   pollTimer: null,
   lastError: "",
+  // Filter sets are Sets of allowed values. Empty = "show all" for that
+  // category. Hydrated from localStorage on boot.
+  sortBy: SAVED.sortBy || "status",
+  filterMachines: new Set(SAVED.filterMachines || []),
+  filterStatuses: new Set(SAVED.filterStatuses || []),
 };
 
 function escapeHtml(value) {
@@ -44,15 +67,124 @@ function setStatus(text) {
   els.status.textContent = text;
 }
 
-function mainAppHref({ sessionId, windowIndex }) {
+function mainAppHref({ machineId, sessionId, windowIndex }) {
   // Main app reads its URL target via session + window query params (see
-  // public/app.js readUrlTarget). Stay structurally identical so the deep
-  // link drops the user straight into that window.
+  // public/app.js readUrlTarget). machineId comes along too so controller
+  // mode lands on the right machine without an extra round-trip.
   const params = new URLSearchParams({
     session: sessionId,
     window: String(windowIndex),
   });
-  return `/?${params.toString()}`;
+  if (machineId) params.set("machineId", machineId);
+  return `/app/?${params.toString()}`;
+}
+
+// Apply filters + sort to the current agent list. Pure function — call
+// before renderAgents and feed it the result.
+function filterAndSort(agents) {
+  let out = agents;
+  if (state.filterStatuses.size > 0) {
+    out = out.filter((a) => state.filterStatuses.has(a.status));
+  }
+  if (state.filterMachines.size > 0) {
+    out = out.filter((a) =>
+      state.filterMachines.has(a.machineId || a.machineHostname || ""),
+    );
+  }
+  const cmp = sortComparator(state.sortBy);
+  return [...out].sort(cmp);
+}
+
+function sortComparator(by) {
+  switch (by) {
+    case "machine":
+      return (a, b) =>
+        (a.machineHostname || a.machineId || "").localeCompare(
+          b.machineHostname || b.machineId || "",
+        ) || a.windowIndex - b.windowIndex;
+    case "recent":
+      return (a, b) => {
+        // null/missing timestamps sort last
+        const ta = a.lastActivityAt ? Date.parse(a.lastActivityAt) : 0;
+        const tb = b.lastActivityAt ? Date.parse(b.lastActivityAt) : 0;
+        return tb - ta;
+      };
+    case "name":
+      return (a, b) => (a.windowName || "").localeCompare(b.windowName || "");
+    case "status":
+    default:
+      // Working first, then by window index — keep the previous default.
+      return (a, b) => {
+        if (a.status === b.status) return a.windowIndex - b.windowIndex;
+        return a.status === "running" ? -1 : 1;
+      };
+  }
+}
+
+// Rebuild the chip row whenever the agent list changes (e.g. a new
+// machine came online). Status chips are stable; machine chips come from
+// the distinct machineIds seen in the payload.
+function renderFilterRow() {
+  const row = els.filterRow;
+  row.innerHTML = "";
+  // Status chips first.
+  for (const s of ["running", "idle"]) {
+    const label = s === "running" ? "Working" : "Idle";
+    const active = state.filterStatuses.has(s);
+    row.append(chipButton({
+      label,
+      active,
+      kind: "status",
+      onTap: () => toggleFilter("filterStatuses", s),
+    }));
+  }
+  // Then per-machine chips, only when more than one machine is in play.
+  const machines = new Map(); // id -> hostname
+  for (const a of state.agents) {
+    const id = a.machineId || a.machineHostname || "";
+    if (!id) continue;
+    if (!machines.has(id)) machines.set(id, a.machineHostname || id);
+  }
+  if (machines.size > 1) {
+    const sep = document.createElement("span");
+    sep.className = "cc-filter-sep";
+    row.append(sep);
+    for (const [id, hostname] of machines) {
+      const active = state.filterMachines.has(id);
+      row.append(chipButton({
+        label: hostname,
+        active,
+        kind: "machine",
+        onTap: () => toggleFilter("filterMachines", id),
+      }));
+    }
+  }
+}
+
+function chipButton({ label, active, kind, onTap }) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = `cc-filter-chip cc-filter-chip-${kind}${active ? " is-active" : ""}`;
+  btn.textContent = label;
+  btn.addEventListener("click", onTap);
+  return btn;
+}
+
+function toggleFilter(setName, value) {
+  const s = state[setName];
+  if (s.has(value)) s.delete(value);
+  else s.add(value);
+  persistPrefs();
+  renderFilterRow();
+  renderAgents();
+}
+
+function persistPrefs() {
+  savePrefs({
+    sortBy: state.sortBy,
+    filterStatuses: [...state.filterStatuses],
+    filterMachines: [...state.filterMachines],
+  });
 }
 
 function renderEmpty() {
@@ -157,14 +289,16 @@ function renderAgents() {
     renderEmpty();
     return;
   }
+  const filtered = filterAndSort(state.agents);
   els.list.innerHTML = "";
-  // Sort so the "Working" cards bubble to the top — that's where the
-  // user's attention is needed.
-  const sorted = [...state.agents].sort((a, b) => {
-    if (a.status === b.status) return a.windowIndex - b.windowIndex;
-    return a.status === "running" ? -1 : 1;
-  });
-  for (const agent of sorted) {
+  if (filtered.length === 0) {
+    const note = document.createElement("div");
+    note.className = "cc-empty";
+    note.textContent = "No agents match the current filters.";
+    els.list.append(note);
+    return;
+  }
+  for (const agent of filtered) {
     els.list.append(renderCard(agent));
   }
 }
@@ -180,6 +314,7 @@ async function loadAgents() {
     state.agents = Array.isArray(data.agents) ? data.agents : [];
     state.lastError = "";
     setStatus(`${state.agents.length} agent${state.agents.length === 1 ? "" : "s"} · refreshed ${nowLabel()}`);
+    renderFilterRow();
     renderAgents();
   } catch (error) {
     state.lastError = error.message || String(error);
@@ -202,6 +337,14 @@ function stopPolling() {
 }
 
 els.refresh.addEventListener("click", () => loadAgents());
+
+// Sort dropdown — hydrate the persisted selection, fire on change.
+els.sortSelect.value = state.sortBy;
+els.sortSelect.addEventListener("change", () => {
+  state.sortBy = els.sortSelect.value;
+  persistPrefs();
+  renderAgents();
+});
 
 // Pause polling when the tab is backgrounded — every poll fires N
 // processTree + lsof calls on the host, no reason to keep doing that

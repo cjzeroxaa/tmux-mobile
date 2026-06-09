@@ -82,6 +82,83 @@
   flex: 0 0 auto;
 }
 
+/* Sort + filter row between the topbar and the cards. Wraps on narrow
+ * viewports so the chips stack cleanly under the sort picker on phones. */
+.cc-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.cc-filter-row {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cc-filter-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--line);
+  margin: 0 2px;
+}
+
+.cc-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cc-filter-chip.is-active {
+  border-color: var(--accent-dark);
+  background: rgba(53, 89, 122, 0.16);
+  color: var(--accent-dark);
+}
+
+.cc-filter-chip-machine {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.cc-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cc-sort-select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .cc-list {
   display: flex;
   flex-direction: column;

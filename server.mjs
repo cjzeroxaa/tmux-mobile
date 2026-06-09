@@ -1675,6 +1675,10 @@ async function listAgentSessions() {
         // response — that's "running". Otherwise it has spoken and is now
         // waiting for the next prompt — "idle".
         status: lastTurn?.role === "user" ? "running" : "idle",
+        // ISO timestamp of the most recent turn (when the agent transcript
+        // carries one). Drives the "recent activity" sort in the Command
+        // Center; null for transcripts that predate per-turn timestamps.
+        lastActivityAt: lastTurn?.t || null,
       };
     }),
   );
@@ -3141,12 +3145,17 @@ const contentTypes = new Map([
 ]);
 
 async function serveStatic(req, res, url) {
-  let pathname = url.pathname === "/" ? "/index.html" : url.pathname;
-  // Command Center is a separate top-level page so the main app stays
-  // untouched. Both /command-center and /command-center/ resolve to the
-  // standalone HTML.
-  if (pathname === "/command-center" || pathname === "/command-center/") {
+  let pathname = url.pathname;
+  // Command Center is the default landing page now. The original main app
+  // (single-window driver) lives at /app/. Both /command-center and the
+  // bare "/" resolve to the Command Center HTML; both /app and /app/
+  // resolve to the original index.html. Deep links like /app/?session=X
+  // still work because the original app reads its URL target from the
+  // query string regardless of the pathname.
+  if (pathname === "/" || pathname === "/command-center" || pathname === "/command-center/") {
     pathname = "/command-center.html";
+  } else if (pathname === "/app" || pathname === "/app/") {
+    pathname = "/index.html";
   }
   if (pathname === "/manifest.webmanifest") {
     sendWebManifest(res);
