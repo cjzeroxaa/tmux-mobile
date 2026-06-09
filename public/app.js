@@ -1,7 +1,7 @@
 import { escapeHtml, linkifyEscaped } from "./linkify.js";
 import { playNotifySound, shouldChime } from "./notify-sound.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
-import { windowStableId, windowDescriptor } from "./window-id.js";
+import { windowKey, windowStableId, windowDescriptor } from "./window-id.js";
 
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
@@ -189,13 +189,20 @@ function windowRecentKey(win) {
   if (!win) return "";
   const session = state.sessions.find((s) => s.id === win.sessionId);
   const sessionName = session?.name ?? win.sessionId;
-  return [state.machineId || "local", sessionName, win.index].join("\u001f");
+  return windowKey({ machineId: state.machineId, sessionName, index: win.index });
 }
 
-// Stable identity key for a cross-machine attention descriptor — must match
-// windowRecentKey's format so unread/seen-hashes line up across machines.
+// Stable identity key for a cross-machine attention descriptor. Goes through
+// the SAME windowKey() as windowRecentKey so the two always produce identical
+// strings — earlier these used different join separators, which silently broke
+// "is the active window the one needing attention?" and jump-to-window from the
+// Needs-you pill (the keys never matched, so it fell back to opening the picker).
 function attentionKey(d) {
-  return [d.machineId || "local", d.sessionName, d.windowIndex].join("");
+  return windowKey({
+    machineId: d.machineId,
+    sessionName: d.sessionName,
+    index: d.windowIndex,
+  });
 }
 
 // The stable key of the window the user is currently looking at (so it never
