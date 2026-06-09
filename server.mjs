@@ -3402,6 +3402,35 @@ if (MODE.kind === "register") {
             sendJson(res, 200, { ok: true, revision: APP_REVISION });
             return;
           }
+          // Command Center spans every machine the user owns — same shape
+          // as /api/attention above. Tag each agent with which machine it
+          // came from so the UI can label cards. Skip a machine that
+          // hiccups this tick rather than failing the whole call.
+          if (req.method === "GET" && url.pathname === "/api/command-center") {
+            const online = hub.listMachines(userId);
+            const all = [];
+            await Promise.all(
+              online.map(async (machine) => {
+                try {
+                  const result = await withBackend(
+                    hub.backendFor(userId, machine.id),
+                    () => listAgentSessions(),
+                  );
+                  for (const a of result.agents || []) {
+                    all.push({
+                      machineId: machine.id,
+                      machineHostname: machine.hostname,
+                      ...a,
+                    });
+                  }
+                } catch {
+                  // per-machine failure — drop just that machine for this tick
+                }
+              }),
+            );
+            sendJson(res, 200, { agents: all });
+            return;
+          }
           const machineId =
             req.headers["x-machine-id"] ||
             url.searchParams.get("machineId") ||

@@ -143,6 +143,27 @@
   text-transform: uppercase;
 }
 
+/* Per-machine chip on each card (controller mode only). Shapes match the
+ * kind-chip but uses the muted-surface tones so it reads as "context"
+ * rather than "type". Whole hostname can be long (e.g. tigris-bigeye.ts.net),
+ * so allow it to ellipsize on narrow phones. */
+.cc-machine-chip {
+  display: inline-block;
+  flex: 0 1 auto;
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .cc-status-pill {
   display: inline-flex;
   align-items: center;

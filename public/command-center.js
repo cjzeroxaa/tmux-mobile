@@ -99,7 +99,15 @@ function renderCard(agent) {
 
   const header = document.createElement("div");
   header.className = "cc-card-header";
+  // In controller mode the controller tags each agent with the machine it
+  // came from; show that as a leading chip so you can tell which Mac the
+  // window lives on when you have several connected. In local mode the
+  // field isn't present and the chip is omitted.
+  const machineChip = agent.machineHostname
+    ? `<span class="cc-machine-chip" title="${escapeHtml(agent.machineId || "")}">${escapeHtml(agent.machineHostname)}</span>`
+    : "";
   header.innerHTML = `
+    ${machineChip}
     <span class="cc-card-title">
       <span>${agent.windowIndex}: ${escapeHtml(agent.windowName || "(unnamed)")}</span>
       <span class="cc-card-session">· ${escapeHtml(agent.sessionName || "")}</span>
