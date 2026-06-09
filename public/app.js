@@ -1,7 +1,7 @@
 import { escapeHtml, linkifyEscaped } from "./linkify.js";
 import { playNotifySound, shouldChime } from "./notify-sound.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
-import { windowKey, windowStableId, windowDescriptor, windowTitleText, mergeRecent, pruneRecent } from "./window-id.js";
+import { windowKey, windowStableId, windowDescriptor, windowTitleText, windowHoverDetail, mergeRecent, pruneRecent } from "./window-id.js";
 
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
@@ -918,8 +918,11 @@ function machineLabel(machine) {
   return machine.hostname || machine.id;
 }
 
-async function selectMachine(machineId) {
-  if (machineId === state.machineId) return;
+// `target` optionally names a specific window to land on after the switch
+// ({ session, windowIndex }) — used by cross-machine quick-switch so the hop
+// goes straight to the intended window instead of the machine's default.
+async function selectMachine(machineId, target = null) {
+  if (machineId === state.machineId && !target) return;
   state.treeLoadGeneration += 1;
   state.machineId = machineId;
   resetTmuxState(machineId ? "Loading machine..." : "Select a machine.");
@@ -929,7 +932,12 @@ async function selectMachine(machineId) {
     return;
   }
   await refreshTree({
-    urlTarget: { machineId, session: "", windowIndex: "", windowName: "" },
+    urlTarget: {
+      machineId,
+      session: target?.session || "",
+      windowIndex: target?.windowIndex != null ? String(target.windowIndex) : "",
+      windowName: "",
+    },
     forceUrlTarget: true,
     syncUrl: true,
   });
@@ -1206,6 +1214,14 @@ function windowIdFields(win) {
     cwd: win.cwd,
     branch: meta.git?.branch || "",
     worktree: Boolean(meta.git?.worktree),
+    // Captured at visit time (we're on this machine then, so these are
+    // available even for entries we later view from another machine): the
+    // window note, the agent type, and the activity/turn state — surfaced in
+    // the recents hover tooltip.
+    note: (win.annotation || "").trim(),
+    agentType: meta.agentType || "",
+    turn: meta.turn || "",
+    live: Boolean(state.windowActivity[win.id]),
   };
 }
 
@@ -5120,15 +5136,22 @@ function renderGlobalRecentsMenu() {
     // Exact same format as the top-left window title — built by the shared
     // windowTitleText(). Recents is cross-machine, so always include the host
     // prefix (the title does this in hub mode).
-    const text = windowTitleText({
+    const titleFields = {
       machine: entry.host || entry.machineId || "",
       index: entry.index,
       name: entry.name,
       cwd: entry.cwd,
       branch: entry.branch,
+    };
+    item.textContent = windowTitleText(titleFields);
+    // Hover shows the captured note, agent type, and activity state.
+    item.title = windowHoverDetail({
+      ...titleFields,
+      note: entry.note,
+      agentType: entry.agentType,
+      turn: entry.turn,
+      live: entry.live,
     });
-    item.textContent = text;
-    item.title = text;
     item.addEventListener("click", () => {
       setGlobalRecentsOpen(false);
       switchToGlobalRecent(entry);
@@ -5138,15 +5161,26 @@ function renderGlobalRecentsMenu() {
 }
 
 async function switchToGlobalRecent(entry) {
-  // Hop machines first if this window lives on another one (hub mode).
-  if (
+  const onOtherMachine =
     state.runtimeMode === "hub" &&
     entry.machineId &&
-    entry.machineId !== state.machineId
-  ) {
-    await selectMachine(entry.machineId);
+    entry.machineId !== state.machineId;
+  if (onOtherMachine) {
+    // Hop to the other machine AND land directly on this window in one step:
+    // pass the target so refreshTree's urlTarget resolution selects it once the
+    // new machine's windows load (avoids a switch-then-find race where the
+    // window list isn't ready yet and we'd fall back to the picker).
+    await selectMachine(entry.machineId, {
+      session: entry.sessionName,
+      windowIndex: entry.index,
+    });
+    // refreshTree already selected the window via urlTarget; only fall back to
+    // the picker if it genuinely couldn't be found on the new machine.
+    const landed = state.windows.find((w) => windowRecentKey(w) === entry.key);
+    if (!landed) showTargetPicker();
+    return;
   }
-  // Resolve the stable key to a live window on the (now-current) machine.
+  // Same machine: resolve the stable key to a live window and select it.
   const win = state.windows.find((w) => windowRecentKey(w) === entry.key);
   if (win) {
     await selectWindow(win.id);

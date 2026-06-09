@@ -8,9 +8,35 @@ import {
   windowStableId,
   windowDescriptor,
   windowTitleText,
+  windowHoverDetail,
   mergeRecent,
   pruneRecent,
 } from "../public/window-id.js";
+
+// --- windowHoverDetail: title line + agent/activity + note ---
+// full: live agent with a turn state + a note
+assert.equal(
+  windowHoverDetail({
+    machine: "h", index: 3, name: "claude", cwd: "/root/p", branch: "main",
+    agentType: "claude", turn: "working", live: true, note: "waiting on CI",
+  }),
+  "h · 3:claude · ~/p ⎇ main\nagent: claude (active · working)\nnote: waiting on CI",
+);
+// idle agent, no note
+assert.equal(
+  windowHoverDetail({ machine: "h", index: 1, name: "x", agentType: "codex", live: false }),
+  "h · 1:x\nagent: codex (idle)",
+);
+// no agent → activity line instead
+assert.equal(
+  windowHoverDetail({ index: 2, name: "sh", live: true }),
+  "2:sh\nactivity: active",
+);
+// note present, no agent
+assert.equal(
+  windowHoverDetail({ index: 0, name: "z", live: false, note: "scratch" }),
+  "0:z\nactivity: idle\nnote: scratch",
+);
 
 // --- windowTitleText: the top-left title format, shared with recents items ---
 // machine · index:name · cwd ⎇ branch
