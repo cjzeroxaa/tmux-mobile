@@ -554,11 +554,16 @@
           <h2 id="newBranchTitle">New branch</h2>
           <button id="closeNewBranch" class="icon-button" type="button" title="Cancel">X</button>
         </div>
-        <p class="settings-hint">Creates a git worktree for a new branch (a sibling directory off <span id="newBranchFrom" class="duplicate-cwd"></span>) and opens a window in it. The start command is prefilled from this window — leave it empty for a plain shell.</p>
+        <p class="settings-hint">Creates a git worktree for a new branch and opens a window in it. The start command is prefilled from this window — leave it empty for a plain shell.</p>
         <label class="settings-field">
           <span>New branch name</span>
           <input id="newBranchName" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. feature-x" />
         </label>
+        <!-- Live preview of the worktree directory that will be created, updated
+             as the branch name is typed. Authoritative path: <worktree root>/
+             <branch> where the root is the parent of the shared .bare repo
+             (from git --git-common-dir), branch path preserved. -->
+        <p class="settings-hint new-branch-preview">Creates worktree at <code id="newBranchPath" class="new-branch-path"></code></p>
         <label class="settings-field">
           <span>Start command</span>
           <input id="newBranchCommand" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="(none — plain shell)" />

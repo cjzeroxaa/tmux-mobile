@@ -552,7 +552,7 @@ const els = {
   newBranchSheet: document.querySelector("#newBranchSheet"),
   newBranchBackdrop: document.querySelector("#newBranchBackdrop"),
   closeNewBranch: document.querySelector("#closeNewBranch"),
-  newBranchFrom: document.querySelector("#newBranchFrom"),
+  newBranchPath: document.querySelector("#newBranchPath"),
   newBranchName: document.querySelector("#newBranchName"),
   newBranchCommand: document.querySelector("#newBranchCommand"),
   newBranchStatus: document.querySelector("#newBranchStatus"),
@@ -3796,6 +3796,7 @@ async function createNewWindow() {
 // window is created. Creation happens in confirmDuplicate().
 let duplicateSourceId = null;
 let newBranchSourceId = null;
+let newBranchRoot = ""; // <root> the new worktree goes under (from meta.git.commonDir)
 async function duplicateCurrentWindow() {
   const win = selectedWindow();
   if (!win) {
@@ -3860,6 +3861,30 @@ async function confirmDuplicate() {
 
 // "New branch": open the sheet, prefilling the start command from the current
 // window (like Duplicate). Reuses /api/window-duplicate-info for the command.
+// The directory new worktrees go under: the parent of the shared git dir
+// (.bare). This is authoritative — git --git-common-dir (carried in
+// meta.git.commonDir) tells us exactly where the bare repo is, and worktrees
+// are its siblings. e.g. /home/ubuntu/worktrees/kernel/.bare -> .../kernel
+function worktreeRootFor(win) {
+  const commonDir = (state.windowMetadata[win?.id] || {}).git?.commonDir || "";
+  if (!commonDir) return "";
+  // dirname of the common dir, trimming a trailing slash first.
+  return commonDir.replace(/\/+$/, "").replace(/\/[^/]+$/, "");
+}
+
+// Live preview of where the new worktree will be created: <root>/<branch>,
+// branch path preserved (slashes are real subdirs). Mirrors backend.worktreeAdd.
+function renderNewBranchPath() {
+  if (!els.newBranchPath) return;
+  const branch = els.newBranchName.value.trim();
+  const root = newBranchRoot || "";
+  if (!root) {
+    els.newBranchPath.textContent = "(unknown — not a git worktree?)";
+    return;
+  }
+  els.newBranchPath.textContent = branch ? `${root}/${branch}` : `${root}/<branch>`;
+}
+
 async function openNewBranchSheet() {
   setMoreActionsOpen(false);
   const win = selectedWindow();
@@ -3868,16 +3893,16 @@ async function openNewBranchSheet() {
     return;
   }
   newBranchSourceId = win.id;
+  newBranchRoot = worktreeRootFor(win);
   els.newBranchName.value = "";
   els.newBranchCommand.value = "";
-  els.newBranchFrom.textContent = "";
   els.newBranchStatus.textContent = "Loading…";
   els.newBranchStatus.classList.remove("error");
   els.newBranchSheet.hidden = false;
+  renderNewBranchPath();
   try {
     const info = await api(`/api/window-duplicate-info?windowId=${encodeURIComponent(win.id)}`);
     els.newBranchCommand.value = info.command || "";
-    els.newBranchFrom.textContent = info.cwd || "";
     els.newBranchStatus.textContent = "";
     els.newBranchName.focus();
   } catch (error) {
@@ -5383,6 +5408,8 @@ if (els.newBranchWindow) {
   els.newBranchName.addEventListener("keydown", (event) => {
     if (event.key === "Enter") confirmNewBranch();
   });
+  // Live path preview as the branch name is typed.
+  els.newBranchName.addEventListener("input", renderNewBranchPath);
 }
 els.duplicateCommand.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {

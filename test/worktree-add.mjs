@@ -34,21 +34,32 @@ try {
   assert.equal(info.worktree, true, "is a worktree");
   assert.equal(info.bare, true, "backed by a bare repo");
 
-  // 2. worktreeAdd creates a sibling dir named after the branch, on that branch.
+  // 2. worktreeRoot is authoritative: the parent of the shared (.bare) git dir.
+  //    Here the bare repo is <root>/repo.git, so the worktree root is <root>.
+  const wtRoot = await localBackend.worktreeRoot(main);
+  assert.equal(wtRoot, root, "worktree root = parent of the bare git dir");
+
+  // 3. worktreeAdd creates <root>/<branch> on that branch.
   const created = await localBackend.worktreeAdd({ fromDir: main, branch: "feature-x" });
   assert.equal(created.branch, "feature-x");
-  assert.equal(created.path, path.join(root, "feature-x"), "sibling dir named after branch");
+  assert.equal(created.root, root, "reports the worktree root");
+  assert.equal(created.path, path.join(root, "feature-x"), "<root>/<branch>");
   await stat(created.path); // throws if it doesn't exist
   const head = (await exec("git", ["-C", created.path, "rev-parse", "--abbrev-ref", "HEAD"])).stdout.trim();
   assert.equal(head, "feature-x", "new worktree is on the new branch");
 
-  // 3. branch with a slash maps to a flat sibling basename.
+  // 4. a slashed branch preserves the slash as a real subdirectory.
   const slashed = await localBackend.worktreeAdd({ fromDir: main, branch: "fix/typo" });
-  assert.equal(slashed.path, path.join(root, "fix-typo"), "slash -> dash in dir name");
+  assert.equal(slashed.path, path.join(root, "fix", "typo"), "slash -> nested dir, preserved");
   assert.equal(slashed.branch, "fix/typo", "branch keeps the slash");
+  await stat(slashed.path);
 
-  // 4. validation: reject dangerous / empty names.
-  for (const bad of ["", "  ", "-rf", "a b", "..", "../escape", "a;b", "a$(x)"]) {
+  // 5. validation: reject dangerous / empty / malformed names (but a single
+  //    internal slash like "feature/x" is allowed — tested above).
+  for (const bad of [
+    "", "  ", "-rf", "a b", "..", "../escape", "a;b", "a$(x)",
+    "/abs", "trailing/", "double//slash",
+  ]) {
     await assert.rejects(
       () => localBackend.worktreeAdd({ fromDir: main, branch: bad }),
       /invalid branch name/i,
