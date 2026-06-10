@@ -1148,6 +1148,50 @@ async function duplicateWindow(windowId, overrides = {}) {
   return { ...windowFromRow(row), duplicatedFrom: windowId, command: command || "" };
 }
 
+// "New branch" quick action for a bare-repo-backed worktree: create a new git
+// worktree + branch off the source window's cwd, then open a new tmux window in
+// that worktree — running the same command the source window does, like
+// Duplicate. The window's cwd is the freshly-created worktree, not the source.
+async function newBranchWindow(windowId, { branch, command, name } = {}) {
+  requireId(windowId, "window");
+  const defaults = await getDuplicateDefaults(windowId);
+  if (!defaults.cwd) {
+    const error = new Error("source window has no working directory");
+    error.status = 400;
+    throw error;
+  }
+  // Create the worktree on the target machine (local or via the agent).
+  const created = await currentBackend().worktreeAdd({
+    fromDir: defaults.cwd,
+    branch: String(branch || ""),
+  });
+  const finalCommand =
+    command !== undefined ? String(command).trim() : defaults.command;
+  const finalName =
+    name !== undefined && String(name).trim() !== ""
+      ? String(name).trim()
+      : created.branch; // default the window name to the branch
+
+  const args = ["new-window", "-P", "-F", formats.windows, "-t", defaults.sessionId];
+  args.push("-c", created.path); // run IN the new worktree
+  if (finalName) args.push("-n", finalName);
+  if (finalCommand) args.push(finalCommand);
+  const out = await runTmux(args);
+  clearSessionSummaryCache(defaults.sessionId);
+  const [row] = rows(out);
+  if (!row) {
+    const error = new Error("tmux did not return the new-branch window");
+    error.status = 500;
+    throw error;
+  }
+  return {
+    ...windowFromRow(row),
+    branch: created.branch,
+    path: created.path,
+    command: finalCommand || "",
+  };
+}
+
 // Store a free-text follow-up note on the WINDOW as the @tm_annotation
 // window-scoped user option (set-option -w). Empty/whitespace clears it. Useful
 // for tracking the follow-up of a long-running task in a specific window.
@@ -3336,6 +3380,24 @@ async function handleApi(req, res, url) {
     const body = await readJsonBody(req);
     const paneId = requireId(body.paneId, "pane");
     sendJson(res, 200, await forkAgentWindow(paneId));
+    return;
+  }
+
+  // "New branch": create a worktree+branch off the window's cwd and open a new
+  // window in it (command prefilled like Duplicate). Only meaningful when the
+  // source window is a bare-repo-backed worktree; the client gates the action.
+  if (req.method === "POST" && url.pathname === "/api/window-new-branch") {
+    const body = await readJsonBody(req);
+    const windowId = requireId(body.windowId, "window");
+    sendJson(
+      res,
+      200,
+      await newBranchWindow(windowId, {
+        branch: body.branch,
+        command: body.command,
+        name: body.name,
+      }),
+    );
     return;
   }
 
