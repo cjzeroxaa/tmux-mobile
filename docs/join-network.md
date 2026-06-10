@@ -142,33 +142,81 @@ If you see `agent_reconnecting` and an HTTP 403, your Google account isn't
 on the allow list. If you see network errors, the controller might be
 mid-deploy — retry in a minute.
 
+## Renaming a machine
+
+The agent picks its `machineId` at startup from, in order:
+
+1. The `AGENT_MACHINE` env var, if set
+2. `os.hostname()` as fallback
+
+So your default name is whatever `hostname` prints (e.g. `homos-Mac-mini.local`).
+To rename:
+
+```bash
+# stop the current agent
+pkill -f -- '--register https://eng.impo.ai'
+
+# restart with a custom name
+AGENT_MACHINE="cj-mini" nohup node server.mjs --register https://eng.impo.ai \
+  >/tmp/tmux-mobile-agent.log 2>&1 &
+disown
+```
+
+That changes the name everyone sees in the picker. The saved token in
+`~/.config/tmux-mobile/agent.json` is keyed by Google account, not machine
+name, so no re-login.
+
+To make the new name **persist across reboots**, set the env var in your
+launchd plist / systemd unit:
+
+- **launchd** — inside `<key>EnvironmentVariables</key>`:
+  ```xml
+  <key>AGENT_MACHINE</key>  <string>cj-mini</string>
+  ```
+- **systemd** — inside the `[Service]` block:
+  ```ini
+  Environment=AGENT_MACHINE=cj-mini
+  ```
+
+> ⚠ Renaming changes the **machineId**, which is what `?machineId=…` deep
+> links and the per-machine RPC routing use. If anyone has bookmarked a
+> URL into a specific window, those bookmarks will break. (No display-name
+> overlay yet — both the picker label and the routing id are the same
+> string.)
+
 ## Adding more machines
 
-Run the same `--register --login` on each one and sign in with the SAME
-Google account. Every machine appears under your name in the picker; one
-account can own many machines.
-
-If a different person at rebyte.ai sets up their own machine, they'll
-sign in as themselves — their machines are in their slice, not yours.
-Multi-user is per-Google-account, not per-org.
+Run the same `--register --login` on each one. If you sign in with the
+same Google account, all of them appear under your name. If a colleague
+in the same Google Workspace (e.g. another `@rebyte.ai` user) does it
+with their own account, their machines appear in your picker too — see
+"Who can see what" below.
 
 ## Removing a machine
 
 Either:
 
 - Stop the agent process (`kill <pid>` / `launchctl bootout …`), and the
-  controller will mark it offline. It stays in the list until you sign out
-  and back in.
+  controller marks it offline within ~1 s. It disappears from the picker.
 - Or revoke the saved token: `rm ~/.config/tmux-mobile/agent.json` and stop
-  the agent. The next `--register --login` issues a fresh token.
+  the agent. The next `--register --login` issues a fresh token under
+  whatever Google account you sign back in with.
 
-## What gets shared
+## Who can see what
 
-- **You** (the Google account that registered) can see and control every
-  tmux session on the machine.
-- **No other user** of eng.impo.ai can see your machine. The controller
-  scopes the machine list to the logged-in user.
-- The controller runs your tmux commands by brokering them over the
-  WebSocket the agent opened *outbound* from your Mac. Nothing on your
-  Mac needs an inbound port; if your Mac is behind NAT or a VPN it still
-  works.
+Visibility is tied to your Google account type:
+
+- **Google Workspace** (`hd` claim present, e.g. `@rebyte.ai`) — see every
+  machine registered by anyone in the same workspace.
+- **Personal Google** (no `hd`, e.g. `@gmail.com`) — see only your own
+  machines.
+- **Super-admins** (deployment config, `SUPER_ADMIN_EMAILS`) — see every
+  machine on the controller regardless of workspace.
+
+Practical implication: register your machines with the Google account whose
+workspace you want them visible inside. If you register a `@rebyte.ai`
+machine while logged in as a personal Gmail account, only you will see it.
+
+The controller runs your tmux commands by brokering them over the
+WebSocket the agent opened **outbound** from your Mac. Nothing on your
+Mac needs an inbound port; works behind NAT / VPN.
