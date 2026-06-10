@@ -42,7 +42,10 @@ const state = {
   lastError: "",
   // Filter sets are Sets of allowed values. Empty = "show all" for that
   // category. Hydrated from localStorage on boot.
-  sortBy: SAVED.sortBy || "status",
+  // Default to newest-first: it's what the user usually asks the dashboard
+  // anyway ('what changed most recently?'). Existing pref values still win
+  // when present, so anyone who explicitly chose 'status' keeps it.
+  sortBy: SAVED.sortBy || "recent",
   filterMachines: new Set(SAVED.filterMachines || []),
   filterStatuses: new Set(SAVED.filterStatuses || []),
 };
