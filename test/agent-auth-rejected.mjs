@@ -7,6 +7,8 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { AGENT_WS_PATH } from "../lib/protocol.mjs";
 
+// Isolate agent config: persistence must never touch the real ~/.config copy.
+process.env.TMUX_MOBILE_AGENT_CONFIG = `/tmp/tmux-mobile-test-agent-test_agent_auth_rejected_mjs-${process.pid}.json`;
 process.env.AGENT_REVISION_POLL_MS = "0";
 const { runAgent } = await import("../lib/agent.mjs");
 

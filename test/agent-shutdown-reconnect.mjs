@@ -14,6 +14,8 @@ import http from "node:http";
 import net from "node:net";
 
 // Fast reconnect for the test; set before importing the agent (module-load consts).
+// Isolate agent config: persistence must never touch the real ~/.config copy.
+process.env.TMUX_MOBILE_AGENT_CONFIG = `/tmp/tmux-mobile-test-agent-test_agent_shutdown_reconnect_mjs-${process.pid}.json`;
 process.env.AGENT_REVISION_POLL_MS = "0"; // testing the SIGTERM-close path, not revision poll
 process.env.AGENT_PING_INTERVAL_MS = "200";
 process.env.AGENT_PONG_TIMEOUT_MS = "600";

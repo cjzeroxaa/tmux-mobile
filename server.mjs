@@ -3339,12 +3339,13 @@ if (MODE.kind === "register") {
     console.error("usage: node server.mjs --register <hubUrl>");
     process.exit(2);
   }
-  const { agentAuthState, loginAgent, runAgent } = await import("./lib/agent.mjs");
+  const { agentAuthState, loginAgent, runAgent, resolveMachineName } =
+    await import("./lib/agent.mjs");
   let authState = agentAuthState(MODE.hubUrl);
   const shouldLogin = MODE.login || !authState.hasAuth;
   logServerEvent("agent_starting", {
     controller: new URL(MODE.hubUrl).origin,
-    machine: process.env.AGENT_MACHINE || os.hostname(),
+    machine: resolveMachineName(), // same resolution runAgent uses (no drift)
     login: shouldLogin,
     authSource: authState.source,
     message: shouldLogin

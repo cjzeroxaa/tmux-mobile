@@ -11,6 +11,8 @@ import { AGENT_WS_PATH, MSG } from "../lib/protocol.mjs";
 
 // Disable the revision poll so the ONLY thing that can trigger a re-dial here is
 // the REDIAL frame — proves the frame itself works.
+// Isolate agent config: persistence must never touch the real ~/.config copy.
+process.env.TMUX_MOBILE_AGENT_CONFIG = `/tmp/tmux-mobile-test-agent-test_agent_redial_mjs-${process.pid}.json`;
 process.env.AGENT_REVISION_POLL_MS = "0";
 process.env.AGENT_PING_INTERVAL_MS = "200";
 process.env.AGENT_PONG_TIMEOUT_MS = "10000";

@@ -30,6 +30,8 @@ const child = spawn(
   {
     env: {
       ...process.env,
+      // Isolate agent config so persistence never touches the real ~/.config copy.
+      TMUX_MOBILE_AGENT_CONFIG: `/tmp/tmux-mobile-test-agent-reconnect-survives-${process.pid}.json`,
       AGENT_MACHINE: "reconnect-survives",
       AGENT_REVISION_POLL_MS: "0",
       AGENT_PING_INTERVAL_MS: "100",

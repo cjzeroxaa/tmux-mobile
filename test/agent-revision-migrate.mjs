@@ -10,6 +10,8 @@ import http from "node:http";
 import { WebSocketServer } from "ws";
 import { AGENT_WS_PATH } from "../lib/protocol.mjs";
 
+// Isolate agent config: persistence must never touch the real ~/.config copy.
+process.env.TMUX_MOBILE_AGENT_CONFIG = `/tmp/tmux-mobile-test-agent-test_agent_revision_migrate_mjs-${process.pid}.json`;
 process.env.AGENT_REVISION_POLL_MS = "150"; // fast poll for the test
 process.env.AGENT_PING_INTERVAL_MS = "200";
 process.env.AGENT_PONG_TIMEOUT_MS = "600";

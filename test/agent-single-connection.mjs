@@ -22,6 +22,8 @@ import { AGENT_WS_PATH } from "../lib/protocol.mjs";
 // Fast cadence so both triggers fire quickly and overlap. Set BEFORE importing
 // agent.mjs (it reads these into module consts at load). Revision polling ON so
 // the revision-change terminate path is exercised alongside liveness.
+// Isolate agent config: persistence must never touch the real ~/.config copy.
+process.env.TMUX_MOBILE_AGENT_CONFIG = `/tmp/tmux-mobile-test-agent-test_agent_single_connection_mjs-${process.pid}.json`;
 process.env.AGENT_REVISION_POLL_MS = "50";
 process.env.AGENT_PING_INTERVAL_MS = "50";
 process.env.AGENT_PONG_TIMEOUT_MS = "140";

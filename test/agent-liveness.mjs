@@ -13,6 +13,8 @@ import { AGENT_WS_PATH } from "../lib/protocol.mjs";
 // Squeeze production's 10s/25s cadence into a fast test window. These must be
 // set BEFORE importing agent.mjs, which reads them into module-level consts at
 // load time — hence the dynamic import below.
+// Isolate agent config: persistence must never touch the real ~/.config copy.
+process.env.TMUX_MOBILE_AGENT_CONFIG = `/tmp/tmux-mobile-test-agent-test_agent_liveness_mjs-${process.pid}.json`;
 process.env.AGENT_REVISION_POLL_MS = "0"; // not under test here; keep hermetic
 process.env.AGENT_PING_INTERVAL_MS = "100";
 process.env.AGENT_PONG_TIMEOUT_MS = "300";
