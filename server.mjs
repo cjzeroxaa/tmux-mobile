@@ -736,6 +736,45 @@ async function listWindows(sessionId) {
   return rows(stdout).map(windowFromRow);
 }
 
+// Cold-load batch: one `tmux list-windows -a` returns every window on the
+// machine, with session_* fields prepended so we can rebuild both the
+// sessions[] list and the windows[] list from a single agent round-trip.
+// Replaces /api/sessions + N× /api/windows?sessionId=… on app boot.
+const TREE_SESSION_FIELDS =
+  "#{session_id}\t#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created_string}\t";
+async function listTree() {
+  let windowRows = [];
+  try {
+    const stdout = await runTmux([
+      "list-windows",
+      "-a",
+      "-F",
+      TREE_SESSION_FIELDS + formats.windows,
+    ]);
+    windowRows = rows(stdout);
+  } catch (error) {
+    if (isNoServerError(error)) return { sessions: [], windows: [] };
+    throw error;
+  }
+  // Preserve the original session order (first-time-seen order in list-windows
+  // -a output, which mirrors `list-sessions`). Map keeps insertion order.
+  const sessionsById = new Map();
+  const windows = [];
+  for (const row of windowRows) {
+    const sessionFields = row.slice(0, 5);
+    const windowFields = row.slice(5);
+    const [sessionId] = sessionFields;
+    if (!sessionsById.has(sessionId)) {
+      sessionsById.set(sessionId, sessionFromRow(sessionFields));
+    }
+    windows.push({ ...windowFromRow(windowFields), sessionId });
+  }
+  return {
+    sessions: [...sessionsById.values()],
+    windows,
+  };
+}
+
 async function createWindow(sessionId) {
   requireId(sessionId, "session");
   const stdout = await runTmux([
@@ -919,6 +958,13 @@ async function getPaneCwd(paneId) {
 
 async function listPaneDirectories(paneId) {
   const cwd = await getPaneCwd(paneId);
+  return directoriesForCwd(cwd);
+}
+
+// Shared by listPaneDirectories and getWindowView: turn an already-known cwd
+// into the {cwd, parent, entries} payload by reading the directory once.
+async function directoriesForCwd(cwd) {
+  if (!cwd) return { cwd: "", parent: "", entries: [] };
   const entries = await currentBackend().readdir(cwd);
   const directories = entries
     .filter((entry) => entry.isDirectory && !entry.name.startsWith("."))
@@ -930,11 +976,67 @@ async function listPaneDirectories(paneId) {
       return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
     })
     .slice(0, 80);
-
   return {
     cwd,
     parent: path.dirname(cwd),
     entries: directories,
+  };
+}
+
+// Switch-window batch: one HTTP request returns everything the client needs to
+// render the new window (pane list + the active pane's captured snapshot + cwd
+// directory listing). Replaces the sequential /api/panes → /api/directories →
+// /api/capture chain. listPanes is one RPC; capture + readdir then fire in
+// parallel, so the agent sees 1 + max(1,1) = 2 round-trips, down from 3.
+//
+// allSettled, not all: a readdir failure on a deleted/inaccessible cwd
+// shouldn't blank the snapshot, and vice versa. Each piece carries its own
+// error so the client can show partial state — matching today's behavior
+// where the directory navigator can be "unavailable" while the snapshot
+// renders fine.
+async function getWindowView(windowId, lines) {
+  const panes = await listPanes(windowId);
+  const active = panes.find((p) => p.active) || panes[0] || null;
+  if (!active) {
+    return {
+      panes: [],
+      activePaneId: "",
+      capture: { paneId: "", mode: "tail", lines, text: "", error: null },
+      directories: { cwd: "", parent: "", entries: [], error: null },
+    };
+  }
+  const [captureResult, dirResult] = await Promise.allSettled([
+    capturePane(active.id, "tail", lines, { ansi: true }),
+    directoriesForCwd(active.cwd),
+  ]);
+  const captureText =
+    captureResult.status === "fulfilled"
+      ? cleanTerminalTextKeepAnsi(captureResult.value)
+      : "";
+  const captureError =
+    captureResult.status === "rejected"
+      ? captureResult.reason?.message || "capture failed"
+      : null;
+  const directories =
+    dirResult.status === "fulfilled"
+      ? { ...dirResult.value, error: null }
+      : {
+          cwd: active.cwd || "",
+          parent: active.cwd ? path.dirname(active.cwd) : "",
+          entries: [],
+          error: dirResult.reason?.message || "Directory unavailable",
+        };
+  return {
+    panes,
+    activePaneId: active.id,
+    capture: {
+      paneId: active.id,
+      mode: "tail",
+      lines,
+      text: captureText,
+      error: captureError,
+    },
+    directories,
   };
 }
 
@@ -2468,6 +2570,21 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  // Cold-load batch (sessions + all windows in one agent round-trip). See
+  // listTree() for why this exists.
+  if (req.method === "GET" && url.pathname === "/api/tree") {
+    try {
+      sendJson(res, 200, await listTree());
+    } catch (error) {
+      if (isNoServerError(error)) {
+        sendJson(res, 200, { sessions: [], windows: [] });
+        return;
+      }
+      throw error;
+    }
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/sessions") {
     const body = await readJsonBody(req);
     sendJson(res, 200, await createSession(body.name));
@@ -2671,6 +2788,15 @@ async function handleApi(req, res, url) {
     const lines = parseLines(url.searchParams.get("lines"));
     const text = cleanTerminalTextKeepAnsi(await capturePane(paneId, mode, lines, { ansi: true }));
     sendJson(res, 200, { paneId, mode, lines, text });
+    return;
+  }
+
+  // Switch-window batch (panes + active capture + cwd directories in one
+  // request, two parallel agent round-trips total). See getWindowView() above.
+  if (req.method === "GET" && url.pathname === "/api/window-view") {
+    const windowId = requireId(url.searchParams.get("windowId"), "window");
+    const lines = parseLines(url.searchParams.get("lines"));
+    sendJson(res, 200, await getWindowView(windowId, lines));
     return;
   }
 

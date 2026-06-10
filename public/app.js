@@ -3011,8 +3011,13 @@ async function refreshTree({
     }
     // Machine is present/online — if we were in a grace window, we've recovered.
     if (inReconnectGrace()) clearReconnectGrace();
-    state.sessions = await api("/api/sessions");
-    await loadWindows({ urlTarget, forceUrlTarget });
+    // One batched fetch instead of /api/sessions + N× /api/windows. The agent
+    // runs a single `tmux list-windows -a` and the server reconstructs both
+    // lists from the same rows. See server.mjs::listTree.
+    const tree = await api("/api/tree");
+    state.sessions = tree.sessions || [];
+    state.windows = (tree.windows || []).map((w) => ({ ...w })); // defensive copy
+    await applyTreeAndSelectWindow({ urlTarget, forceUrlTarget });
     if (state.targetPickerOpen) {
       startActivityPolling();
     }
@@ -3073,7 +3078,14 @@ async function createTmuxSession() {
 }
 
 // Load windows for every session and flatten into one tagged list.
-async function loadWindows({ urlTarget = readUrlTarget(), forceUrlTarget = false } = {}) {
+// Renamed from loadWindows: window data now arrives via /api/tree (see
+// refreshTree above), so this function does no network — it picks which
+// window the user lands on from the already-loaded state.windows, then
+// delegates to loadPanes for that window's panes/capture/directories.
+async function applyTreeAndSelectWindow({
+  urlTarget = readUrlTarget(),
+  forceUrlTarget = false,
+} = {}) {
   state.panes = [];
   if (state.sessions.length === 0) {
     state.windows = [];
@@ -3084,15 +3096,6 @@ async function loadWindows({ urlTarget = readUrlTarget(), forceUrlTarget = false
     renderTargetLabels();
     return;
   }
-
-  const lists = await Promise.all(
-    state.sessions.map((session) =>
-      api(`/api/windows?sessionId=${encodeURIComponent(session.id)}`)
-        .then((wins) => wins.map((win) => ({ ...win, sessionId: session.id })))
-        .catch(() => []),
-    ),
-  );
-  state.windows = lists.flat();
   pruneWindowSummaries();
 
   const currentWindowExists = state.windows.some((item) => item.id === state.windowId);
@@ -3953,8 +3956,27 @@ async function loadPanes() {
     return;
   }
 
-  state.panes = await api(`/api/panes?windowId=${encodeURIComponent(state.windowId)}`);
-  state.paneId = state.panes.find((pane) => pane.active)?.id || state.panes[0]?.id || "";
+  // One batched fetch instead of /api/panes → /api/directories → /api/capture.
+  // The server runs the pane list once, then capture-pane and readdir in
+  // parallel — so the agent sees 2 round-trips instead of 3, and the browser
+  // makes a single request. See server.mjs::getWindowView.
+  let view;
+  try {
+    view = await api(
+      `/api/window-view?windowId=${encodeURIComponent(state.windowId)}&lines=${state.lines}`,
+    );
+  } catch (error) {
+    // Same UX as the old refreshSnapshot catch: keep the last good snapshot
+    // visible, raise the stale-icon, swallow silently. The whole batched
+    // fetch having failed is a single signal — not three.
+    setSnapshotStale(true, error);
+    renderTargetLabels();
+    return;
+  }
+  state.panes = view.panes || [];
+  state.paneId = view.activePaneId || "";
+  const paneChanged = state.paneId !== previousPaneId;
+
   loadChat();
   renderTargetLabels();
   renderChat();
@@ -3963,8 +3985,30 @@ async function loadPanes() {
   state.currentAgentKind = null;
   renderReadButtonsEnabled();
   refreshAgentDetection();
-  await loadDirectories({ clear: state.paneId !== previousPaneId });
-  await refreshSnapshot(false, { forceScrollBottom: state.paneId !== previousPaneId });
+
+  // Apply the bundled directory listing (no separate /api/directories call).
+  const dir = view.directories || {};
+  state.directories = {
+    cwd: dir.cwd || "",
+    parent: dir.parent || "",
+    entries: dir.error ? [] : dir.entries || [],
+    loading: false,
+    error: dir.error || "",
+  };
+  renderDirectoryNavigator();
+
+  // Apply the bundled capture (no separate /api/capture call). A per-piece
+  // capture failure is treated like today's transient blip: stale-icon up,
+  // last good snapshot preserved.
+  const cap = view.capture || {};
+  if (cap.error) {
+    setSnapshotStale(true, new Error(cap.error));
+  } else {
+    updateSnapshotText(cap.text || "[no visible output]", {
+      forceScrollBottom: paneChanged,
+    });
+    setSnapshotStale(false);
+  }
 }
 
 async function loadDirectories({ clear = false } = {}) {
