@@ -543,6 +543,15 @@ const els = {
   duplicateCwd: document.querySelector("#duplicateCwd"),
   duplicateStatus: document.querySelector("#duplicateStatus"),
   confirmDuplicate: document.querySelector("#confirmDuplicate"),
+  newBranchWindow: document.querySelector("#newBranchWindow"),
+  newBranchSheet: document.querySelector("#newBranchSheet"),
+  newBranchBackdrop: document.querySelector("#newBranchBackdrop"),
+  closeNewBranch: document.querySelector("#closeNewBranch"),
+  newBranchFrom: document.querySelector("#newBranchFrom"),
+  newBranchName: document.querySelector("#newBranchName"),
+  newBranchCommand: document.querySelector("#newBranchCommand"),
+  newBranchStatus: document.querySelector("#newBranchStatus"),
+  confirmNewBranch: document.querySelector("#confirmNewBranch"),
   lineCount: document.querySelector("#lineCount"),
   snapshotNote: document.querySelector("#snapshotNote"),
   autoRefresh: document.querySelector("#autoRefresh"),
@@ -1179,6 +1188,7 @@ function renderTargetLabels() {
     }
     els.openTargetPicker?.removeAttribute("title");
     renderSnapshotNote();
+    updateNewBranchAffordance();
     return;
   }
   // The title text is built by the shared windowTitleText() so the recents menu
@@ -1208,6 +1218,17 @@ function renderTargetLabels() {
   const fields = windowIdFields(win);
   els.openTargetPicker?.setAttribute("title", windowDescriptor(fields));
   renderSnapshotNote();
+  updateNewBranchAffordance();
+}
+
+// Show the "New branch" More-menu item only when the current window is a
+// bare-repo-backed git worktree (the layout where spinning up a new branch as a
+// sibling worktree makes sense). Gated on meta.git.bare.
+function updateNewBranchAffordance() {
+  if (!els.newBranchWindow) return;
+  const win = selectedWindow();
+  const bare = Boolean(win && (state.windowMetadata[win.id] || {}).git?.bare);
+  els.newBranchWindow.hidden = !bare;
 }
 
 function abbrevHome(value) {
@@ -3752,6 +3773,7 @@ async function createNewWindow() {
 // window's title + start command (and cwd) so the user can adjust before the new
 // window is created. Creation happens in confirmDuplicate().
 let duplicateSourceId = null;
+let newBranchSourceId = null;
 async function duplicateCurrentWindow() {
   const win = selectedWindow();
   if (!win) {
@@ -3811,6 +3833,75 @@ async function confirmDuplicate() {
     els.duplicateStatus.classList.add("error");
   } finally {
     els.confirmDuplicate.disabled = false;
+  }
+}
+
+// "New branch": open the sheet, prefilling the start command from the current
+// window (like Duplicate). Reuses /api/window-duplicate-info for the command.
+async function openNewBranchSheet() {
+  setMoreActionsOpen(false);
+  const win = selectedWindow();
+  if (!win) {
+    setStatus("Select a window first", false);
+    return;
+  }
+  newBranchSourceId = win.id;
+  els.newBranchName.value = "";
+  els.newBranchCommand.value = "";
+  els.newBranchFrom.textContent = "";
+  els.newBranchStatus.textContent = "Loading…";
+  els.newBranchStatus.classList.remove("error");
+  els.newBranchSheet.hidden = false;
+  try {
+    const info = await api(`/api/window-duplicate-info?windowId=${encodeURIComponent(win.id)}`);
+    els.newBranchCommand.value = info.command || "";
+    els.newBranchFrom.textContent = info.cwd || "";
+    els.newBranchStatus.textContent = "";
+    els.newBranchName.focus();
+  } catch (error) {
+    els.newBranchStatus.textContent = error.message || "Could not load window info";
+    els.newBranchStatus.classList.add("error");
+  }
+}
+
+function closeNewBranchSheet() {
+  els.newBranchSheet.hidden = true;
+  newBranchSourceId = null;
+}
+
+async function confirmNewBranch() {
+  if (!newBranchSourceId) return;
+  const branch = els.newBranchName.value.trim();
+  if (!branch) {
+    els.newBranchStatus.textContent = "Enter a branch name";
+    els.newBranchStatus.classList.add("error");
+    return;
+  }
+  els.confirmNewBranch.disabled = true;
+  els.newBranchStatus.classList.remove("error");
+  els.newBranchStatus.textContent = "Creating worktree…";
+  try {
+    const created = await api("/api/window-new-branch", {
+      method: "POST",
+      body: JSON.stringify({
+        windowId: newBranchSourceId,
+        branch,
+        command: els.newBranchCommand.value,
+      }),
+    });
+    closeNewBranchSheet();
+    await refreshTree();
+    if (created?.id) await selectWindow(created.id); // switch to the new window
+    setStatus(
+      created?.command
+        ? `new branch ${created.branch} (running: ${created.command})`
+        : `new branch ${created.branch}`,
+    );
+  } catch (error) {
+    els.newBranchStatus.textContent = error.message || "Could not create branch";
+    els.newBranchStatus.classList.add("error");
+  } finally {
+    els.confirmNewBranch.disabled = false;
   }
 }
 
@@ -5262,6 +5353,15 @@ els.closeWindow.addEventListener("click", closeCurrentWindow);
 els.confirmDuplicate.addEventListener("click", confirmDuplicate);
 els.closeDuplicate.addEventListener("click", closeDuplicateSheet);
 els.duplicateBackdrop.addEventListener("click", closeDuplicateSheet);
+if (els.newBranchWindow) {
+  els.newBranchWindow.addEventListener("click", openNewBranchSheet);
+  els.confirmNewBranch.addEventListener("click", confirmNewBranch);
+  els.closeNewBranch.addEventListener("click", closeNewBranchSheet);
+  els.newBranchBackdrop.addEventListener("click", closeNewBranchSheet);
+  els.newBranchName.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") confirmNewBranch();
+  });
+}
 els.duplicateCommand.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();

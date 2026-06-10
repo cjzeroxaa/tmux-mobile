@@ -91,6 +91,12 @@
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               <span>Duplicate window</span>
             </button>
+            <!-- Shown only when the current window is a bare-repo-backed git
+                 worktree (gated by app.js via meta.git.bare). -->
+            <button id="newBranchWindow" class="more-actions-item" type="button" role="menuitem" hidden>
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+              <span>New branch</span>
+            </button>
             <button id="forkAgent" class="more-actions-item" type="button" role="menuitem" data-agent-fork>
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="9" r="3"/><path d="M18 12a9 9 0 0 1-9 9"/><path d="M6 9v6"/></svg>
               <span>Fork agent</span>
@@ -533,6 +539,33 @@
         <div class="settings-actions">
           <span id="duplicateStatus" class="settings-status" role="status" aria-live="polite"></span>
           <button id="confirmDuplicate" class="small-button submit" type="button">Create</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- "New branch" sheet (More -> New branch). Shown only when the current
+         window is a bare-repo-backed git worktree. Creates a new worktree+branch
+         (sibling dir named after the branch) and opens a window in it, with the
+         start command prefilled from the current window like Duplicate. -->
+    <div id="newBranchSheet" class="settings-sheet" hidden>
+      <button id="newBranchBackdrop" class="settings-backdrop" type="button" aria-label="Cancel new branch"></button>
+      <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="newBranchTitle">
+        <div class="settings-panel-header">
+          <h2 id="newBranchTitle">New branch</h2>
+          <button id="closeNewBranch" class="icon-button" type="button" title="Cancel">X</button>
+        </div>
+        <p class="settings-hint">Creates a git worktree for a new branch (a sibling directory off <span id="newBranchFrom" class="duplicate-cwd"></span>) and opens a window in it. The start command is prefilled from this window — leave it empty for a plain shell.</p>
+        <label class="settings-field">
+          <span>New branch name</span>
+          <input id="newBranchName" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. feature-x" />
+        </label>
+        <label class="settings-field">
+          <span>Start command</span>
+          <input id="newBranchCommand" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="(none — plain shell)" />
+        </label>
+        <div class="settings-actions">
+          <span id="newBranchStatus" class="settings-status" role="status" aria-live="polite"></span>
+          <button id="confirmNewBranch" class="small-button submit" type="button">Create</button>
         </div>
       </section>
     </div>
