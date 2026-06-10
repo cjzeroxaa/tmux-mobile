@@ -1772,7 +1772,10 @@ async function listAgentSessions() {
         lastUserText: lastUserTurn?.text || "",
         lastAssistantText: lastAssistantTurn?.text || "",
         lastRole: lastTurn?.role || "",
-        turnCount: turns.length,
+        // Prefer the agent's pre-slice total (added with the larger 32 MB tail
+        // read). Old agent bundles don't send this — fall back to turns.length
+        // so they still render, just pinned at the slice cap as before.
+        turnCount: typeof info.turnsTotal === "number" ? info.turnsTotal : turns.length,
         // If the most recent turn is from the user, the agent owes us a
         // response — that's "running". Otherwise it has spoken and is now
         // waiting for the next prompt — "idle".
