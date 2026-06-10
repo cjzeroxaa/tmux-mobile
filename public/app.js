@@ -659,6 +659,17 @@ function selectedWindow() {
   return state.windows.find((item) => item.id === state.windowId);
 }
 
+// Did the currently-selected window land on the given (session-name, index)
+// target? Used after a cross-machine hop to verify the switch succeeded by its
+// OUTCOME, rather than re-deriving a stable key (which can mismatch on machineId
+// representation and wrongly trigger the picker fallback).
+function selectedMatchesTarget(sessionName, index) {
+  const sel = selectedWindow();
+  if (!sel) return false;
+  const selSession = state.sessions.find((s) => s.id === sel.sessionId)?.name ?? "";
+  return String(sel.index) === String(index) && selSession === sessionName;
+}
+
 function selectedMachine() {
   return state.machines.find((item) => item.id === state.machineId);
 }
@@ -3497,7 +3508,11 @@ async function jumpToFirstAttention() {
       session: descriptor.sessionName,
       windowIndex: descriptor.windowIndex,
     });
-    if (!state.windows.find((w) => windowRecentKey(w) === targetKey)) {
+    // Verify by outcome (see selectedMatchesTarget). If we didn't land, let the
+    // user find it in the picker; if we did, make sure it's closed.
+    if (selectedMatchesTarget(descriptor.sessionName, descriptor.windowIndex)) {
+      closeTargetPicker();
+    } else {
       showTargetPicker();
       return;
     }
@@ -5388,10 +5403,20 @@ async function switchToGlobalRecent(entry) {
       session: entry.sessionName,
       windowIndex: entry.index,
     });
-    // refreshTree already selected the window via urlTarget; only fall back to
-    // the picker if it genuinely couldn't be found on the new machine.
-    const landed = state.windows.find((w) => windowRecentKey(w) === entry.key);
-    if (!landed) showTargetPicker();
+    // selectMachine → loadWindows already selected the target window (it matches
+    // urlTarget by session name + index and sets state.windowId). Verify by the
+    // ACTUAL outcome rather than re-deriving the stable key, which can mismatch
+    // on machineId representation and wrongly pop the picker even though the
+    // switch worked.
+    if (selectedMatchesTarget(entry.sessionName, entry.index)) {
+      // Switched cleanly — make sure neither switcher surface lingers.
+      closeTargetPicker();
+      setGlobalRecentsOpen(false);
+    } else {
+      // Genuinely couldn't land (window gone / not loaded) — let the user find
+      // it in the full picker.
+      showTargetPicker();
+    }
     return;
   }
   // Same machine: resolve the stable key to a live window and select it.
