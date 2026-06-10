@@ -7,13 +7,27 @@
   /* The main app overrides html/body to overflow: hidden because its grid
    * manages all scrolling. Command Center wants the page to scroll
    * normally on mobile so a long list of agents is reachable with thumb
-   * scroll rather than a constrained inner scroll. */
-  overflow: auto;
+   * scroll rather than a constrained inner scroll.
+   *
+   * overflow-x is SPLIT to hidden: long unbreakable strings (the git URL
+   * in the welcome <pre>, a deep cwd on a card, etc.) would otherwise
+   * push the body wider than the phone viewport and let the whole page
+   * slide left/right. Each scrollable container that genuinely needs
+   * horizontal scroll (the <pre> code block) carries its own
+   * overflow-x: auto, so this only suppresses page-level slop. */
+  overflow-x: hidden;
+  overflow-y: auto;
   background: var(--bg);
 }
 
 .cc-shell {
   width: 100%;
+  /* min-width: 0 lets nested grid/flex children actually shrink below
+   * their content's min-content size — otherwise any unbreakable token
+   * in a descendant forces the shell wide, which then defeats the body's
+   * overflow-x: hidden by clipping content instead of fitting it. */
+  min-width: 0;
+  max-width: 100%;
   min-height: 100dvh;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
@@ -88,6 +102,10 @@
 .cc-welcome {
   position: relative;
   display: grid;
+  /* Same min-width: 0 reason as .cc-shell — without it the welcome <pre>
+   * inside makes this grid item track its min-content width. */
+  min-width: 0;
+  max-width: 100%;
   gap: 12px;
   padding: 14px 14px 12px;
   border: 1px solid var(--line);
@@ -124,7 +142,7 @@
   color: var(--ink);
 }
 
-.cc-welcome-block { display: flex; flex-direction: column; gap: 6px; }
+.cc-welcome-block { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 
 .cc-welcome-block h2 {
   font-size: 10px;
@@ -272,6 +290,11 @@
   border-radius: 10px;
   background: var(--surface);
   box-shadow: var(--shadow);
+  /* Same reason as everywhere else — without min-width: 0 the long cwd
+   * line or long prompt/response text would force the card wider than
+   * its grid track, which then cascades up and re-introduces page
+   * horizontal scroll. */
+  min-width: 0;
 }
 
 .cc-card.is-running {
