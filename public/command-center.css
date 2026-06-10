@@ -9,14 +9,13 @@
    * normally on mobile so a long list of agents is reachable with thumb
    * scroll rather than a constrained inner scroll.
    *
-   * overflow-x is SPLIT to hidden: long unbreakable strings (the git URL
-   * in the welcome <pre>, a deep cwd on a card, etc.) would otherwise
-   * push the body wider than the phone viewport and let the whole page
-   * slide left/right. Each scrollable container that genuinely needs
-   * horizontal scroll (the <pre> code block) carries its own
-   * overflow-x: auto, so this only suppresses page-level slop. */
-  overflow-x: hidden;
-  overflow-y: auto;
+   * We DO NOT use overflow-x: hidden as a defensive cap — that just clips
+   * content invisibly on a small viewport, which is worse than scrolling
+   * because the user can't recover. The fix is upstream: every container
+   * that could hold a long unbreakable string carries min-width: 0 below
+   * so it shrinks to its track, and the welcome <pre> wraps with
+   * word-break instead of trying to fit a single 80-char URL on a phone. */
+  overflow: auto;
   background: var(--bg);
 }
 
@@ -40,12 +39,25 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* Wrap on narrow viewports: title-block + ? + ↻ + Logout + Main app →
+   * adds up to ~480px on default fonts, which won't fit a 390px phone in
+   * one row. flex-wrap lets the secondary items drop to a second line
+   * cleanly rather than forcing the page to overflow horizontally.
+   * row-gap kicks in only when wrap actually happens. */
+  flex-wrap: wrap;
+  row-gap: 8px;
   gap: 10px;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
   box-shadow: var(--shadow);
+}
+
+.cc-title-block {
+  /* When the topbar wraps, the title-block should take the whole top
+   * row instead of sharing with icon buttons that wrap below it. */
+  flex: 1 1 100%;
 }
 
 .cc-title-block {
@@ -164,8 +176,17 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   line-height: 1.45;
-  overflow-x: auto;
-  white-space: pre;
+  /* WRAP on small screens instead of side-scrolling. The git clone URL +
+   * the eng.impo.ai --register lines are too long to fit a phone, and a
+   * horizontal scroll inside the page (which the original overflow-x:auto
+   * gave us) was unreliable on iOS Safari. word-break: break-word breaks
+   * on hyphens/punctuation/etc. first, then mid-word as a fallback so
+   * even unbreakable tokens like the full git URL still fit. The visual
+   * indent on wrapped lines uses padding-left + text-indent to keep
+   * continuation lines distinguishable from new commands. */
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .cc-welcome-block code:not(pre code) {
