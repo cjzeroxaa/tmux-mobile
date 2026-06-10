@@ -92,6 +92,7 @@ async function loadView(route) {
 
 async function mount(route) {
   let view = views.get(route);
+  const firstMount = !view;
   if (!view) {
     // Stake the slot BEFORE the await so concurrent navigations don't
     // race-load the same view twice.
@@ -105,6 +106,20 @@ async function mount(route) {
   }
   view.wrapper.hidden = false;
   document.title = view.title;
+  // Tell the view it's active again so it can fire a one-shot refresh. On
+  // first mount this is redundant (the module's top-level boot already runs
+  // its initial load), so we only call it on a re-mount. Without this the
+  // user sees up-to-one-poll-interval stale data when they come back — the
+  // periodic refresh keeps ticking in the background but the user's eye
+  // lands on the screen between ticks. resumeView is an opt-in export; a
+  // view module that doesn't define it just silently skips this step.
+  if (!firstMount && typeof view.module.resumeView === "function") {
+    try {
+      view.module.resumeView();
+    } catch (err) {
+      console.error(`[spa-router] resumeView for ${route} threw:`, err);
+    }
+  }
   return view;
 }
 

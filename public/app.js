@@ -5324,3 +5324,20 @@ refreshTree({
   els.autoRefresh.checked = true;
   setAutoRefresh(true);
 });
+
+// SPA router hook. Called by spa-router.mjs the moment this view becomes the
+// active one again (after the user navigated away to Command Center and back).
+// The 3-second auto-refresh interval keeps ticking even while this view is
+// hidden, so the displayed snapshot is at most one tick stale — but "at most
+// one tick stale" is exactly what the user is reporting as the bug. Fire a
+// fresh refreshTree+refreshSnapshot the moment they arrive so the data they
+// see is current the same frame they look at it, not 3 seconds later. The
+// existing autoRefreshInFlight back-pressure keeps this from racing a tick
+// that's already in flight.
+export function resumeView() {
+  if (state.autoRefreshInFlight) return;
+  state.autoRefreshInFlight = true;
+  Promise.allSettled([refreshTree(), refreshSnapshot()]).finally(() => {
+    state.autoRefreshInFlight = false;
+  });
+}

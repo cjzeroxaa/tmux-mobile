@@ -388,3 +388,12 @@ document.addEventListener("visibilitychange", () => {
 
 loadAgents();
 startPolling();
+
+// SPA router hook. The Command Center's setInterval keeps ticking while
+// hidden, but the displayed cards are at most POLL_MS stale — and "at most
+// one tick stale" is what shows up as "old data on return". Fire one fresh
+// loadAgents the moment the view becomes active so cards are current the
+// frame the user looks at them.
+export function resumeView() {
+  loadAgents();
+}

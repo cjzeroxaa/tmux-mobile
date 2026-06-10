@@ -1,56 +1,48 @@
-/* Kami at night: same washi-paper aesthetic as the light theme, just with the
-   palette inverted onto sumi-ink grounds. Warm dark browns instead of cool
-   greys, paper-cream text instead of grey-blue, the same ai-indigo accent
-   lifted brighter to keep contrast on dark, shu-vermillion for danger. */
+/* Notion-style palette. Flat, ink-on-paper, neutral grays, ≤1px borders.
+   No textures, no warm tones, no heavy shadows — the chrome should disappear
+   so the content (window names, code, snapshot) reads as the page itself.
+   Two variants (dark default + "kami" light) share the same neutral hue
+   ramp so switching themes only inverts brightness, not personality. */
 :root {
   color-scheme: dark;
-  --bg: #1a1612;
-  --surface: #221d17;
-  --surface-soft: #2b2520;
-  --ink: #ede5d2;
-  --muted: #a89a82;
-  --line: #3a322a;
-  --accent: #8aa7c6;
-  --accent-dark: #adc4dd;
-  --accent-blue: #6c88a6;
-  --danger: #d96148;
-  --code-bg: #2a2723;
-  --code-ink: #e8e0cd;
-  --shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
+  --bg: #191919;
+  --surface: #202020;
+  --surface-soft: #2a2a2a;
+  --ink: rgba(255, 255, 255, 0.81);
+  --muted: rgba(255, 255, 255, 0.46);
+  --line: rgba(255, 255, 255, 0.094);
+  --accent: #529cca;
+  --accent-dark: #3b6fc9;
+  --accent-blue: #4f8df8;
+  --danger: #eb5d4c;
+  --code-bg: #2a2a2a;
+  --code-ink: rgba(255, 255, 255, 0.85);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   /* Terminal snapshot font size — adjusted live from the More menu's A−/A+
      and persisted in localStorage. Lives in :root (not the kami override)
      so both themes pick it up. */
   --snapshot-font-size: 13px;
 }
 
-/* Same noise texture as kami but at lower opacity — keeps the "ink on paper"
-   feel without lightening the ground. */
-html:not([data-theme="kami"]) body {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)' opacity='0.04'/%3E%3C/svg%3E");
-}
-
-/* Kami: a Japanese washi-paper light theme. Shironeri/kinari paper grounds,
-   sumi-ink text, ai-indigo accent, shu-vermillion for danger. The terminal
-   stays a warm sumi-dark panel so the ANSI colors keep their contrast. */
+/* Kept the class name "kami" so theme-toggle storage / data-theme attribute
+   don't need to churn; semantically it's just "light" now. Code blocks stay
+   dark even in light mode (Notion does the same) so ANSI escape colors in
+   the terminal snapshot keep their contrast. */
 html[data-theme="kami"] {
   color-scheme: light;
-  --bg: #efe8d7;
-  --surface: #f6f1e4;
-  --surface-soft: #e8dfca;
-  --ink: #2c2823;
-  --muted: #877c69;
-  --line: #d8ccb2;
-  --accent: #35597a;
-  --accent-dark: #2a4863;
+  --bg: #ffffff;
+  --surface: #fbfbfa;
+  --surface-soft: #f1f1ef;
+  --ink: #37352f;
+  --muted: #787774;
+  --line: rgba(55, 53, 47, 0.09);
+  --accent: #2383e2;
+  --accent-dark: #1a6cbd;
   --accent-blue: #6c88a6;
-  --danger: #b5432f;
-  --code-bg: #faf6ec;
-  --code-ink: #2c2823;
-  --shadow: 0 10px 26px rgba(72, 60, 40, 0.16);
-}
-
-html[data-theme="kami"] body {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)' opacity='0.05'/%3E%3C/svg%3E");
+  --danger: #eb5d4c;
+  --code-bg: #191919;
+  --code-ink: rgba(255, 255, 255, 0.85);
+  --shadow: 0 1px 3px rgba(15, 15, 15, 0.05);
 }
 
 * {
