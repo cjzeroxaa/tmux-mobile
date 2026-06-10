@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <title>__APP_TITLE__</title>
+    <!-- Same theme bootstrap both view HTMLs use, so the SPA shell renders
+         the right palette before the router decides which view to mount. -->
+    <script>
+      try {
+        var t = JSON.parse(localStorage.getItem("tmux-mobile-theme") || "{}").theme;
+        document.documentElement.dataset.theme = t === "dark" ? "" : "kami";
+      } catch (e) {
+        document.documentElement.dataset.theme = "kami";
+      }
+    </script>
+    <!-- Both stylesheets up front. styles.css covers the main app + theme
+         tokens; command-center.css adds the dashboard layout. They don't
+         conflict — each view's selectors are scoped to its own DOM tree. -->
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/command-center.css" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  </head>
+  <body>
+    <!-- Single host. The router fetches each view's HTML on first nav and
+         keeps both DOM trees in here side-by-side after that, hiding the
+         non-current one rather than tearing it down. State (windowId,
+         sessions, cached snapshots, pollings) survives switching. -->
+    <div id="viewRoot"></div>
+    <script type="module" src="/spa-router.mjs"></script>
+  </body>
+</html>

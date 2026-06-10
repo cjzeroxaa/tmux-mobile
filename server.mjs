@@ -3285,6 +3285,10 @@ const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
   [".css", "text/css; charset=utf-8"],
   [".js", "text/javascript; charset=utf-8"],
+  // .mjs needs an explicit JS MIME — browsers refuse to execute `<script
+  // type="module">` over application/octet-stream. The SPA router lives at
+  // public/spa-router.mjs.
+  [".mjs", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
   [".webmanifest", "application/manifest+json; charset=utf-8"],
   [".wav", "audio/wav"], // bundled notification chime (public/sounds/notify.wav)
@@ -3292,16 +3296,23 @@ const contentTypes = new Map([
 
 async function serveStatic(req, res, url) {
   let pathname = url.pathname;
-  // Command Center is the default landing page now. The original main app
-  // (single-window driver) lives at /app/. Both /command-center and the
-  // bare "/" resolve to the Command Center HTML; both /app and /app/
-  // resolve to the original index.html. Deep links like /app/?session=X
-  // still work because the original app reads its URL target from the
-  // query string regardless of the pathname.
-  if (pathname === "/" || pathname === "/command-center" || pathname === "/command-center/") {
-    pathname = "/command-center.html";
-  } else if (pathname === "/app" || pathname === "/app/") {
-    pathname = "/index.html";
+  // SPA shell. All four user-facing routes ("/", "/command-center", "/app",
+  // and their trailing-slash variants) serve the same spa.html host page;
+  // its router (public/spa-router.mjs) decides which view to mount based on
+  // pathname and keeps both views alive in one document after the first
+  // visit, so flipping between them no longer tears down the JS heap.
+  //
+  // index.html and command-center.html are still reachable as static files
+  // because the router fetches them on first nav to extract each view's
+  // body markup. They're never sent as a top-level response anymore.
+  if (
+    pathname === "/" ||
+    pathname === "/command-center" ||
+    pathname === "/command-center/" ||
+    pathname === "/app" ||
+    pathname === "/app/"
+  ) {
+    pathname = "/spa.html";
   }
   if (pathname === "/manifest.webmanifest") {
     sendWebManifest(res);
@@ -3318,8 +3329,13 @@ async function serveStatic(req, res, url) {
   }
 
   try {
-    const isIndexHtml = path.basename(filePath) === "index.html";
-    const body = isIndexHtml
+    // Every served .html file goes through __APP_TITLE__ substitution: this
+    // used to be index.html-only, which made command-center.html ship with
+    // a literal "Command Center · __APP_TITLE__" in its title bar. spa.html
+    // (the new SPA shell) also uses the placeholder; widening this keeps
+    // them in sync.
+    const isHtml = path.extname(filePath) === ".html";
+    const body = isHtml
       ? renderIndexHtml(await readFile(filePath, "utf8"))
       : await readFile(filePath);
     res.writeHead(200, {
