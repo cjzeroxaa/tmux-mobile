@@ -5490,6 +5490,15 @@ function setGlobalRecentsOpen(open) {
     // Mutually exclusive with the full window-list picker (same intent).
     if (state.targetPickerOpen) closeTargetPicker();
     renderGlobalRecentsMenu();
+    // The popup is position:fixed (so it anchors to the viewport's right edge
+    // and can't overflow on narrow screens); place it just under the toggle.
+    const rect = els.globalRecentsToggle?.getBoundingClientRect();
+    if (rect) {
+      els.globalRecentsMenu.style.setProperty(
+        "--recents-popup-top",
+        `${Math.round(rect.bottom + 6)}px`,
+      );
+    }
   }
   els.globalRecentsMenu.hidden = !open;
   els.globalRecentsToggle?.setAttribute("aria-expanded", String(open));

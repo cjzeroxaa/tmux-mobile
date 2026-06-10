@@ -176,14 +176,24 @@ h3 {
   z-index: 60;
 }
 .recents-menu-popup {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
+  /* Anchored to the VIEWPORT's right edge (fixed), not the toggle button's box,
+     so an adaptive-width popup grows leftward without ever overflowing the left
+     edge on narrow screens (the old absolute right:0 anchored to the toggle,
+     which sits ~100px in from the right, so a wide popup ran off-screen). */
+  position: fixed;
+  top: var(--recents-popup-top, 52px);
+  right: 6px;
+  left: auto;
   z-index: 60;
   display: flex;
   flex-direction: column;
+  /* Adaptive width: size to the longest item (so full descriptors show on one
+     line) rather than a fixed cap that forces wrapping. Bounded by the viewport
+     so it never overflows — desktop gets up to 760px, a phone is capped at the
+     screen width minus the 6px insets on each side. */
+  width: max-content;
   min-width: 240px;
-  max-width: min(86vw, 460px);
+  max-width: min(calc(100vw - 12px), 760px);
   max-height: 70vh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -206,10 +216,12 @@ h3 {
   font-size: 12px;
   line-height: 1.35;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  /* Long descriptors wrap rather than truncate — the whole id should be
-     readable in the list. */
-  white-space: normal;
-  word-break: break-word;
+  /* One line per item — the popup widens to fit instead of wrapping. When a
+     descriptor is longer than the viewport cap it ellipsizes; the full text is
+     always in the hover tooltip (title=). */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
 }
 .recents-menu-item:hover,
