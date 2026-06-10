@@ -25,9 +25,11 @@
 }
 
 /* Kept the class name "kami" so theme-toggle storage / data-theme attribute
-   don't need to churn; semantically it's just "light" now. Code blocks stay
-   dark even in light mode (Notion does the same) so ANSI escape colors in
-   the terminal snapshot keep their contrast. */
+   don't need to churn; semantically it's just "light" now. --code-bg /
+   --code-ink track the theme: they're shared by the composer input, the
+   snippet field, and other panels — keeping them dark in light mode flipped
+   the whole composer chrome to invisible-white-on-black. Matches Notion's
+   actual light-theme code blocks (faint off-white #f7f6f3 with ink text). */
 html[data-theme="kami"] {
   color-scheme: light;
   --bg: #ffffff;
@@ -40,8 +42,8 @@ html[data-theme="kami"] {
   --accent-dark: #1a6cbd;
   --accent-blue: #6c88a6;
   --danger: #eb5d4c;
-  --code-bg: #191919;
-  --code-ink: rgba(255, 255, 255, 0.85);
+  --code-bg: #f7f6f3;
+  --code-ink: #37352f;
   --shadow: 0 1px 3px rgba(15, 15, 15, 0.05);
 }
 
