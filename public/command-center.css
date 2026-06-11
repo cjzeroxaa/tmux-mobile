@@ -43,14 +43,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  /* Wrap on narrow viewports: title-block + ? + ↻ + Logout + Main app →
-   * adds up to ~480px on default fonts, which won't fit a 390px phone in
-   * one row. flex-wrap lets the secondary items drop to a second line
-   * cleanly rather than forcing the page to overflow horizontally.
-   * row-gap kicks in only when wrap actually happens. */
-  flex-wrap: wrap;
-  row-gap: 8px;
+  flex-wrap: nowrap;
   gap: 10px;
+  min-width: 0;
+  max-width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -59,12 +55,7 @@
 }
 
 .cc-title-block {
-  /* When the topbar wraps, the title-block should take the whole top
-   * row instead of sharing with icon buttons that wrap below it. */
-  flex: 1 1 100%;
-}
-
-.cc-title-block {
+  flex: 1 1 auto;
   display: flex;
   align-items: baseline;
   gap: 10px;
@@ -72,6 +63,7 @@
 }
 
 .cc-title {
+  flex: 0 0 auto;
   font-size: 14px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -79,6 +71,8 @@
 }
 
 .cc-status {
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 11px;
   color: var(--muted);
   white-space: nowrap;
@@ -100,6 +94,61 @@
 }
 
 .cc-icon-button:active {
+  background: var(--surface-soft);
+}
+
+.cc-more {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.cc-more > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.cc-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.cc-more[open] > summary {
+  background: var(--surface-soft);
+}
+
+.cc-more-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 140px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.cc-more-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.cc-more-item:hover,
+.cc-more-item:focus-visible {
   background: var(--surface-soft);
 }
 
@@ -229,6 +278,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -304,6 +355,8 @@
   grid-template-columns: 1fr;
   align-items: start;
   gap: 10px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .cc-card {
@@ -320,6 +373,76 @@
    * its grid track, which then cascades up and re-introduces page
    * horizontal scroll. */
   min-width: 0;
+}
+
+.cc-machine-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.cc-machine-card-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.cc-machine-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cc-machine-meta {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cc-machine-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.cc-machine-count {
+  font-weight: 700;
+}
+
+.cc-machine-open,
+.cc-card-footer a {
+  color: var(--accent-dark);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.cc-machine-warning {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(180, 83, 9, 0.14);
+  color: #92400e;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .cc-card.is-running {
@@ -513,10 +636,35 @@
   color: var(--muted);
 }
 
-.cc-card-footer a {
+.cc-card-actions {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.cc-read-button {
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-soft);
   color: var(--accent-dark);
+  font: inherit;
+  font-size: 11px;
   font-weight: 700;
-  text-decoration: none;
+  cursor: pointer;
+}
+
+.cc-read-button.is-reading {
+  border-color: rgba(180, 83, 9, 0.42);
+  background: rgba(180, 83, 9, 0.12);
+  color: #92400e;
+}
+
+.cc-read-button:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .cc-empty {

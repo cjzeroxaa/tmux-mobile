@@ -402,6 +402,23 @@ function rows(stdout) {
     .map((line) => line.split("\t"));
 }
 
+function requireTmuxFieldCount(row, minFields, label) {
+  if (row.length >= minFields) return;
+  const error = new Error(
+    `Malformed tmux ${label} row: expected at least ${minFields} tab-separated fields, got ${row.length}`,
+  );
+  error.status = 500;
+  throw error;
+}
+
+function requireTmuxNumericField(value, label) {
+  const number = Number(value);
+  if (Number.isFinite(number)) return number;
+  const error = new Error(`Malformed tmux row: ${label} must be numeric`);
+  error.status = 500;
+  throw error;
+}
+
 function requireId(value, type) {
   const patterns = {
     session: /^\$\d+$/,
@@ -648,27 +665,32 @@ function sendSubmitNudge(paneId) {
   }, SUBMIT_NUDGE_DELAY_MS);
 }
 
-function sessionFromRow([id, name, windows, attached, created]) {
+function sessionFromRow(row) {
+  requireTmuxFieldCount(row, 5, "session");
+  const [id, name, windows, attached, created] = row;
+  requireId(id, "session");
   return {
     id,
     name,
-    windows: Number(windows || 0),
+    windows: requireTmuxNumericField(windows || 0, "session_windows"),
     attached: attached === "1",
     created,
   };
 }
 
 function windowFromRow(fields) {
+  requireTmuxFieldCount(fields, 10, "window");
   const [id, index, name, active, panes, flags, activeCommand, tty, cwd] = fields;
+  requireId(id, "window");
   // The annotation is the last format field and is free text (may contain tabs),
   // so take everything from index 9 onward and rejoin rather than positionally.
   const annotation = fields.slice(9).join("\t");
   return {
     id,
-    index: Number(index),
+    index: requireTmuxNumericField(index, "window_index"),
     name,
     active: active === "1",
-    panes: Number(panes || 0),
+    panes: requireTmuxNumericField(panes || 0, "window_panes"),
     flags,
     activeCommand,
     tty: tty || "",
@@ -1791,6 +1813,34 @@ async function listAgentSessions() {
   return { agents: rows_.filter(Boolean) };
 }
 
+let localTmuxVersion = null;
+async function localCommandCenterMachine(agentCount = 0) {
+  if (localTmuxVersion === null) {
+    try {
+      localTmuxVersion = (await runTmux(["-V"])).trim();
+    } catch {
+      localTmuxVersion = "";
+    }
+  }
+  const ownerId = String(process.env.TMUX_MOBILE_USER || "");
+  return {
+    id: "local",
+    machineId: "local",
+    hostname: os.hostname(),
+    ownerId,
+    ownerEmail: ownerId,
+    ownerHd: "",
+    os: process.platform,
+    arch: process.arch,
+    tmux: localTmuxVersion,
+    online: true,
+    lastSeen: Date.now(),
+    stale: false,
+    missingOps: [],
+    agentCount,
+  };
+}
+
 async function buildWindowBriefingInput(windowId, lineCount) {
   requireId(windowId, "window");
   const [windowInfo, panes] = await Promise.all([
@@ -2742,7 +2792,17 @@ async function handleApi(req, res, url) {
   // Command Center feed: one row per agent pane across every tmux session.
   // See listAgentSessions() for the shape.
   if (req.method === "GET" && url.pathname === "/api/command-center") {
-    sendJson(res, 200, await listAgentSessions());
+    const result = await listAgentSessions();
+    const localMachine = await localCommandCenterMachine(result.agents?.length || 0);
+    const agents = (result.agents || []).map((agent) => ({
+      machineId: localMachine.id,
+      machineRawId: localMachine.machineId,
+      machineHostname: localMachine.hostname,
+      machineOwnerId: localMachine.ownerId || "",
+      machineOwnerHd: localMachine.ownerHd || "",
+      ...agent,
+    }));
+    sendJson(res, 200, { machines: [localMachine], agents });
     return;
   }
 
@@ -3589,6 +3649,7 @@ if (MODE.kind === "register") {
           // poison the whole feed.
           if (req.method === "GET" && url.pathname === "/api/command-center") {
             const online = hub.listMachines(viewer);
+            const agentCounts = new Map(online.map((machine) => [machine.id, 0]));
             const all = [];
             await Promise.all(
               online.map(async (machine) => {
@@ -3598,6 +3659,7 @@ if (MODE.kind === "register") {
                     () => listAgentSessions(),
                   );
                   for (const a of result.agents || []) {
+                    agentCounts.set(machine.id, (agentCounts.get(machine.id) || 0) + 1);
                     all.push({
                       machineId: machine.id,
                       machineRawId: machine.machineId || "",
@@ -3608,11 +3670,15 @@ if (MODE.kind === "register") {
                     });
                   }
                 } catch {
-                  // per-machine failure — drop just that machine for this tick
+                  // per-machine failure — keep the machine row, just omit agents
                 }
               }),
             );
-            sendJson(res, 200, { agents: all });
+            const machines = online.map((machine) => ({
+              ...machine,
+              agentCount: agentCounts.get(machine.id) || 0,
+            }));
+            sendJson(res, 200, { machines, agents: all });
             return;
           }
           const machineId =

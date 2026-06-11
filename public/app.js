@@ -1,5 +1,6 @@
 import { escapeHtml, linkifyEscaped } from "./linkify.js";
 import { playNotifySound, shouldChime } from "./notify-sound.js";
+import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
 
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
@@ -552,10 +553,11 @@ const els = {
 };
 
 async function api(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
-  const hasBody = options.body !== undefined && options.body !== null;
+  const { machineId: _machineId, ...requestOptions } = options;
+  const headers = { ...(requestOptions.headers || {}) };
+  const hasBody = requestOptions.body !== undefined && requestOptions.body !== null;
   const isRawBody =
-    typeof Blob !== "undefined" && options.body instanceof Blob;
+    typeof Blob !== "undefined" && requestOptions.body instanceof Blob;
   if (hasBody && !isRawBody && !headers["content-type"]) {
     headers["content-type"] = "application/json";
   }
@@ -565,7 +567,7 @@ async function api(path, options = {}) {
 
   const response = await fetch(path, {
     cache: "no-store",
-    ...options,
+    ...requestOptions,
     headers,
   });
   const json = await response.json();
@@ -1967,45 +1969,8 @@ function isCurrentAudioRead(readId) {
   return state.audio.readId === readId;
 }
 
-function throwIfAudioReadStopped(readId) {
-  if (!isCurrentAudioRead(readId) || state.audio.stopRequested) {
-    throw new Error("Realtime read stopped");
-  }
-}
-
 function closeRealtimeAudio() {
-  if (state.audio.abortController) {
-    state.audio.abortController.abort();
-    state.audio.abortController = null;
-  }
-  if (state.audio.source) {
-    try {
-      state.audio.source.stop();
-    } catch {
-      // The previous source may already have ended.
-    }
-    state.audio.source = null;
-  }
-  if (state.audio.dataChannel) {
-    try {
-      state.audio.dataChannel.close();
-    } catch {
-      // Ignore cleanup errors from closed data channels.
-    }
-    state.audio.dataChannel = null;
-  }
-  if (state.audio.peerConnection) {
-    state.audio.peerConnection.close();
-    state.audio.peerConnection = null;
-  }
-  state.audio.remoteStream = null;
-  state.audio.remoteTrack = null;
-  if (state.audio.audioElement) {
-    state.audio.audioElement.pause();
-    state.audio.audioElement.srcObject = null;
-    state.audio.audioElement.remove();
-    state.audio.audioElement = null;
-  }
+  closeRealtimeReadAudio(state.audio);
 }
 
 function stopWindowSummary() {
@@ -2018,439 +1983,19 @@ function stopWindowSummary() {
   setSpeakWindowBusy(false);
 }
 
-function waitForDataChannelOpen(channel, timeoutMs = 10000) {
-  if (channel.readyState === "open") return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      cleanup();
-      reject(new Error("Realtime data channel timed out"));
-    }, timeoutMs);
-    const cleanup = () => {
-      window.clearTimeout(timeout);
-      channel.removeEventListener("open", handleOpen);
-      channel.removeEventListener("close", handleClose);
-      channel.removeEventListener("error", handleError);
-    };
-    const handleOpen = () => {
-      cleanup();
-      resolve();
-    };
-    const handleClose = () => {
-      cleanup();
-      reject(new Error("Realtime data channel closed before opening"));
-    };
-    const handleError = () => {
-      cleanup();
-      reject(new Error("Realtime data channel failed"));
-    };
-    channel.addEventListener("open", handleOpen);
-    channel.addEventListener("close", handleClose);
-    channel.addEventListener("error", handleError);
-  });
-}
-
-function waitForIceGatheringComplete(peerConnection, timeoutMs = 1500) {
-  if (peerConnection.iceGatheringState === "complete") {
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => {
-    const timeout = window.setTimeout(() => {
-      cleanup();
-      resolve();
-    }, timeoutMs);
-    const cleanup = () => {
-      window.clearTimeout(timeout);
-      peerConnection.removeEventListener("icegatheringstatechange", handleChange);
-    };
-    const handleChange = () => {
-      if (peerConnection.iceGatheringState !== "complete") return;
-      cleanup();
-      resolve();
-    };
-    peerConnection.addEventListener("icegatheringstatechange", handleChange);
-  });
-}
-
-async function createRealtimeSdpAnswer(clientSecret, sdp, signal) {
-  if (!clientSecret) {
-    throw new Error("Realtime client secret is missing");
-  }
-  const response = await fetch("https://api.openai.com/v1/realtime/calls", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${clientSecret}`,
-      "content-type": "application/sdp",
-    },
-    body: sdp,
-    signal,
-  });
-  const answerSdp = await response.text();
-  if (!response.ok) {
-    throw new Error(answerSdp || `Realtime WebRTC HTTP ${response.status}`);
-  }
-  return answerSdp;
-}
-
-function sendRealtimeEvent(channel, event) {
-  if (channel.readyState !== "open") {
-    throw new Error("Realtime data channel is not open");
-  }
-  channel.send(JSON.stringify(event));
-}
-
-function realtimeResponseEvent(data, inputText, chunkIndex, chunkCount) {
-  return {
-    type: "response.create",
-    response: {
-      conversation: "none",
-      output_modalities: ["audio"],
-      input: [
-        {
-          type: "message",
-          role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: inputText,
-            },
-          ],
-        },
-      ],
-      audio: {
-        output: {
-          voice: data.voice,
-        },
-      },
-      max_output_tokens: data.maxOutputTokens || "inf",
-      metadata: {
-        source: "tmux-mobile-read",
-        chunk: String(chunkIndex + 1),
-        chunks: String(chunkCount),
-      },
-    },
-  };
-}
-
-function waitForRealtimeResponse(channel, timeoutMs = 90000) {
-  return new Promise((resolve, reject) => {
-    let transcript = "";
-    const timeout = window.setTimeout(() => {
-      cleanup();
-      reject(new Error("Realtime response timed out"));
-    }, timeoutMs);
-    const cleanup = () => {
-      window.clearTimeout(timeout);
-      channel.removeEventListener("message", handleMessage);
-      channel.removeEventListener("close", handleClose);
-      channel.removeEventListener("error", handleError);
-    };
-    const fail = (error) => {
-      cleanup();
-      reject(error);
-    };
-    const handleClose = () => {
-      fail(new Error("Realtime data channel closed"));
-    };
-    const handleError = () => {
-      fail(new Error("Realtime data channel failed"));
-    };
-    const handleMessage = (message) => {
-      let event;
-      try {
-        event = JSON.parse(message.data);
-      } catch {
-        return;
-      }
-
-      console.debug("Realtime event", event);
-      if (event.type === "error") {
-        logClientEvent("realtime_error", {
-          message: event.error?.message || "Realtime API error",
-          code: event.error?.code || "",
-          type: event.error?.type || "",
-        });
-        fail(new Error(event.error?.message || "Realtime API error"));
-        return;
-      }
-      if (event.type === "response.output_audio_transcript.delta") {
-        transcript += event.delta || "";
-        return;
-      }
-      if (event.type === "response.output_audio_transcript.done") {
-        transcript = event.transcript || transcript;
-        return;
-      }
-      if (event.type === "response.done") {
-        const status = event.response?.status || "completed";
-        if (status !== "completed") {
-          const statusDetails = event.response?.status_details || {};
-          const message =
-            statusDetails.error?.message ||
-            statusDetails.reason ||
-            `Realtime response ${status}`;
-          logClientEvent("realtime_response_failed", {
-            status,
-            message,
-            statusDetails,
-          });
-          fail(new Error(message));
-          return;
-        }
-        logClientEvent("realtime_response_done", {
-          transcriptChars: transcript.length,
-        });
-        cleanup();
-        resolve({ transcript });
-      }
-    };
-    channel.addEventListener("message", handleMessage);
-    channel.addEventListener("close", handleClose);
-    channel.addEventListener("error", handleError);
-  });
-}
-
-function estimateRealtimePlaybackMs(text) {
-  const trimmed = text.trim();
-  if (!trimmed) return 2500;
-  const words = trimmed.split(/\s+/).filter(Boolean).length;
-  const wordBasedMs = (words / 150) * 60000;
-  const charBasedMs = (trimmed.length / 13) * 1000;
-  return Math.min(180000, Math.max(3500, Math.max(wordBasedMs, charBasedMs) + 2000));
-}
-
-function audioLevelFromAnalyser(analyser, samples) {
-  analyser.getByteTimeDomainData(samples);
-  let sum = 0;
-  for (const sample of samples) {
-    const value = (sample - 128) / 128;
-    sum += value * value;
-  }
-  return Math.sqrt(sum / samples.length);
-}
-
-async function waitForRealtimePlaybackToFinish({
-  audioElement,
-  peerConnection,
-  stream,
-  track,
-  transcript,
-}) {
-  const timeoutMs = estimateRealtimePlaybackMs(transcript);
-  const startedAt = performance.now();
-  const quietSettleMs = 2500;
-  let lastSoundAt = startedAt;
-  let sawSound = false;
-  let context = null;
-  let source = null;
-  let analyser = null;
-  let samples = null;
-
-  if (stream) {
-    try {
-      context = await ensureAudioContext();
-      if (context?.state === "running") {
-        source = context.createMediaStreamSource(stream);
-        analyser = context.createAnalyser();
-        analyser.fftSize = 1024;
-        samples = new Uint8Array(analyser.fftSize);
-        source.connect(analyser);
-      }
-    } catch (error) {
-      console.warn("Realtime audio monitor failed.", error);
-    }
-  }
-
-  return new Promise((resolve) => {
-    let done = false;
-    const cleanup = (reason) => {
-      if (done) return;
-      done = true;
-      window.clearInterval(interval);
-      window.clearTimeout(timeout);
-      audioElement?.removeEventListener("ended", handleEnded);
-      audioElement?.removeEventListener("error", handleEnded);
-      track?.removeEventListener("ended", handleEnded);
-      peerConnection?.removeEventListener("connectionstatechange", handleConnectionChange);
-      try {
-        source?.disconnect();
-      } catch {
-        // The monitor may already be disconnected.
-      }
-      logClientEvent("realtime_playback_finished", {
-        reason,
-        elapsedMs: Math.round(performance.now() - startedAt),
-        transcriptChars: transcript.length,
-      });
-      resolve();
-    };
-    const handleEnded = () => cleanup("ended");
-    const handleConnectionChange = () => {
-      const stateName = peerConnection?.connectionState;
-      if (stateName === "closed" || stateName === "failed") {
-        cleanup(stateName);
-      }
-    };
-    const checkPlayback = () => {
-      if (state.audio.stopRequested) {
-        cleanup("stopped");
-        return;
-      }
-      if (track?.readyState === "ended" || audioElement?.ended) {
-        cleanup("ended");
-        return;
-      }
-      if (!analyser || !samples) return;
-      const now = performance.now();
-      const level = audioLevelFromAnalyser(analyser, samples);
-      if (level > 0.012) {
-        sawSound = true;
-        lastSoundAt = now;
-        return;
-      }
-      if (!sawSound) return;
-      if (sawSound && now - lastSoundAt < quietSettleMs) return;
-      cleanup("silence");
-    };
-    const timeout = window.setTimeout(() => cleanup("timeout"), timeoutMs);
-    const interval = window.setInterval(checkPlayback, 150);
-
-    audioElement?.addEventListener("ended", handleEnded, { once: true });
-    audioElement?.addEventListener("error", handleEnded, { once: true });
-    track?.addEventListener("ended", handleEnded, { once: true });
-    peerConnection?.addEventListener("connectionstatechange", handleConnectionChange);
-    checkPlayback();
-  });
-}
-
 async function playWindowSummaryRealtime({ readId, windowId, paneId }) {
-  if (!window.RTCPeerConnection) {
-    throw new Error("Realtime audio is not supported in this browser");
-  }
-
-  closeRealtimeAudio();
-  const abortController = new AbortController();
-  state.audio.abortController = abortController;
-  const peerConnection = new RTCPeerConnection();
-  const dataChannel = peerConnection.createDataChannel("oai-events");
-  const audioElement = new Audio();
-  audioElement.autoplay = true;
-  audioElement.playsInline = true;
-  audioElement.hidden = true;
-  audioElement.setAttribute("playsinline", "");
-  document.body.append(audioElement);
-
-  state.audio.peerConnection = peerConnection;
-  state.audio.dataChannel = dataChannel;
-  state.audio.audioElement = audioElement;
-
-  peerConnection.addTransceiver("audio", { direction: "recvonly" });
-  peerConnection.addEventListener("connectionstatechange", () => {
-    setStatus(`realtime: ${peerConnection.connectionState}`);
-    logClientEvent("realtime_connection_state", {
-      state: peerConnection.connectionState,
-    });
-  });
-  peerConnection.addEventListener("track", (event) => {
-    const stream = event.streams[0] || new MediaStream([event.track]);
-    state.audio.remoteStream = stream;
-    state.audio.remoteTrack = event.track;
-    audioElement.srcObject = stream;
-    audioElement.play().catch((error) => {
-      console.warn("Realtime audio playback was blocked.", error);
-      logClientEvent("realtime_playback_blocked", {
-        message: error.message,
-      });
+  return playRealtimeRead({
+    audioState: state.audio,
+    api,
+    readId,
+    windowId,
+    paneId,
+    logClientEvent,
+    setStatus,
+    onPlaybackBlocked: (error) => {
       addChat("system", error.message, "audio error");
-    });
+    },
   });
-
-  const offer = await peerConnection.createOffer();
-  await peerConnection.setLocalDescription(offer);
-  await waitForIceGatheringComplete(peerConnection);
-  throwIfAudioReadStopped(readId);
-
-  const data = await api("/api/window-realtime-session", {
-    method: "POST",
-    signal: abortController.signal,
-    body: JSON.stringify({
-      windowId,
-      paneId,
-    }),
-  });
-  throwIfAudioReadStopped(readId);
-  logClientEvent("realtime_client_secret_ready", {
-    model: data.model,
-    voice: data.voice,
-    lines: data.lines,
-    paneId: data.paneId || paneId,
-    chunkCount: data.chunkCount,
-    extractionModel: data.extractionModel || "",
-    extractedChars: data.extractedChars || 0,
-    clientSecretExpiresAt: data.clientSecretExpiresAt || null,
-  });
-  const answerSdp = await createRealtimeSdpAnswer(
-    data.clientSecret,
-    peerConnection.localDescription?.sdp || offer.sdp,
-    abortController.signal,
-  );
-  throwIfAudioReadStopped(readId);
-
-  await peerConnection.setRemoteDescription({
-    type: "answer",
-    sdp: answerSdp,
-  });
-  logClientEvent("realtime_remote_description_set", {
-    model: data.model,
-    voice: data.voice,
-    lines: data.lines,
-  });
-  await waitForDataChannelOpen(dataChannel);
-  throwIfAudioReadStopped(readId);
-  logClientEvent("realtime_data_channel_open", {
-    model: data.model,
-    voice: data.voice,
-  });
-  const inputChunks =
-    Array.isArray(data.inputChunks) && data.inputChunks.length > 0
-      ? data.inputChunks
-      : [data.input];
-  const transcripts = [];
-  for (let index = 0; index < inputChunks.length; index += 1) {
-    throwIfAudioReadStopped(readId);
-    logClientEvent("realtime_response_chunk_started", {
-      chunk: index + 1,
-      chunks: inputChunks.length,
-      inputChars: inputChunks[index].length,
-    });
-    setStatus(`realtime: reading ${index + 1}/${inputChunks.length}`);
-    const responseDone = waitForRealtimeResponse(dataChannel);
-    sendRealtimeEvent(
-      dataChannel,
-      realtimeResponseEvent(data, inputChunks[index], index, inputChunks.length),
-    );
-    const result = await responseDone;
-    throwIfAudioReadStopped(readId);
-    if (result.transcript.trim()) {
-      transcripts.push(result.transcript.trim());
-    }
-  }
-
-  const transcript = transcripts.join("\n\n");
-  setStatus("realtime: finishing audio");
-  await waitForRealtimePlaybackToFinish({
-    audioElement,
-    peerConnection,
-    stream: state.audio.remoteStream,
-    track: state.audio.remoteTrack,
-    transcript: transcript || inputChunks.join("\n\n"),
-  });
-  throwIfAudioReadStopped(readId);
-  closeRealtimeAudio();
-  return {
-    transcript,
-    model: data.model,
-    voice: data.voice,
-  };
 }
 
 async function playAudioBase64(base64, mimeType) {

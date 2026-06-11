@@ -1,3 +1,5 @@
+import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
+
 // Command Center — separate top-level page. Polls /api/command-center on
 // a slow cadence, drops non-agent windows, renders one card per agent
 // with the last user prompt + last assistant response taken verbatim from
@@ -14,6 +16,7 @@ const els = {
   welcome: document.querySelector("#ccWelcome"),
   welcomeClose: document.querySelector("#ccWelcomeClose"),
   welcomeShow: document.querySelector("#ccWelcomeShow"),
+  moreMenu: document.querySelector("#ccMoreMenu"),
 };
 
 // Persisted view prefs — sort + status/machine filters stay across reloads
@@ -33,6 +36,7 @@ function savePrefs(prefs) {
 const SAVED = loadPrefs();
 
 const state = {
+  machines: [],
   agents: [],
   loading: false,
   // Track which (windowId, section) cards the user expanded so a refresh
@@ -48,6 +52,20 @@ const state = {
   sortBy: SAVED.sortBy || "recent",
   filterMachines: new Set(SAVED.filterMachines || []),
   filterStatuses: new Set(SAVED.filterStatuses || []),
+  readingKey: "",
+  audio: {
+    abortController: null,
+    audioElement: null,
+    context: null,
+    dataChannel: null,
+    peerConnection: null,
+    remoteStream: null,
+    remoteTrack: null,
+    readId: 0,
+    source: null,
+    busy: false,
+    stopRequested: false,
+  },
 };
 
 function escapeHtml(value) {
@@ -73,6 +91,28 @@ function setStatus(text) {
   els.status.textContent = text;
 }
 
+function isLocalMachineId(machineId) {
+  return !machineId || machineId === "local";
+}
+
+function machineKey(machine) {
+  return String(machine?.id || machine?.machineId || machine?.hostname || "local");
+}
+
+function agentMachineKey(agent) {
+  return String(agent?.machineId || agent?.machineRawId || agent?.machineHostname || "local");
+}
+
+function machineLabel(machine) {
+  return String(machine?.hostname || machine?.machineId || machine?.id || "local");
+}
+
+function machineAppHref(machine) {
+  const id = machineKey(machine);
+  if (isLocalMachineId(id)) return "/app";
+  return `/app/?machineId=${encodeURIComponent(id)}`;
+}
+
 function mainAppHref({ machineId, sessionName, sessionId, windowIndex, windowName }) {
   // Main app reads its URL target via session + window query params (see
   // public/app.js readUrlTarget). machineId comes along too so controller
@@ -81,9 +121,48 @@ function mainAppHref({ machineId, sessionName, sessionId, windowIndex, windowNam
     session: sessionName || sessionId,
     window: String(windowIndex),
   });
-  if (machineId) params.set("machineId", machineId);
+  if (machineId && !isLocalMachineId(machineId)) params.set("machineId", machineId);
   if (windowName) params.set("windowName", windowName);
   return `/app/?${params.toString()}`;
+}
+
+async function api(path, options = {}) {
+  const { machineId, headers: inputHeaders, ...requestOptions } = options;
+  const headers = { accept: "application/json", ...(inputHeaders || {}) };
+  const hasBody =
+    requestOptions.body !== undefined && requestOptions.body !== null;
+  const isRawBody =
+    typeof Blob !== "undefined" && requestOptions.body instanceof Blob;
+  if (hasBody && !isRawBody && !headers["content-type"]) {
+    headers["content-type"] = "application/json";
+  }
+  if (!isLocalMachineId(machineId)) headers["x-machine-id"] = machineId;
+
+  const response = await fetch(path, {
+    cache: "no-store",
+    ...requestOptions,
+    headers,
+  });
+  let json = {};
+  try {
+    json = await response.json();
+  } catch {}
+  if (!response.ok) {
+    const error = new Error(json.error || `HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return json;
+}
+
+function logClientEvent(event, details = {}, machineId = "") {
+  const headers = { "content-type": "application/json" };
+  if (!isLocalMachineId(machineId)) headers["x-machine-id"] = machineId;
+  fetch("/api/client-log", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ event, details }),
+  }).catch(() => {});
 }
 
 // Apply filters + sort to the current agent list. Pure function — call
@@ -94,9 +173,7 @@ function filterAndSort(agents) {
     out = out.filter((a) => state.filterStatuses.has(a.status));
   }
   if (state.filterMachines.size > 0) {
-    out = out.filter((a) =>
-      state.filterMachines.has(a.machineId || a.machineHostname || ""),
-    );
+    out = out.filter((a) => state.filterMachines.has(agentMachineKey(a)));
   }
   const cmp = sortComparator(state.sortBy);
   return [...out].sort(cmp);
@@ -147,10 +224,17 @@ function renderFilterRow() {
   }
   // Then per-machine chips, only when more than one machine is in play.
   const machines = new Map(); // id -> hostname
-  for (const a of state.agents) {
-    const id = a.machineId || a.machineHostname || "";
+  for (const machine of state.machines) {
+    const id = machineKey(machine);
     if (!id) continue;
-    if (!machines.has(id)) machines.set(id, a.machineHostname || id);
+    if (!machines.has(id)) machines.set(id, machineLabel(machine));
+  }
+  if (machines.size === 0) {
+    for (const a of state.agents) {
+      const id = agentMachineKey(a);
+      if (!id) continue;
+      if (!machines.has(id)) machines.set(id, a.machineHostname || id);
+    }
   }
   if (machines.size > 1) {
     const sep = document.createElement("span");
@@ -200,7 +284,7 @@ function renderEmpty() {
   empty.className = "cc-empty";
   empty.textContent = state.lastError
     ? `Couldn't load agents — ${state.lastError}`
-    : "No Codex or Claude Code agents running right now.";
+    : "No machines online.";
   els.list.append(empty);
 }
 
@@ -230,6 +314,163 @@ function renderSection({ className, label, text, expandedKey }) {
 
   wrap.append(labelEl, body);
   return wrap;
+}
+
+function countAgentsByMachine(agents) {
+  const counts = new Map();
+  for (const agent of agents) {
+    const key = agentMachineKey(agent);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return counts;
+}
+
+function machinesFromAgents(agents) {
+  const counts = countAgentsByMachine(agents);
+  const machines = new Map();
+  for (const agent of agents) {
+    const id = agentMachineKey(agent);
+    if (!machines.has(id)) {
+      machines.set(id, {
+        id,
+        machineId: agent.machineRawId || id,
+        hostname: agent.machineHostname || id,
+        ownerId: agent.machineOwnerId || "",
+        ownerEmail: agent.machineOwnerId || "",
+        ownerHd: agent.machineOwnerHd || "",
+        online: true,
+        stale: false,
+        missingOps: [],
+      });
+    }
+  }
+  return [...machines.values()].map((machine) => ({
+    ...machine,
+    agentCount: counts.get(machineKey(machine)) || 0,
+  }));
+}
+
+function normalizeMachines(machines, agents) {
+  const counts = countAgentsByMachine(agents);
+  return machines.map((machine) => ({
+    ...machine,
+    agentCount:
+      typeof machine.agentCount === "number"
+        ? machine.agentCount
+        : counts.get(machineKey(machine)) || 0,
+  }));
+}
+
+function filterMachines(machines) {
+  if (state.filterMachines.size === 0) return machines;
+  return machines.filter((machine) => state.filterMachines.has(machineKey(machine)));
+}
+
+function renderMachineCard(machine) {
+  const card = document.createElement("article");
+  card.className = "cc-machine-card";
+  const id = machineKey(machine);
+  const label = machineLabel(machine);
+  const owner = String(machine.ownerEmail || machine.ownerId || "");
+  const ownerLocal = owner.replace(/@.*$/, "");
+  const agentCount =
+    typeof machine.agentCount === "number" ? machine.agentCount : 0;
+  const platform = [machine.os, machine.arch].filter(Boolean).join(" ");
+  const tmux = machine.tmux ? `tmux ${machine.tmux.replace(/^tmux\s+/, "")}` : "";
+  const meta = [platform, tmux].filter(Boolean).join(" · ") || "registered machine";
+  const stale = machine.stale ? `<span class="cc-machine-warning">update</span>` : "";
+  card.innerHTML = `
+    <div class="cc-machine-card-header">
+      <span class="cc-machine-title" title="${escapeHtml(id)}">${escapeHtml(label)}</span>
+      ${owner ? `<span class="cc-owner-chip" title="${escapeHtml(owner)}">${escapeHtml(ownerLocal)}</span>` : ""}
+      <span class="cc-status-pill${machine.online ? " is-running" : ""}">${machine.online ? "Online" : "Offline"}</span>
+      ${stale}
+    </div>
+    <div class="cc-machine-meta">${escapeHtml(meta)}</div>
+    <div class="cc-machine-footer">
+      <span class="cc-machine-count">${agentCount} agent${agentCount === 1 ? "" : "s"}</span>
+      <a class="cc-machine-open" href="${escapeHtml(machineAppHref(machine))}">Open</a>
+    </div>
+  `;
+  return card;
+}
+
+function readKeyForAgent(agent) {
+  return `${agentMachineKey(agent)}::${agent.paneId || agent.windowId || ""}`;
+}
+
+function isCurrentRead(readId) {
+  return state.audio.readId === readId;
+}
+
+function stopRead() {
+  if (!state.audio.busy) return;
+  const machineId = state.readingKey.split("::")[0] || "";
+  state.audio.stopRequested = true;
+  state.audio.readId += 1;
+  logClientEvent("realtime_read_stop_requested", {}, machineId);
+  closeRealtimeReadAudio(state.audio);
+  state.audio.busy = false;
+  state.readingKey = "";
+  setStatus("realtime: stopped");
+  renderAgents();
+}
+
+async function readAgent(agent) {
+  const key = readKeyForAgent(agent);
+  if (state.audio.busy) {
+    if (state.readingKey === key) {
+      stopRead();
+      return;
+    }
+    stopRead();
+  }
+
+  const readId = state.audio.readId + 1;
+  const machineId = agentMachineKey(agent);
+  state.audio.readId = readId;
+  state.audio.stopRequested = false;
+  state.audio.busy = true;
+  state.readingKey = key;
+  setStatus("Connecting Realtime audio stream.");
+  renderAgents();
+
+  try {
+    const data = await playRealtimeRead({
+      audioState: state.audio,
+      api,
+      readId,
+      windowId: agent.windowId,
+      paneId: agent.paneId,
+      machineId,
+      logClientEvent: (event, details = {}) =>
+        logClientEvent(event, details, machineId),
+      setStatus,
+      onPlaybackBlocked: (error) => setStatus(`realtime audio: ${error.message}`),
+    });
+    if (isCurrentRead(readId)) setStatus(`realtime: ${data.model}`);
+  } catch (error) {
+    if (
+      !isCurrentRead(readId) ||
+      state.audio.stopRequested ||
+      error.name === "AbortError" ||
+      error.message === "Realtime read stopped"
+    ) {
+      logClientEvent("realtime_read_stopped", {}, machineId);
+      if (isCurrentRead(readId)) setStatus("realtime: stopped");
+      return;
+    }
+    logClientEvent("realtime_read_failed", { message: error.message }, machineId);
+    closeRealtimeReadAudio(state.audio);
+    setStatus(`Read failed: ${error.message}`);
+  } finally {
+    if (isCurrentRead(readId)) {
+      state.audio.stopRequested = false;
+      state.audio.busy = false;
+      state.readingKey = "";
+      renderAgents();
+    }
+  }
 }
 
 function renderCard(agent) {
@@ -274,7 +515,7 @@ function renderCard(agent) {
       className: "user",
       label: "Last prompt",
       text: agent.lastUserText,
-      expandedKey: `${agent.windowId}::user`,
+      expandedKey: `${agentMachineKey(agent)}::${agent.windowId}::user`,
     }),
   );
   card.append(
@@ -282,15 +523,21 @@ function renderCard(agent) {
       className: "assistant",
       label: "Last response",
       text: agent.lastAssistantText,
-      expandedKey: `${agent.windowId}::assistant`,
+      expandedKey: `${agentMachineKey(agent)}::${agent.windowId}::assistant`,
     }),
   );
 
   const footer = document.createElement("div");
   footer.className = "cc-card-footer";
+  const readKey = readKeyForAgent(agent);
+  const readingThis = state.audio.busy && state.readingKey === readKey;
+  const readDisabled = state.audio.busy && !readingThis;
   footer.innerHTML = `
     <span>${agent.turnCount} turn${agent.turnCount === 1 ? "" : "s"} · session <code>${escapeHtml((agent.agentSessionId || "").slice(0, 8))}</code></span>
-    <a href="${escapeHtml(mainAppHref(agent))}">Open →</a>
+    <span class="cc-card-actions">
+      <button class="cc-read-button${readingThis ? " is-reading" : ""}" type="button" data-read-key="${escapeHtml(readKey)}"${readDisabled ? " disabled" : ""}>${readingThis ? "Stop" : "Read"}</button>
+      <a href="${escapeHtml(mainAppHref(agent))}">Open</a>
+    </span>
   `;
   card.append(footer);
 
@@ -298,16 +545,29 @@ function renderCard(agent) {
 }
 
 function renderAgents() {
-  if (state.agents.length === 0) {
+  if (state.machines.length === 0 && state.agents.length === 0) {
     renderEmpty();
     return;
   }
+  const machines = filterMachines(state.machines);
   const filtered = filterAndSort(state.agents);
   els.list.innerHTML = "";
-  if (filtered.length === 0) {
+  for (const machine of machines) {
+    els.list.append(renderMachineCard(machine));
+  }
+  if (filtered.length === 0 && machines.length === 0) {
     const note = document.createElement("div");
     note.className = "cc-empty";
     note.textContent = "No agents match the current filters.";
+    els.list.append(note);
+    return;
+  }
+  if (filtered.length === 0) {
+    const note = document.createElement("div");
+    note.className = "cc-empty";
+    note.textContent = state.agents.length === 0
+      ? "No Codex or Claude Code agents running right now."
+      : "No agents match the current filters.";
     els.list.append(note);
     return;
   }
@@ -319,20 +579,25 @@ function renderAgents() {
 async function loadAgents() {
   if (state.loading) return;
   state.loading = true;
-  if (state.agents.length === 0) setStatus("Loading…");
+  if (state.machines.length === 0 && state.agents.length === 0) setStatus("Loading…");
   try {
-    const res = await fetch("/api/command-center", { headers: { accept: "application/json" } });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    state.agents = Array.isArray(data.agents) ? data.agents : [];
+    const data = await api("/api/command-center");
+    const agents = Array.isArray(data.agents) ? data.agents : [];
+    const machines = Array.isArray(data.machines)
+      ? normalizeMachines(data.machines, agents)
+      : machinesFromAgents(agents);
+    state.machines = machines;
+    state.agents = agents;
     state.lastError = "";
-    setStatus(`${state.agents.length} agent${state.agents.length === 1 ? "" : "s"} · refreshed ${nowLabel()}`);
+    setStatus(
+      `${state.machines.length} machine${state.machines.length === 1 ? "" : "s"} · ${state.agents.length} agent${state.agents.length === 1 ? "" : "s"} · refreshed ${nowLabel()}`,
+    );
     renderFilterRow();
     renderAgents();
   } catch (error) {
     state.lastError = error.message || String(error);
     setStatus(`Refresh failed at ${nowLabel()}`);
-    if (state.agents.length === 0) renderEmpty();
+    if (state.machines.length === 0 && state.agents.length === 0) renderEmpty();
   } finally {
     state.loading = false;
   }
@@ -350,12 +615,21 @@ function stopPolling() {
 }
 
 els.refresh.addEventListener("click", () => loadAgents());
+els.list.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-read-key]");
+  if (!button) return;
+  const agent = state.agents.find((item) => readKeyForAgent(item) === button.dataset.readKey);
+  if (agent) readAgent(agent);
+});
 
 // Welcome block: hidden if the user dismissed it previously, recoverable
 // via the "?" topbar button. Stored as a plain string flag in localStorage
 // so we don't have to expand the prefs schema.
 function showWelcome(visible) {
   els.welcome.hidden = !visible;
+}
+function closeMoreMenu() {
+  els.moreMenu?.removeAttribute("open");
 }
 const WELCOME_KEY = "cc-welcome-dismissed";
 showWelcome(localStorage.getItem(WELCOME_KEY) !== "1");
@@ -365,9 +639,15 @@ els.welcomeClose.addEventListener("click", () => {
 });
 els.welcomeShow.addEventListener("click", () => {
   // "?" reopens the block AND clears the dismissal so it sticks.
+  closeMoreMenu();
   localStorage.removeItem(WELCOME_KEY);
   showWelcome(true);
   els.welcome.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+document.addEventListener("click", (event) => {
+  if (!els.moreMenu?.open) return;
+  if (event.target.closest("#ccMoreMenu")) return;
+  closeMoreMenu();
 });
 
 // Sort dropdown — hydrate the persisted selection, fire on change.
