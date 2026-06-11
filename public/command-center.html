@@ -123,6 +123,20 @@ node server.mjs --register https://eng.impo.ai --login</code></pre>
       </section>
     </div>
 
+    <div id="ccDeleteDialog" class="cc-alert-overlay" hidden>
+      <div id="ccDeleteBackdrop" class="cc-alert-backdrop" aria-hidden="true"></div>
+      <section class="cc-alert-dialog" role="alertdialog" aria-modal="true" aria-labelledby="ccDeleteTitle" aria-describedby="ccDeleteDescription">
+        <h2 id="ccDeleteTitle">Complete and delete window?</h2>
+        <p id="ccDeleteDescription" class="cc-alert-description">This kills the tmux window and all panes inside it.</p>
+        <div id="ccDeleteTarget" class="cc-alert-target"></div>
+        <p id="ccDeleteStatus" class="cc-alert-status" role="status" aria-live="polite"></p>
+        <div class="cc-alert-actions">
+          <button id="ccDeleteCancel" class="small-button" type="button">Cancel</button>
+          <button id="ccDeleteConfirm" class="small-button danger" type="button">Delete window</button>
+        </div>
+      </section>
+    </div>
+
     <script src="/command-center.js" type="module"></script>
   </body>
 </html>

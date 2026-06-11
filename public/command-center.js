@@ -27,6 +27,8 @@ const ICONS = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
   open:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>',
+  delete:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
 };
 
 const els = {
@@ -52,6 +54,11 @@ const els = {
   interactVoiceWaveform: document.querySelector("#ccInteractVoiceWaveform"),
   interactSubmitVoice: document.querySelector("#ccInteractSubmitVoice"),
   interactCancelVoice: document.querySelector("#ccInteractCancelVoice"),
+  deleteDialog: document.querySelector("#ccDeleteDialog"),
+  deleteTarget: document.querySelector("#ccDeleteTarget"),
+  deleteStatus: document.querySelector("#ccDeleteStatus"),
+  deleteCancel: document.querySelector("#ccDeleteCancel"),
+  deleteConfirm: document.querySelector("#ccDeleteConfirm"),
 };
 
 // Persisted view prefs — sort + status/machine filters stay across reloads
@@ -89,6 +96,9 @@ const state = {
   filterStatuses: new Set(SAVED.filterStatuses || []),
   interactAgent: null,
   interactSending: false,
+  deleteAgent: null,
+  deleteBusy: false,
+  deletingWindows: new Set(),
   interactVoice: {
     status: "idle",
     audioContext: null,
@@ -342,6 +352,71 @@ async function sendInteractText({ keepFocus = true } = {}) {
   } finally {
     state.interactSending = false;
     setInteractVoiceStatus(state.interactVoice.status, "");
+  }
+}
+
+function setDeleteStatus(text, error = false) {
+  if (!els.deleteStatus) return;
+  els.deleteStatus.textContent = text || "";
+  els.deleteStatus.classList.toggle("is-error", Boolean(error));
+}
+
+function syncDeleteControls() {
+  if (els.deleteCancel) els.deleteCancel.disabled = state.deleteBusy;
+  if (els.deleteConfirm) {
+    els.deleteConfirm.disabled = state.deleteBusy;
+    els.deleteConfirm.textContent = state.deleteBusy ? "Deleting..." : "Delete window";
+  }
+}
+
+function openDeleteWindowDialog(agent) {
+  if (state.deleteBusy) return;
+  state.deleteAgent = agent;
+  setDeleteStatus("");
+  syncDeleteControls();
+  els.deleteTarget.textContent = interactAgentLabel(agent);
+  els.deleteDialog.hidden = false;
+  requestAnimationFrame(() => els.deleteCancel?.focus());
+}
+
+function closeDeleteWindowDialog() {
+  if (state.deleteBusy) return;
+  state.deleteAgent = null;
+  els.deleteDialog.hidden = true;
+  setDeleteStatus("");
+}
+
+async function confirmDeleteWindow() {
+  if (state.deleteBusy) return;
+  const agent = state.deleteAgent;
+  if (!agent?.windowId) {
+    setDeleteStatus("No tmux window target", true);
+    return;
+  }
+
+  const key = deleteKeyForAgent(agent);
+  state.deleteBusy = true;
+  state.deletingWindows.add(key);
+  syncDeleteControls();
+  setDeleteStatus("Deleting...");
+  renderAgents();
+  try {
+    await api("/api/windows", {
+      method: "DELETE",
+      machineId: agentMachineKey(agent),
+      body: JSON.stringify({ windowId: agent.windowId }),
+    });
+    setStatus(`Deleted ${agent.windowIndex}: ${agent.windowName || "(unnamed)"}`);
+    state.deleteAgent = null;
+    els.deleteDialog.hidden = true;
+    window.setTimeout(loadAgents, 250);
+  } catch (error) {
+    setDeleteStatus(`Delete failed: ${error.message}`, true);
+  } finally {
+    state.deleteBusy = false;
+    state.deletingWindows.delete(key);
+    syncDeleteControls();
+    renderAgents();
   }
 }
 
@@ -773,6 +848,10 @@ function readKeyForAgent(agent) {
   return `${agentMachineKey(agent)}::${agent.paneId || agent.windowId || ""}`;
 }
 
+function deleteKeyForAgent(agent) {
+  return `${agentMachineKey(agent)}::${agent.windowId || ""}`;
+}
+
 function cardActionButton({ className = "", title, dataAttrs, disabled = false, busy = false, icon }) {
   const classes = `cc-card-action ${className}${busy ? " is-busy" : ""}`.trim();
   return `<button class="${classes}" type="button" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"${busy ? ' aria-busy="true"' : ""}${disabled ? " disabled" : ""} ${dataAttrs}>${icon}</button>`;
@@ -913,8 +992,10 @@ function renderCard(agent) {
   const footer = document.createElement("div");
   footer.className = "cc-card-footer";
   const readKey = readKeyForAgent(agent);
+  const deleteKey = deleteKeyForAgent(agent);
   const readingThis = state.audio.busy && state.readingKey === readKey;
   const readDisabled = state.audio.busy && !readingThis;
+  const deletingThis = state.deletingWindows.has(deleteKey);
   footer.innerHTML = `
     <span>${agent.turnCount} turn${agent.turnCount === 1 ? "" : "s"} · session <code>${escapeHtml((agent.agentSessionId || "").slice(0, 8))}</code></span>
     <span class="cc-card-actions">
@@ -935,6 +1016,14 @@ function renderCard(agent) {
         href: mainAppHref(agent),
         title: "Open in app",
         icon: ICONS.open,
+      })}
+      ${cardActionButton({
+        className: "cc-delete-button",
+        title: "Complete and delete tmux window",
+        dataAttrs: `data-delete-window-key="${escapeHtml(deleteKey)}"`,
+        disabled: deletingThis || !agent.windowId,
+        busy: deletingThis,
+        icon: ICONS.delete,
       })}
     </span>
   `;
@@ -1010,6 +1099,12 @@ els.list.addEventListener("click", (event) => {
     if (agent) openInteract(agent);
     return;
   }
+  const deleteButton = event.target.closest("[data-delete-window-key]");
+  if (deleteButton) {
+    const agent = state.agents.find((item) => deleteKeyForAgent(item) === deleteButton.dataset.deleteWindowKey);
+    if (agent) openDeleteWindowDialog(agent);
+    return;
+  }
   const button = event.target.closest("[data-read-key]");
   if (!button) return;
   const agent = state.agents.find((item) => readKeyForAgent(item) === button.dataset.readKey);
@@ -1023,6 +1118,8 @@ els.interactBackdrop?.addEventListener("click", closeInteract);
 els.interactVoiceButton?.addEventListener("click", toggleInteractVoiceRecording);
 els.interactSubmitVoice?.addEventListener("click", submitInteractVoiceRecording);
 els.interactCancelVoice?.addEventListener("click", cancelInteractVoiceRecording);
+els.deleteCancel?.addEventListener("click", closeDeleteWindowDialog);
+els.deleteConfirm?.addEventListener("click", confirmDeleteWindow);
 els.interactInput?.addEventListener("input", () => {
   els.interactInput.classList.toggle("empty", interactGetText().trim().length === 0);
 });
@@ -1062,6 +1159,10 @@ document.addEventListener("click", (event) => {
   closeMoreMenu();
 });
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !els.deleteDialog?.hidden) {
+    closeDeleteWindowDialog();
+    return;
+  }
   if (event.key === "Escape" && !els.interactSheet?.hidden) closeInteract();
 });
 
