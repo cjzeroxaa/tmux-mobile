@@ -917,6 +917,7 @@ async function updateConnector(machine) {
         repoDir: machine.agentCwd || "~/src/tmux-mobile",
         expectedRevision: machine.expectedRevision || "",
         nodePath: machine.nodePath || "node",
+        agentMachine: machine.machineId || machine.hostname || "",
         machineLabel: machineLabel(machine),
       }),
     });

@@ -862,6 +862,7 @@ async function startConnectorUpdate(options = {}) {
     "";
   const targetRef = safeUpdateToken(options.targetRef) || "main";
   const nodePath = safeUpdateValue(options.nodePath, 512) || "node";
+  const agentMachine = safeUpdateValue(options.agentMachine, 120);
   const machineLabel = safeUpdateValue(options.machineLabel, 120);
   const sessionName = `tmux-mobile-update-${Date.now().toString(36)}`;
   const windowName = "connector-update";
@@ -873,6 +874,7 @@ async function startConnectorUpdate(options = {}) {
     `export TMUX_MOBILE_UPDATE_CLONE_URL=${shellQuote(cloneUrl)}`,
     `export TMUX_MOBILE_UPDATE_EXPECTED_REVISION=${shellQuote(expectedRevision)}`,
     `export TMUX_MOBILE_UPDATE_REF=${shellQuote(targetRef)}`,
+    `export TMUX_MOBILE_UPDATE_AGENT_MACHINE=${shellQuote(agentMachine)}`,
     `export TMUX_MOBILE_UPDATE_SCRIPT_URL=${shellQuote(scriptUrl)}`,
     `NODE_BIN=${shellQuote(nodePath)}`,
     `echo "tmux-mobile connector update${machineLabel ? ` for ${machineLabel}` : ""}"`,
@@ -2857,6 +2859,7 @@ async function handleApi(req, res, url) {
         expectedRevision: body.expectedRevision || APP_REVISION,
         targetRef: body.targetRef || "main",
         nodePath: body.nodePath || "node",
+        agentMachine: body.agentMachine,
         machineLabel: body.machineLabel,
       }),
     );

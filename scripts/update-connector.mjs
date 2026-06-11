@@ -17,6 +17,7 @@ const controllerUrl = process.env.TMUX_MOBILE_UPDATE_CONTROLLER || DEFAULT_CONTR
 const cloneUrl = process.env.TMUX_MOBILE_UPDATE_CLONE_URL || DEFAULT_CLONE_URL;
 const expectedRevision = process.env.TMUX_MOBILE_UPDATE_EXPECTED_REVISION || "";
 const targetRef = process.env.TMUX_MOBILE_UPDATE_REF || DEFAULT_TARGET_REF;
+const agentMachine = process.env.TMUX_MOBILE_UPDATE_AGENT_MACHINE || "";
 const logPath =
   process.env.TMUX_MOBILE_UPDATE_LOG ||
   path.join(os.tmpdir(), "tmux-mobile-connector-update.log");
@@ -26,6 +27,7 @@ async function main() {
   log(`repo=${repoDir}`);
   log(`controller=${controllerUrl}`);
   log(`targetRef=${targetRef}`);
+  if (agentMachine) log(`agentMachine=${agentMachine}`);
   if (expectedRevision) log(`expectedRevision=${expectedRevision}`);
 
   ensureRepo();
@@ -120,7 +122,10 @@ async function restartDetachedProcess() {
     cwd: repoDir,
     detached: true,
     stdio: ["ignore", fd, fd],
-    env: process.env,
+    env: {
+      ...process.env,
+      ...(agentMachine ? { AGENT_MACHINE: agentMachine } : {}),
+    },
   });
   child.unref();
   closeSync(fd);
