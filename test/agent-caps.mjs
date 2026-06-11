@@ -47,7 +47,7 @@ assert.equal(agentSupportsOp(legacyHello, OP.TMUX), true, "4 legacy still has tm
 
 // 5. Version-skew "stale" computation (mirror of lib/hub.mjs listMachines): a
 //    machine is stale when its advertised ops miss any current AGENT_OP, or when
-//    its connector compatibility version is older/unknown. Raw git revision is
+//    its connector compatibility version is older. Raw git revision is
 //    diagnostic only so controller/frontend-only deploys do not force updates.
 function staleness(info, currentConnectorVersion = CONNECTOR_COMPAT_VERSION) {
   const advertised = Array.isArray(info?.ops) ? info.ops : LEGACY_AGENT_OPS;
@@ -55,7 +55,9 @@ function staleness(info, currentConnectorVersion = CONNECTOR_COMPAT_VERSION) {
   const connectorStatus = !currentConnectorVersion || currentConnectorVersion === "dev"
     ? "unverified"
     : !info?.connectorVersion
-      ? "missing"
+      ? String(currentConnectorVersion) === "1"
+        ? "compatible"
+        : "missing"
       : String(info.connectorVersion) === String(currentConnectorVersion)
         ? "current"
         : "outdated";
@@ -77,7 +79,17 @@ s = staleness({ t: "hello", v: 1, machine: "m" });
 assert.equal(s.stale, true, "5 legacy agent stale");
 assert.ok(s.missingOps.includes(OP.PANECMD), "5 legacy missing panecmd");
 assert.ok(s.missingOps.includes(OP.READFILE), "5 legacy missing readfile");
-assert.equal(s.connectorStatus, "missing", "5 legacy lacks connector version");
+assert.equal(s.connectorStatus, "compatible", "5 v1 legacy connector version is tolerated");
+
+// Agent with the current op surface but no connectorVersion predates the field;
+// for v1 it is compatible and should not show a needless update banner.
+s = staleness({ t: "hello", v: 1, ops: AGENT_OPS, machine: "m", revision: "3c95be7" });
+assert.equal(s.stale, false, "5 full-op v1 agent without connectorVersion is compatible");
+assert.equal(s.connectorStatus, "compatible", "5 full-op v1 agent tolerated");
+
+s = staleness({ t: "hello", v: 1, ops: AGENT_OPS, machine: "m" }, "2");
+assert.equal(s.stale, true, "5 missing connectorVersion is stale after v1");
+assert.equal(s.connectorStatus, "missing", "5 newer connector version must be reported");
 
 // agent that has everything EXCEPT the newest op (the exact codex-skew case:
 // it predates PANECMD) -> stale, missing only that op.

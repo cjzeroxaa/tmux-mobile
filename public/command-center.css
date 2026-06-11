@@ -469,25 +469,29 @@
   text-transform: uppercase;
 }
 
-/* Per-machine chip on each card (controller mode only). Shapes match the
- * kind-chip but uses the muted-surface tones so it reads as "context"
- * rather than "type". Whole hostname can be long (e.g. tigris-bigeye.ts.net),
- * so allow it to ellipsize on narrow phones. */
+/* Per-machine chip on each card (controller mode only). This is the primary
+ * cross-machine scan target, so it is intentionally stronger than the agent
+ * type chip. Whole hostname can be long (e.g. tigris-bigeye.ts.net), so allow
+ * it to ellipsize on narrow phones. */
 .cc-machine-chip {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   flex: 0 1 auto;
   max-width: 100%;
-  padding: 1px 7px;
+  min-height: 20px;
+  padding: 2px 8px;
+  border: 1px solid rgba(29, 116, 84, 0.36);
   border-radius: 999px;
-  background: var(--surface-soft);
-  color: var(--muted);
+  background: rgba(37, 137, 94, 0.14);
+  color: #14664a;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9.5px;
-  font-weight: 700;
+  font-size: 10.5px;
+  font-weight: 850;
   letter-spacing: 0.02em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.26);
 }
 
 /* Whose Google account registered the machine. Slightly accented so it

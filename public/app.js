@@ -370,6 +370,7 @@ const state = {
     pendingMimeType: "",
     pendingTranscript: "",
     pendingIdempotencyKey: "",
+    sendAfterTranscribe: false,
     sampleTimer: null,
     stream: null,
     status: "idle",
@@ -1354,6 +1355,10 @@ async function initComposerEditor() {
       (event) => {
         if (event?.shiftKey) return false; // Shift+Enter inserts a newline
         event?.preventDefault();
+        if (state.voice.status === "recording") {
+          submitVoiceRecording({ sendAfterTranscribe: true });
+          return true;
+        }
         submitTextComposer();
         return true;
       },
@@ -1551,6 +1556,7 @@ function clearPendingVoiceAudio() {
   state.voice.pendingTranscript = "";
   state.voice.pendingError = "";
   state.voice.pendingIdempotencyKey = "";
+  state.voice.sendAfterTranscribe = false;
   renderVoiceRetry();
 }
 
@@ -1830,10 +1836,12 @@ async function startVoiceRecording() {
   setVoiceStatus("recording", "Listening", "Keep (✓) to transcribe, or discard (✕)");
 }
 
-// "Keep" (✓) — stop recording, transcribe, and append the text to the box.
-function submitVoiceRecording() {
+// "Keep" stops recording, transcribes, and appends the text to the box. The
+// keyboard shortcut path can also send immediately after transcription.
+function submitVoiceRecording(options = {}) {
   const recorder = state.voice.mediaRecorder;
   if (!recorder || recorder.state !== "recording") return;
+  state.voice.sendAfterTranscribe = Boolean(options?.sendAfterTranscribe);
   state.voice.cancelRequested = false;
   stopVoiceAnalysis({ clearWaveform: false });
   setVoiceStatus("transcribing", "Transcribing", "Converting speech to text");
@@ -1846,11 +1854,13 @@ function discardVoiceRecording() {
   state.voice.chunks = [];
   state.voice.cancelRequested = false;
   state.voice.mediaRecorder = null;
+  state.voice.sendAfterTranscribe = false;
   setVoiceStatus("idle", "Dictate", "Tap to dictate into the message box");
 }
 
 function cancelVoiceRecording() {
   const recorder = state.voice.mediaRecorder;
+  state.voice.sendAfterTranscribe = false;
   state.voice.cancelRequested = true;
   if (recorder && recorder.state === "recording") {
     recorder.stop();
@@ -1860,20 +1870,28 @@ function cancelVoiceRecording() {
 }
 
 async function finishVoiceRecording() {
-  const mimeType = state.voice.mediaRecorder?.mimeType || "audio/webm";
-  stopVoiceAnalysis({ clearWaveform: false });
-  stopVoiceStream();
-  const blob = new Blob(state.voice.chunks, { type: mimeType });
-  state.voice.chunks = [];
-  state.voice.cancelRequested = false;
-  state.voice.mediaRecorder = null;
+  const sendAfterTranscribe = state.voice.sendAfterTranscribe;
+  try {
+    const mimeType = state.voice.mediaRecorder?.mimeType || "audio/webm";
+    stopVoiceAnalysis({ clearWaveform: false });
+    stopVoiceStream();
+    const blob = new Blob(state.voice.chunks, { type: mimeType });
+    state.voice.chunks = [];
+    state.voice.cancelRequested = false;
+    state.voice.mediaRecorder = null;
 
-  if (blob.size === 0) {
-    throw new Error("No audio captured");
+    if (blob.size === 0) {
+      throw new Error("No audio captured");
+    }
+
+    rememberPendingVoiceAudio(blob);
+    await transcribePendingVoiceWithRetry();
+    if (sendAfterTranscribe) {
+      await submitTextComposer(null, { keepFocus: true });
+    }
+  } finally {
+    state.voice.sendAfterTranscribe = false;
   }
-
-  rememberPendingVoiceAudio(blob);
-  await transcribePendingVoiceWithRetry();
 }
 
 // Transcribe the pending audio and APPEND the text to the message box (no send).
@@ -1948,6 +1966,7 @@ function handleVoiceSendError(error) {
   state.voice.cancelRequested = false;
   state.voice.mediaRecorder = null;
   state.voice.chunks = [];
+  state.voice.sendAfterTranscribe = false;
   if (state.voice.pendingAudio) {
     state.voice.pendingError = message;
     setVoiceStatus("idle", "Transcribe failed", "Audio saved for retry");
@@ -1968,18 +1987,55 @@ async function retryVoiceRecording() {
 async function toggleVoiceRecording() {
   try {
     if (state.voice.status !== "idle") return;
+    state.voice.sendAfterTranscribe = false;
     await startVoiceRecording();
   } catch (error) {
     stopVoiceAnalysis({ clearWaveform: true });
     stopVoiceStream();
     state.voice.cancelRequested = false;
     state.voice.mediaRecorder = null;
+    state.voice.sendAfterTranscribe = false;
     setVoiceStatus(
       "idle",
       "Dictate",
       "Tap to dictate into the message box",
     );
     addChat("system", error.message, "voice error");
+  }
+}
+
+function isNonComposerEditableTarget(target) {
+  if (!(target instanceof Element)) return false;
+  if (els.textInput?.contains(target)) return false;
+  return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
+function handleComposerVoiceShortcut(event) {
+  if (event.defaultPrevented || event.isComposing) return;
+  const plainEnter =
+    event.key === "Enter" &&
+    !event.shiftKey &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey;
+
+  if (plainEnter && state.voice.status === "recording") {
+    event.preventDefault();
+    event.stopPropagation();
+    submitVoiceRecording({ sendAfterTranscribe: true });
+    return;
+  }
+
+  if (
+    event.key === "," &&
+    event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !isNonComposerEditableTarget(event.target)
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleVoiceRecording();
   }
 }
 
@@ -4857,6 +4913,10 @@ els.textInput.addEventListener("keydown", (event) => {
   if (composerEditor) return; // Lexical handles Enter via KEY_ENTER_COMMAND
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
+    if (state.voice.status === "recording") {
+      submitVoiceRecording({ sendAfterTranscribe: true });
+      return;
+    }
     submitTextComposer();
   }
 });
@@ -4875,8 +4935,13 @@ els.textInput.addEventListener("beforeinput", (event) => {
   if (type !== "insertParagraph" && type !== "insertLineBreak") return;
   if (event.shiftKey) return; // future-proof: Shift+Enter still a newline
   event.preventDefault();
+  if (state.voice.status === "recording") {
+    submitVoiceRecording({ sendAfterTranscribe: true });
+    return;
+  }
   submitTextComposer();
 });
+document.addEventListener("keydown", handleComposerVoiceShortcut, true);
 els.submitVoice.addEventListener("click", submitVoiceRecording);
 els.cancelVoice.addEventListener("click", cancelVoiceRecording);
 els.retryVoice.addEventListener("click", retryVoiceRecording);
