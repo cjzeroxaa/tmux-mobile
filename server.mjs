@@ -884,11 +884,24 @@ async function startConnectorUpdate(options = {}) {
   ].join("; ");
   const command = `bash -lc ${shellQuote(inner)}`;
 
-  await runTmux(["new-session", "-d", "-s", sessionName, "-n", windowName, command]);
+  const paneId = (
+    await runTmux(
+      ["new-session", "-d", "-P", "-F", "#{pane_id}", "-s", sessionName, "-n", windowName],
+      { timeout: 5000 },
+    )
+  ).trim();
+  if (!paneId) {
+    const error = new Error("tmux did not return the update pane");
+    error.status = 500;
+    throw error;
+  }
+  await pasteTextToPane(paneId, command);
+  await runTmux(["send-keys", "-t", paneId, "Enter"], { timeout: 5000 });
   return {
     ok: true,
     sessionName,
     windowName,
+    paneId,
     repoDir,
     controllerUrl,
     expectedRevision,

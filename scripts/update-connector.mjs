@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, openSync, closeSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, closeSync, writeFileSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -93,10 +93,49 @@ function restartLaunchd() {
   const target = `gui/${uid}/${LAUNCHD_LABEL}`;
   const printed = run("launchctl", ["print", target], { check: false });
   if (printed.status !== 0) return false;
+  const plistPath = parseLaunchdPlistPath(printed.stdout);
+  if (agentMachine && plistPath) {
+    writeLaunchdAgentMachine(plistPath);
+  }
 
   log(`restart=launchd target=${target}`);
+  if (agentMachine && plistPath) {
+    const domain = `gui/${uid}`;
+    run("launchctl", ["bootout", target], { check: false });
+    const bootstrap = run("launchctl", ["bootstrap", domain, plistPath], { check: false });
+    if (bootstrap.status === 0) return true;
+    log("launchd bootstrap did not reload the plist; falling back to kickstart");
+  }
   run("launchctl", ["kickstart", "-k", target]);
   return true;
+}
+
+function parseLaunchdPlistPath(text) {
+  const match = String(text || "").match(/^\s*path = (.+\.plist)\s*$/m);
+  return match ? match[1].trim() : "";
+}
+
+function writeLaunchdAgentMachine(plistPath) {
+  log(`launchd agent machine=${agentMachine} plist=${plistPath}`);
+  const plistBuddy = "/usr/libexec/PlistBuddy";
+  const envExists = run(plistBuddy, ["-c", "Print :EnvironmentVariables", plistPath], {
+    check: false,
+  });
+  if (envExists.status !== 0) {
+    run(plistBuddy, ["-c", "Add :EnvironmentVariables dict", plistPath]);
+  }
+  const set = run(
+    plistBuddy,
+    ["-c", `Set :EnvironmentVariables:AGENT_MACHINE ${agentMachine}`, plistPath],
+    { check: false },
+  );
+  if (set.status !== 0) {
+    run(plistBuddy, [
+      "-c",
+      `Add :EnvironmentVariables:AGENT_MACHINE string ${agentMachine}`,
+      plistPath,
+    ]);
+  }
 }
 
 function restartSystemd() {
@@ -108,9 +147,27 @@ function restartSystemd() {
   if (!known) return false;
 
   log(`restart=systemd unit=${SYSTEMD_UNIT}`);
+  if (agentMachine) writeSystemdAgentMachine();
   run("systemctl", ["--user", "daemon-reload"], { check: false });
   run("systemctl", ["--user", "restart", SYSTEMD_UNIT]);
   return true;
+}
+
+function writeSystemdAgentMachine() {
+  const dir = path.join(os.homedir(), ".config", "systemd", "user", `${SYSTEMD_UNIT}.d`);
+  mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, "override.conf");
+  const text = [
+    "[Service]",
+    `Environment=${systemdQuoteEnv(`AGENT_MACHINE=${agentMachine}`)}`,
+    "",
+  ].join("\n");
+  log(`systemd agent machine=${agentMachine} override=${filePath}`);
+  writeFileSync(filePath, text, "utf8");
+}
+
+function systemdQuoteEnv(value) {
+  return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
 async function restartDetachedProcess() {
