@@ -52,6 +52,21 @@ const APP_TITLE = process.env.TMUX_MOBILE_APP_TITLE || "tmux Mobile";
 const APP_REVISION = appRevision(__dirname);
 const CONNECTOR_VERSION =
   process.env.TMUX_MOBILE_CONNECTOR_VERSION || CONNECTOR_COMPAT_VERSION;
+const DEFAULT_MACHINE_ALIASES = {
+  "homos-mac-mini.local": "mini",
+  "macbook-pro-15.local": "MacBook",
+  "macbook": "MacBook",
+  "fulong-mini": "FIN Mini",
+  "ip-172-31-7-169.ec2.internal": "MSB-REBYTE",
+  "msbbuild-rebyte": "MSB-REBYTE",
+  "msb-build-srp.us-central1-a.c.cj-dev-498907.internal": "MSB-SRP",
+  "msb-build-srp": "MSB-SRP",
+  "msb-srp": "MSB-SRP",
+};
+const MACHINE_ALIASES = readMachineAliases(
+  process.env.TMUX_MOBILE_MACHINE_ALIASES,
+  DEFAULT_MACHINE_ALIASES,
+);
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
@@ -869,6 +884,7 @@ async function startConnectorUpdate(options = {}) {
   const sessionName = `tmux-mobile-update-${Date.now().toString(36)}`;
   const windowName = "connector-update";
   const scriptUrl = CONNECTOR_UPDATE_SCRIPT_URL;
+  const heredoc = `TMUX_MOBILE_UPDATE_${Date.now().toString(36).toUpperCase()}`;
   const inner = [
     "set -euo pipefail",
     `export TMUX_MOBILE_UPDATE_REPO=${shellQuote(repoDir)}`,
@@ -881,10 +897,14 @@ async function startConnectorUpdate(options = {}) {
     `NODE_BIN=${shellQuote(nodePath)}`,
     `echo "tmux-mobile connector update${machineLabel ? ` for ${machineLabel}` : ""}"`,
     'echo "script: $TMUX_MOBILE_UPDATE_SCRIPT_URL"',
-    'if command -v curl >/dev/null 2>&1; then curl -fsSL "$TMUX_MOBILE_UPDATE_SCRIPT_URL" | "$NODE_BIN" --input-type=module; else "$NODE_BIN" --input-type=module -e \'const r=await fetch(process.env.TMUX_MOBILE_UPDATE_SCRIPT_URL); if(!r.ok) throw new Error(`download failed ${r.status}`); process.stdout.write(await r.text());\' | "$NODE_BIN" --input-type=module; fi',
+    'if command -v curl >/dev/null 2>&1; then',
+    '  curl -fsSL "$TMUX_MOBILE_UPDATE_SCRIPT_URL" | "$NODE_BIN" --input-type=module',
+    "else",
+    '  "$NODE_BIN" --input-type=module -e \'const r=await fetch(process.env.TMUX_MOBILE_UPDATE_SCRIPT_URL); if(!r.ok) throw new Error(`download failed ${r.status}`); process.stdout.write(await r.text());\' | "$NODE_BIN" --input-type=module',
+    "fi",
     'echo "update command finished; this window can be closed after the machine reconnects"',
-  ].join("; ");
-  const command = `bash -lc ${shellQuote(inner)}`;
+  ].join("\n");
+  const command = `bash <<'${heredoc}'\n${inner}\n${heredoc}`;
 
   const paneId = (
     await runTmux(
@@ -897,8 +917,7 @@ async function startConnectorUpdate(options = {}) {
     error.status = 500;
     throw error;
   }
-  await pasteTextToPane(paneId, command);
-  await runTmux(["send-keys", "-t", paneId, "Enter"], { timeout: 5000 });
+  await sendTextToPane(paneId, command, { enter: true });
   return {
     ok: true,
     sessionName,
@@ -2036,10 +2055,13 @@ async function localCommandCenterMachine(agentCount = 0) {
     }
   }
   const ownerId = String(process.env.TMUX_MOBILE_USER || "");
+  const hostname = os.hostname();
   return {
     id: "local",
     machineId: "local",
-    hostname: os.hostname(),
+    hostname: machineAliasFor(hostname) || hostname,
+    rawHostname: hostname,
+    machineAlias: machineAliasFor(hostname),
     ownerId,
     ownerEmail: ownerId,
     ownerHd: "",
@@ -2357,6 +2379,46 @@ function splitCsv(value) {
     .split(",")
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
+}
+
+function readMachineAliases(value, defaults = {}) {
+  const aliases = { ...defaults };
+  const raw = String(value || "").trim();
+  if (!raw) return aliases;
+
+  if (raw.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        for (const [key, alias] of Object.entries(parsed)) {
+          setMachineAlias(aliases, key, alias);
+        }
+        return aliases;
+      }
+    } catch {
+      // Fall through to the compact comma format below.
+    }
+  }
+
+  for (const item of raw.split(",")) {
+    const [key, ...rest] = item.split("=");
+    setMachineAlias(aliases, key, rest.join("="));
+  }
+  return aliases;
+}
+
+function setMachineAlias(aliases, key, alias) {
+  const normalized = normalizeMachineAliasKey(key);
+  const value = String(alias || "").trim();
+  if (normalized && value) aliases[normalized] = value;
+}
+
+function machineAliasFor(machineId) {
+  return MACHINE_ALIASES[normalizeMachineAliasKey(machineId)] || "";
+}
+
+function normalizeMachineAliasKey(value) {
+  return String(value || "").trim().toLowerCase();
 }
 
 function base64urlEncode(value) {
@@ -3976,6 +4038,7 @@ if (MODE.kind === "register") {
       superAdminEmails: splitCsv(process.env.SUPER_ADMIN_EMAILS),
       currentRevision: APP_REVISION,
       requiredConnectorVersion: CONNECTOR_VERSION,
+      machineAliases: MACHINE_ALIASES,
     });
   }
 
