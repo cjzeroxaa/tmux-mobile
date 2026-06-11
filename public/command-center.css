@@ -576,9 +576,12 @@
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 
+.cc-interact-button,
 .cc-read-button {
   min-height: 28px;
   padding: 4px 10px;
@@ -601,6 +604,40 @@
 .cc-read-button:disabled {
   cursor: default;
   opacity: 0.45;
+}
+
+.cc-interact-panel {
+  gap: 10px;
+}
+
+.cc-interact-target {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cc-interact-composer {
+  min-width: 0;
+}
+
+.cc-interact-composer .snippet-bar {
+  margin-bottom: 0;
+}
+
+.cc-interact-composer .input-area {
+  border-radius: 12px;
+}
+
+.cc-interact-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cc-empty {

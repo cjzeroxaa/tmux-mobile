@@ -6,6 +6,16 @@ import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
 // the agent's JSONL transcript. No tmux capture, no LLM summary.
 
 const POLL_MS = 4000;
+const SNIPPETS_KEY = "tmux-mobile-snippets";
+const DEFAULT_SNIPPETS = [
+  { text: "yes" },
+  { text: "continue" },
+  { text: "/clear" },
+  { text: "/btw " },
+  { text: "claude" },
+  { text: "codex" },
+  { text: "/goal " },
+];
 
 const els = {
   list: document.querySelector("#ccList"),
@@ -17,6 +27,14 @@ const els = {
   welcomeClose: document.querySelector("#ccWelcomeClose"),
   welcomeShow: document.querySelector("#ccWelcomeShow"),
   moreMenu: document.querySelector("#ccMoreMenu"),
+  interactSheet: document.querySelector("#ccInteractSheet"),
+  interactBackdrop: document.querySelector("#ccInteractBackdrop"),
+  interactClose: document.querySelector("#ccInteractClose"),
+  interactTarget: document.querySelector("#ccInteractTarget"),
+  interactInput: document.querySelector("#ccInteractInput"),
+  interactSend: document.querySelector("#ccInteractSend"),
+  interactStatus: document.querySelector("#ccInteractStatus"),
+  interactSnippetChips: document.querySelector("#ccInteractSnippetChips"),
 };
 
 // Persisted view prefs — sort + status/machine filters stay across reloads
@@ -52,6 +70,8 @@ const state = {
   sortBy: SAVED.sortBy || "recent",
   filterMachines: new Set(SAVED.filterMachines || []),
   filterStatuses: new Set(SAVED.filterStatuses || []),
+  interactAgent: null,
+  interactSending: false,
   readingKey: "",
   audio: {
     abortController: null,
@@ -157,6 +177,137 @@ function logClientEvent(event, details = {}, machineId = "") {
     headers,
     body: JSON.stringify({ event, details }),
   }).catch(() => {});
+}
+
+function loadSnippets() {
+  try {
+    const raw = localStorage.getItem(SNIPPETS_KEY);
+    const data = raw ? JSON.parse(raw) : null;
+    const items = Array.isArray(data?.items) ? data.items : DEFAULT_SNIPPETS;
+    return items
+      .map((item) => ({ text: String(item?.text || "") }))
+      .filter((item) => item.text);
+  } catch {
+    return DEFAULT_SNIPPETS;
+  }
+}
+
+function interactGetText() {
+  return els.interactInput?.innerText || "";
+}
+
+function interactSetText(text) {
+  const value = String(text || "");
+  els.interactInput.textContent = value;
+  els.interactInput.classList.toggle("empty", value.trim().length === 0);
+}
+
+function interactClear() {
+  interactSetText("");
+}
+
+function interactFocus() {
+  requestAnimationFrame(() => els.interactInput?.focus());
+}
+
+function interactAppendText(text) {
+  const add = String(text || "");
+  if (!add) return;
+  const current = interactGetText();
+  const sep = current && !/\s$/.test(current) ? " " : "";
+  interactSetText(current + sep + add);
+  interactFocus();
+}
+
+function renderInteractSnippets() {
+  if (!els.interactSnippetChips) return;
+  els.interactSnippetChips.replaceChildren();
+  const snippets = loadSnippets();
+  if (snippets.length === 0) {
+    const empty = document.createElement("span");
+    empty.className = "snippet-empty";
+    empty.textContent = "No snippets";
+    els.interactSnippetChips.append(empty);
+    return;
+  }
+  for (const item of snippets) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "snippet-chip";
+    chip.textContent = item.text;
+    chip.addEventListener("click", () => interactAppendText(item.text));
+    els.interactSnippetChips.append(chip);
+  }
+}
+
+function setInteractStatus(text) {
+  els.interactStatus.textContent = text;
+}
+
+function interactAgentLabel(agent) {
+  const machine = agent.machineHostname ? `${agent.machineHostname} · ` : "";
+  const windowLabel = `${agent.windowIndex}: ${agent.windowName || "(unnamed)"}`;
+  const session = agent.sessionName ? ` · ${agent.sessionName}` : "";
+  return `${machine}${windowLabel}${session}`;
+}
+
+function openInteract(agent) {
+  if (state.interactSending) return;
+  state.interactAgent = agent;
+  state.interactSending = false;
+  els.interactTarget.textContent = interactAgentLabel(agent);
+  els.interactSend.disabled = false;
+  setInteractStatus("");
+  renderInteractSnippets();
+  interactClear();
+  els.interactSheet.hidden = false;
+  interactFocus();
+}
+
+function closeInteract() {
+  if (state.interactSending) return;
+  state.interactAgent = null;
+  els.interactSheet.hidden = true;
+  setInteractStatus("");
+  interactClear();
+}
+
+async function sendInteractText({ keepFocus = true } = {}) {
+  if (state.interactSending) return;
+  const agent = state.interactAgent;
+  const text = interactGetText();
+  if (!text.trim()) {
+    interactFocus();
+    return;
+  }
+  if (!agent?.paneId) {
+    setInteractStatus("No target");
+    return;
+  }
+
+  state.interactSending = true;
+  els.interactSend.disabled = true;
+  setInteractStatus("Sending...");
+  interactClear();
+  if (keepFocus) interactFocus();
+  else els.interactInput?.blur();
+  const machineId = agentMachineKey(agent);
+  try {
+    await api("/api/send", {
+      method: "POST",
+      machineId,
+      body: JSON.stringify({ paneId: agent.paneId, text, enter: true }),
+    });
+    setInteractStatus("Sent");
+    window.setTimeout(loadAgents, 700);
+  } catch (error) {
+    interactSetText(text);
+    setInteractStatus(`Send failed: ${error.message}`);
+    interactFocus();
+  } finally {
+    state.interactSending = false;
+    els.interactSend.disabled = false;
+  }
 }
 
 // Apply filters + sort to the current agent list. Pure function — call
@@ -496,6 +647,7 @@ function renderCard(agent) {
   footer.innerHTML = `
     <span>${agent.turnCount} turn${agent.turnCount === 1 ? "" : "s"} · session <code>${escapeHtml((agent.agentSessionId || "").slice(0, 8))}</code></span>
     <span class="cc-card-actions">
+      <button class="cc-interact-button" type="button" data-interact-key="${escapeHtml(readKey)}">Interact</button>
       <button class="cc-read-button${readingThis ? " is-reading" : ""}" type="button" data-read-key="${escapeHtml(readKey)}"${readDisabled ? " disabled" : ""}>${readingThis ? "Stop" : "Read"}</button>
       <a href="${escapeHtml(mainAppHref(agent))}">Open</a>
     </span>
@@ -566,10 +718,31 @@ function stopPolling() {
 
 els.refresh.addEventListener("click", () => loadAgents());
 els.list.addEventListener("click", (event) => {
+  const interactButton = event.target.closest("[data-interact-key]");
+  if (interactButton) {
+    const agent = state.agents.find((item) => readKeyForAgent(item) === interactButton.dataset.interactKey);
+    if (agent) openInteract(agent);
+    return;
+  }
   const button = event.target.closest("[data-read-key]");
   if (!button) return;
   const agent = state.agents.find((item) => readKeyForAgent(item) === button.dataset.readKey);
   if (agent) readAgent(agent);
+});
+els.interactSend?.addEventListener("click", () =>
+  sendInteractText({ keepFocus: false }),
+);
+els.interactClose?.addEventListener("click", closeInteract);
+els.interactBackdrop?.addEventListener("click", closeInteract);
+els.interactInput?.addEventListener("input", () => {
+  els.interactInput.classList.toggle("empty", interactGetText().trim().length === 0);
+});
+els.interactInput?.addEventListener("keydown", (event) => {
+  if (event.isComposing) return;
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    sendInteractText();
+  }
 });
 
 // Welcome block: hidden if the user dismissed it previously, recoverable
@@ -598,6 +771,9 @@ document.addEventListener("click", (event) => {
   if (!els.moreMenu?.open) return;
   if (event.target.closest("#ccMoreMenu")) return;
   closeMoreMenu();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !els.interactSheet?.hidden) closeInteract();
 });
 
 // Sort dropdown — hydrate the persisted selection, fire on change.

@@ -88,6 +88,31 @@ node server.mjs --register https://eng.impo.ai --login</code></pre>
       <section id="ccList" class="cc-list" aria-label="Active agent sessions"></section>
     </main>
 
+    <div id="ccInteractSheet" class="settings-sheet" hidden>
+      <button id="ccInteractBackdrop" class="settings-backdrop" type="button" aria-label="Close interact"></button>
+      <section class="settings-panel cc-interact-panel" role="dialog" aria-modal="true" aria-labelledby="ccInteractTitle">
+        <div class="settings-panel-header">
+          <h2 id="ccInteractTitle">Interact</h2>
+          <button id="ccInteractClose" class="icon-button" type="button" title="Close" aria-label="Close">X</button>
+        </div>
+        <div id="ccInteractTarget" class="cc-interact-target"></div>
+        <div class="composer cc-interact-composer">
+          <div id="ccInteractSnippetBar" class="snippet-bar" aria-label="Snippets">
+            <div id="ccInteractSnippetChips" class="snippet-chips"></div>
+          </div>
+          <div class="input-area">
+            <div id="ccInteractInput" class="lexical-editor empty" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Text input" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" aria-autocomplete="none" data-1p-ignore data-lpignore="true" data-form-type="other" data-protonpass-ignore="true" inputmode="text" data-placeholder="Message…"></div>
+            <div class="input-actions">
+              <span id="ccInteractStatus" class="settings-status cc-interact-status" role="status" aria-live="polite"></span>
+              <div class="input-actions-right">
+                <button id="ccInteractSend" class="small-button submit input-submit" type="button" title="Send" aria-label="Send">Send</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
     <script src="/command-center.js" type="module"></script>
   </body>
 </html>
