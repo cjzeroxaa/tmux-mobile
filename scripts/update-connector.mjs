@@ -90,29 +90,69 @@ async function restartConnector() {
 function restartLaunchd() {
   if (process.platform !== "darwin") return false;
   const uid = process.getuid ? process.getuid() : process.env.UID;
+  const domain = `gui/${uid}`;
   const target = `gui/${uid}/${LAUNCHD_LABEL}`;
   const printed = run("launchctl", ["print", target], { check: false });
-  if (printed.status !== 0) return false;
-  const plistPath = parseLaunchdPlistPath(printed.stdout);
+  const plistPath = parseLaunchdPlistPath(printed.stdout) || defaultLaunchdPlistPath();
+  const hasPlist = plistPath && existsSync(plistPath);
+  if (printed.status !== 0 && !hasPlist) return false;
   if (agentMachine && plistPath) {
     writeLaunchdAgentMachine(plistPath);
   }
 
   log(`restart=launchd target=${target}`);
-  if (agentMachine && plistPath) {
-    const domain = `gui/${uid}`;
-    run("launchctl", ["bootout", target], { check: false });
-    const bootstrap = run("launchctl", ["bootstrap", domain, plistPath], { check: false });
-    if (bootstrap.status === 0) return true;
-    log("launchd bootstrap did not reload the plist; falling back to kickstart");
+  if (printed.status !== 0) {
+    return bootstrapLaunchd(domain, target, plistPath);
   }
-  run("launchctl", ["kickstart", "-k", target]);
-  return true;
+
+  if (agentMachine && hasPlist) {
+    const bootout = run("launchctl", ["bootout", domain, plistPath], { check: false });
+    if (bootout.status !== 0) {
+      log("launchd bootout by plist failed; trying service target");
+      run("launchctl", ["bootout", target], { check: false });
+    }
+    if (bootstrapLaunchd(domain, target, plistPath)) return true;
+    log("launchd reload failed; falling back to detached connector");
+    return false;
+  }
+
+  const kickstart = run("launchctl", ["kickstart", "-k", target], { check: false });
+  if (kickstart.status === 0) return true;
+  log("launchd kickstart failed; falling back to detached connector");
+  return false;
 }
 
 function parseLaunchdPlistPath(text) {
   const match = String(text || "").match(/^\s*path = (.+\.plist)\s*$/m);
   return match ? match[1].trim() : "";
+}
+
+function defaultLaunchdPlistPath() {
+  return path.join(os.homedir(), "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
+}
+
+function bootstrapLaunchd(domain, target, plistPath) {
+  log(`launchd bootstrap plist=${plistPath}`);
+  run("launchctl", ["enable", target], { check: false });
+
+  const maxAttempts = 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const bootstrap = run("launchctl", ["bootstrap", domain, plistPath], { check: false });
+    const output = `${bootstrap.stdout || ""}\n${bootstrap.stderr || ""}`;
+    if (bootstrap.status === 0) {
+      const kickstart = run("launchctl", ["kickstart", "-k", target], { check: false });
+      if (kickstart.status !== 0) log("launchd bootstrap succeeded; kickstart was not needed");
+      return true;
+    }
+    if (/already (?:loaded|bootstrapped)|service already loaded/i.test(output)) {
+      const kickstart = run("launchctl", ["kickstart", "-k", target], { check: false });
+      if (kickstart.status === 0) return true;
+    }
+    if (attempt < maxAttempts) sleepSync(250 * attempt);
+  }
+
+  log(`launchd bootstrap failed after ${maxAttempts} attempts`);
+  return false;
 }
 
 function writeLaunchdAgentMachine(plistPath) {
@@ -136,6 +176,7 @@ function writeLaunchdAgentMachine(plistPath) {
       plistPath,
     ]);
   }
+  run("plutil", ["-lint", plistPath]);
 }
 
 function restartSystemd() {
@@ -275,6 +316,10 @@ async function log(message) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 main().catch(async (error) => {

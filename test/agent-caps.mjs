@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import {
   AGENT_OPS,
+  CONNECTOR_COMPAT_VERSION,
   LEGACY_AGENT_OPS,
   OP,
   helloFrame,
@@ -17,6 +18,7 @@ const hello = helloFrame({ machine: "m1" });
 assert.ok(Array.isArray(hello.ops), "1 ops present");
 assert.ok(hello.ops.includes(OP.READFILE), "1 advertises readfile");
 assert.deepEqual(hello.ops, AGENT_OPS, "1 ops === AGENT_OPS");
+assert.equal(hello.connectorVersion, CONNECTOR_COMPAT_VERSION, "1 connector version present");
 
 // 1b. helloFrame also advertises writefile (the upload op).
 assert.ok(hello.ops.includes(OP.WRITEFILE), "1b advertises writefile");
@@ -45,61 +47,54 @@ assert.equal(agentSupportsOp(legacyHello, OP.TMUX), true, "4 legacy still has tm
 
 // 5. Version-skew "stale" computation (mirror of lib/hub.mjs listMachines): a
 //    machine is stale when its advertised ops miss any current AGENT_OP, or when
-//    it reports an older/unknown code revision than the controller expects.
-function staleness(info, currentRevision = "abc1234") {
+//    its connector compatibility version is older/unknown. Raw git revision is
+//    diagnostic only so controller/frontend-only deploys do not force updates.
+function staleness(info, currentConnectorVersion = CONNECTOR_COMPAT_VERSION) {
   const advertised = Array.isArray(info?.ops) ? info.ops : LEGACY_AGENT_OPS;
   const missingOps = AGENT_OPS.filter((op) => !advertised.includes(op));
-  const revisionStatus = !currentRevision || currentRevision === "dev"
+  const connectorStatus = !currentConnectorVersion || currentConnectorVersion === "dev"
     ? "unverified"
-    : !info?.revision
+    : !info?.connectorVersion
       ? "missing"
-      : revisionMatches(info.revision, currentRevision)
+      : String(info.connectorVersion) === String(currentConnectorVersion)
         ? "current"
         : "outdated";
   return {
-    stale: missingOps.length > 0 || ["missing", "outdated"].includes(revisionStatus),
+    stale: missingOps.length > 0 || ["missing", "outdated"].includes(connectorStatus),
     missingOps,
-    revisionStatus,
+    connectorStatus,
   };
-}
-
-function revisionMatches(agentRevision, expectedRevision) {
-  if (agentRevision === expectedRevision) return true;
-  if (String(agentRevision).includes("-dirty") || String(expectedRevision).includes("-dirty")) {
-    return false;
-  }
-  return (
-    (agentRevision.length >= 7 && expectedRevision.startsWith(agentRevision)) ||
-    (expectedRevision.length >= 7 && agentRevision.startsWith(expectedRevision))
-  );
 }
 
 // current agent -> not stale, nothing missing.
 let s = staleness(helloFrame({ machine: "m", revision: "abc1234" }));
 assert.equal(s.stale, false, "5 current agent not stale");
 assert.deepEqual(s.missingOps, [], "5 current agent missing nothing");
-assert.equal(s.revisionStatus, "current", "5 current revision matches");
+assert.equal(s.connectorStatus, "current", "5 current connector version matches");
 
 // legacy agent (no ops) -> stale, missing the post-legacy ops (incl. PANECMD).
 s = staleness({ t: "hello", v: 1, machine: "m" });
 assert.equal(s.stale, true, "5 legacy agent stale");
 assert.ok(s.missingOps.includes(OP.PANECMD), "5 legacy missing panecmd");
 assert.ok(s.missingOps.includes(OP.READFILE), "5 legacy missing readfile");
-assert.equal(s.revisionStatus, "missing", "5 legacy lacks revision");
+assert.equal(s.connectorStatus, "missing", "5 legacy lacks connector version");
 
 // agent that has everything EXCEPT the newest op (the exact codex-skew case:
 // it predates PANECMD) -> stale, missing only that op.
 const almostCurrent = AGENT_OPS.filter((op) => op !== OP.PANECMD);
-s = staleness({ ops: almostCurrent, machine: "m", revision: "abc1234" });
+s = staleness(helloFrame({ ops: almostCurrent, machine: "m", revision: "abc1234" }));
 assert.equal(s.stale, true, "5 missing-one stale");
 assert.deepEqual(s.missingOps, [OP.PANECMD], "5 missing only panecmd");
 
-// agent with the current op surface but older code is stale too.
+// agent with the current op surface but older raw git revision is not stale.
 s = staleness(helloFrame({ machine: "m", revision: "def5678" }));
-assert.equal(s.stale, true, "5 same ops but old revision stale");
-assert.equal(s.revisionStatus, "outdated", "5 old revision detected");
+assert.equal(s.stale, false, "5 raw revision mismatch is diagnostic only");
+assert.equal(s.connectorStatus, "current", "5 connector version still current");
 
-s = staleness(helloFrame({ machine: "m", revision: "abc1234" }), "abc1234-dirty");
-assert.equal(s.stale, true, "5 dirty controller revision is not satisfied by clean sha");
+s = staleness(
+  { ...helloFrame({ machine: "m", revision: "abc1234" }), connectorVersion: "old" },
+);
+assert.equal(s.stale, true, "5 old connector version is stale");
+assert.equal(s.connectorStatus, "outdated", "5 old connector version detected");
 
 console.log("agent-caps unit tests passed");

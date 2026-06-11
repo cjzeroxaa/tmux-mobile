@@ -102,12 +102,12 @@ const staleDismissAtom = createPersistedAtom("tmux-mobile-stale-dismissed", {
 
 function staleDismissKey(machine) {
   const ops = [...(machine.missingOps || [])].sort().join(",");
-  const revision = [
-    machine.agentRevision || "",
-    machine.expectedRevision || "",
-    machine.revisionStatus || "",
+  const connector = [
+    machine.connectorVersion || "",
+    machine.expectedConnectorVersion || "",
+    machine.connectorStatus || machine.revisionStatus || "",
   ].join(">");
-  return `${machine.id}|${ops}|${revision}`;
+  return `${machine.id}|${ops}|${connector}`;
 }
 
 function isStaleDismissed(machine) {
@@ -631,8 +631,10 @@ function shellPath(value) {
 function connectorUpdatePrompt(machine) {
   const host = machine?.hostname || machine?.machineId || machine?.id || "this machine";
   const cwd = shellPath(machine?.agentCwd || "~/src/tmux-mobile");
-  const current = machine?.agentRevision || "unknown";
-  const expected = machine?.expectedRevision || state.serverRevision || "current";
+  const current = machine?.connectorVersion || "unknown";
+  const expected = machine?.expectedConnectorVersion || "current";
+  const currentRevision = machine?.agentRevision || "unknown";
+  const expectedRevision = machine?.expectedRevision || state.serverRevision || "current";
   const controller = window.location.origin;
   return [
     `Update the tmux-mobile connector on ${host}.`,
@@ -641,8 +643,10 @@ function connectorUpdatePrompt(machine) {
     "Do not stop a plain `node server.mjs` process on 127.0.0.1:3737; that local server is production access for the machine.",
     `Only restart the connector process that runs \`node server.mjs --register ${controller}\`.`,
     "",
-    `Current connector revision shown by the controller: ${current}`,
-    `Expected controller revision: ${expected}`,
+    `Current connector version shown by the controller: ${current}`,
+    `Expected connector version: ${expected}`,
+    `Current code revision shown by the controller: ${currentRevision}`,
+    `Target code revision: ${expectedRevision}`,
     "",
     "Steps:",
     `1. cd ${cwd}`,
@@ -782,20 +786,21 @@ function updateStaleAgentBanner() {
   els.staleAgentBanner.hidden = false;
   els.staleAgentBanner.dataset.machineKey = staleDismissKey(machine);
   if (els.staleAgentDetail) {
-    const revisionText =
-      machine.revisionStatus === "outdated"
-        ? ` It reports ${machine.agentRevision || "unknown"}, expected ${machine.expectedRevision || "current"}.`
-        : machine.revisionStatus === "missing"
-          ? " It does not report a code revision."
+    const connectorStatus = machine.connectorStatus || machine.revisionStatus || "";
+    const connectorText =
+      connectorStatus === "outdated"
+        ? ` It reports connector version ${machine.connectorVersion || "unknown"}, expected ${machine.expectedConnectorVersion || "current"}.`
+        : connectorStatus === "missing"
+          ? " It does not report a connector version."
           : "";
     els.staleAgentDetail.textContent =
       "Some features are disabled until you restart the connector on " +
-      `${machine.hostname || machine.id}.${revisionText}`;
+      `${machine.hostname || machine.id}.${connectorText}`;
   }
   if (els.staleAgentCmd) {
-    const expected = machine.expectedRevision || state.serverRevision || "current";
+    const expected = machine.expectedConnectorVersion || "current";
     els.staleAgentCmd.textContent =
-      `update ${machine.hostname || machine.id}: ${machine.agentRevision || "unknown"} -> ${expected}`;
+      `update ${machine.hostname || machine.id}: connector ${machine.connectorVersion || "unknown"} -> ${expected}`;
     els.staleAgentCmd.dataset.copyText = connectorUpdatePrompt(machine);
   }
 }

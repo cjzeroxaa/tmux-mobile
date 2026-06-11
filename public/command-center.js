@@ -846,7 +846,10 @@ function machinesFromAgents(agents) {
         stale: false,
         missingOps: [],
         agentRevision: "",
+        connectorVersion: "",
         expectedRevision: "",
+        expectedConnectorVersion: "",
+        connectorStatus: "",
         revisionStatus: "",
         agentCwd: "",
         nodePath: "",
@@ -880,13 +883,14 @@ function renderStaleMachine(machine) {
   const key = machineKey(machine);
   const updating = state.updatingMachines.has(key);
   const host = machineLabel(machine);
-  const expected = machine.expectedRevision || "current";
-  const current = machine.agentRevision || "unknown";
+  const expected = machine.expectedConnectorVersion || "current";
+  const current = machine.connectorVersion || "unknown";
+  const connectorStatus = machine.connectorStatus || machine.revisionStatus || "";
   const parts = [];
-  if (machine.revisionStatus === "outdated") {
-    parts.push(`revision ${current}, expected ${expected}`);
-  } else if (machine.revisionStatus === "missing") {
-    parts.push("no connector revision reported");
+  if (connectorStatus === "outdated") {
+    parts.push(`connector version ${current}, expected ${expected}`);
+  } else if (connectorStatus === "missing") {
+    parts.push("no connector version reported");
   }
   if (machine.missingOps?.length) {
     parts.push(`missing ops: ${machine.missingOps.join(", ")}`);
@@ -896,7 +900,7 @@ function renderStaleMachine(machine) {
     <div class="cc-machine-alert-main">
       <strong>${escapeHtml(host)} needs connector update</strong>
       <span>${escapeHtml(detail)}</span>
-      <code>${escapeHtml(current)} -&gt; ${escapeHtml(expected)}</code>
+      <code>${escapeHtml(machine.agentRevision || "unknown revision")}</code>
     </div>
     <button class="small-button cc-machine-alert-copy" type="button" data-update-machine="${escapeHtml(key)}"${updating ? " disabled" : ""}>${updating ? "Starting..." : "Update connector"}</button>
   `;

@@ -12,7 +12,7 @@ import {
   readClaudeTranscriptFromSession,
   withBackend,
 } from "./lib/backend.mjs";
-import { OP } from "./lib/protocol.mjs";
+import { CONNECTOR_COMPAT_VERSION, OP } from "./lib/protocol.mjs";
 import {
   computeWindowMetadata,
   createMetadataCache,
@@ -50,6 +50,8 @@ const PORT = Number(process.env.PORT || 3737);
 // Override with TMUX_MOBILE_APP_TITLE.
 const APP_TITLE = process.env.TMUX_MOBILE_APP_TITLE || "tmux Mobile";
 const APP_REVISION = appRevision(__dirname);
+const CONNECTOR_VERSION =
+  process.env.TMUX_MOBILE_CONNECTOR_VERSION || CONNECTOR_COMPAT_VERSION;
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
@@ -2045,13 +2047,16 @@ async function localCommandCenterMachine(agentCount = 0) {
     arch: process.arch,
     tmux: localTmuxVersion,
     agentRevision: APP_REVISION,
+    connectorVersion: CONNECTOR_VERSION,
     agentCwd: __dirname,
     nodePath: process.execPath,
     expectedRevision: APP_REVISION,
+    expectedConnectorVersion: CONNECTOR_VERSION,
     online: true,
     lastSeen: Date.now(),
     stale: false,
     missingOps: [],
+    connectorStatus: "current",
     revisionStatus: "current",
     agentCount,
   };
@@ -2808,7 +2813,11 @@ function logRequestError(req, url, status, error) {
 
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
-    sendJson(res, 200, { ok: true, revision: APP_REVISION });
+    sendJson(res, 200, {
+      ok: true,
+      revision: APP_REVISION,
+      connectorVersion: CONNECTOR_VERSION,
+    });
     return;
   }
 
@@ -3875,7 +3884,11 @@ if (MODE.kind === "register") {
             return;
           }
           if (url.pathname === "/api/health") {
-            sendJson(res, 200, { ok: true, revision: APP_REVISION });
+            sendJson(res, 200, {
+              ok: true,
+              revision: APP_REVISION,
+              connectorVersion: CONNECTOR_VERSION,
+            });
             return;
           }
           // Command Center spans every online machine this user can access.
@@ -3962,6 +3975,7 @@ if (MODE.kind === "register") {
         : () => String(process.env.TMUX_MOBILE_USER || "default"),
       superAdminEmails: splitCsv(process.env.SUPER_ADMIN_EMAILS),
       currentRevision: APP_REVISION,
+      requiredConnectorVersion: CONNECTOR_VERSION,
     });
   }
 
