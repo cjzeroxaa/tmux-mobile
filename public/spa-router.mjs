@@ -134,7 +134,10 @@ async function navigate(pathname, search = window.location.search, { push = true
   if (push) {
     history.pushState({ route }, "", pathname + search);
   }
-  if (route === currentRoute) return;
+  if (route === currentRoute) {
+    if (push) await mount(route);
+    return;
+  }
   if (currentRoute) unmount(currentRoute);
   await mount(route);
   currentRoute = route;

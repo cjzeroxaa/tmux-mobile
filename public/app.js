@@ -343,6 +343,9 @@ const state = {
   snapshotPinnedToBottom: true,
   pendingSnapshotText: null,
   snapshotText: null,
+  viewLoadGeneration: 0,
+  treeLoadGeneration: 0,
+  targetLoadingMessage: "",
   pendingUrlTarget: initialUrlTarget,
   directories: {
     cwd: "",
@@ -667,6 +670,7 @@ function resetTmuxState(message = "Select a window.") {
   stopMetadataPolling();
   // Any full reset means we're no longer holding a window through a blip.
   setReconnectingBanner(false);
+  state.targetLoadingMessage = "";
   state.sessions = [];
   state.windows = [];
   state.windowSummaries = {};
@@ -802,6 +806,7 @@ function machineLabel(machine) {
 
 async function selectMachine(machineId) {
   if (machineId === state.machineId) return;
+  state.treeLoadGeneration += 1;
   state.machineId = machineId;
   resetTmuxState(machineId ? "Loading machine..." : "Select a machine.");
   updateTargetUrl();
@@ -1078,6 +1083,13 @@ function renderTargetLabels() {
   renderMachinePicker();
   const win = selectedWindow();
   if (!win) {
+    if (state.targetLoadingMessage) {
+      els.mobileTargetLabel.textContent =
+        state.runtimeMode === "hub" && state.machineId
+          ? `${selectedMachine()?.hostname || state.machineId || "Machine"} · ${state.targetLoadingMessage}`
+          : state.targetLoadingMessage;
+      return;
+    }
     if (state.runtimeMode === "hub" && !state.machineId) {
       els.mobileTargetLabel.textContent = "Select a machine";
     } else {
@@ -1138,6 +1150,37 @@ function resetDirectoryNavigator(message = "No window selected") {
     error: message,
   };
   renderDirectoryNavigator();
+}
+
+function clearPaneViewForWindowSwitch(message = "Loading window...") {
+  state.viewLoadGeneration += 1;
+  state.panes = [];
+  state.paneId = "";
+  state.chat = [];
+  state.currentAgentKind = null;
+  state.pendingSnapshotText = null;
+  setSnapshotStale(false);
+  resetDirectoryNavigator("Loading directories...");
+  renderTargetLabels();
+  renderChat();
+  renderReadButtonsEnabled();
+  updateSnapshotText(message, { forceScrollBottom: true });
+}
+
+function clearTargetViewForUrlNavigation(urlTarget, message = "Loading window...") {
+  state.treeLoadGeneration += 1;
+  if (urlTarget?.machineId) state.machineId = urlTarget.machineId;
+  state.targetLoadingMessage = message;
+  state.sessions = [];
+  state.windows = [];
+  state.windowSummaries = {};
+  state.windowActivity = {};
+  state.windowMetadata = {};
+  state.sessionId = "";
+  state.windowId = "";
+  clearPaneViewForWindowSwitch(message);
+  renderWindows();
+  renderTargetLabels();
 }
 
 function directoryButton(label, targetPath, className = "") {
@@ -2504,6 +2547,7 @@ async function refreshTree({
   forceUrlTarget = false,
   syncUrl = false,
 } = {}) {
+  const treeLoadGeneration = state.treeLoadGeneration;
   if (urlTarget.machineId && urlTarget.machineId !== state.machineId) {
     state.machineId = urlTarget.machineId;
   }
@@ -2514,6 +2558,7 @@ async function refreshTree({
   const priorMachineId = state.machineId || state.reconnectMachineId;
   try {
     await loadRuntimeAndMachines();
+    if (state.treeLoadGeneration !== treeLoadGeneration) return;
     if (state.runtimeMode === "hub" && (!state.machineId || !selectedMachineOnline())) {
       // Was the focused machine just here and now momentarily gone? Hold the
       // current window and retry, rather than resetting — but only if we were
@@ -2560,9 +2605,11 @@ async function refreshTree({
     // runs a single `tmux list-windows -a` and the server reconstructs both
     // lists from the same rows. See server.mjs::listTree.
     const tree = await api("/api/tree");
+    if (state.treeLoadGeneration !== treeLoadGeneration) return;
     state.sessions = tree.sessions || [];
     state.windows = (tree.windows || []).map((w) => ({ ...w })); // defensive copy
     await applyTreeAndSelectWindow({ urlTarget, forceUrlTarget });
+    if (state.treeLoadGeneration !== treeLoadGeneration) return;
     if (state.targetPickerOpen) {
       startActivityPolling();
     }
@@ -2579,6 +2626,7 @@ async function refreshTree({
     );
   } catch (error) {
     if (error.silent) return;
+    if (state.treeLoadGeneration !== treeLoadGeneration) return;
     // The runtime/machines fetch itself failed (controller HTTP blip during a
     // revision swap, or a network hiccup). If we were live, hold the current
     // window in the grace window and retry rather than surfacing a raw error.
@@ -2631,11 +2679,13 @@ async function applyTreeAndSelectWindow({
   urlTarget = readUrlTarget(),
   forceUrlTarget = false,
 } = {}) {
+  const previousWindowId = state.windowId;
   state.panes = [];
   if (state.sessions.length === 0) {
     state.windows = [];
     state.sessionId = "";
     state.windowId = "";
+    state.targetLoadingMessage = "";
     resetWindowSummaryState();
     renderWindows();
     renderTargetLabels();
@@ -2666,8 +2716,12 @@ async function applyTreeAndSelectWindow({
       state.windows.find((win) => win.id === state.windowId)?.sessionId || state.sessionId;
   }
 
+  state.targetLoadingMessage = "";
   renderWindows();
   renderTargetLabels();
+  if (state.windowId && state.windowId !== previousWindowId) {
+    clearPaneViewForWindowSwitch();
+  }
   await loadPanes();
 }
 
@@ -3070,12 +3124,14 @@ document.addEventListener("visibilitychange", () => {
 
 async function selectWindow(windowId) {
   const win = state.windows.find((item) => item.id === windowId);
+  const previousWindowId = state.windowId;
   // Record the window we're switching to as most-recent, so it surfaces in the
   // Recent quick-switch list next time (MRU order).
   if (win) recordRecentWindow(win);
   state.windowId = windowId;
   state.sessionId = win?.sessionId || state.sessionId;
   state.paneId = "";
+  state.targetLoadingMessage = "";
   // Visiting a window clears its "unread" flag: record the content we're now
   // looking at as the seen baseline.
   if (win) markWindowVisited(win);
@@ -3083,6 +3139,9 @@ async function selectWindow(windowId) {
   updateCopyModeBanner(); // reflect the new window's state (or hide until known)
   renderWindows();
   updateTargetUrl();
+  if (windowId !== previousWindowId) {
+    clearPaneViewForWindowSwitch();
+  }
   // Dismiss the picker instantly — don't make the user stare at a half-
   // open sheet while panes load over a flaky link. The actual switch
   // continues in the background and the snapshot updates when it lands.
@@ -3493,9 +3552,11 @@ function setAskButtonsDisabled(disabled) {
 }
 
 async function loadPanes() {
+  const windowId = state.windowId;
+  const loadGeneration = state.viewLoadGeneration;
   const previousPaneId = state.paneId;
   state.panes = [];
-  if (!state.windowId) {
+  if (!windowId) {
     renderTargetLabels();
     resetDirectoryNavigator();
     return;
@@ -3508,9 +3569,10 @@ async function loadPanes() {
   let view;
   try {
     view = await api(
-      `/api/window-view?windowId=${encodeURIComponent(state.windowId)}&lines=${state.lines}`,
+      `/api/window-view?windowId=${encodeURIComponent(windowId)}&lines=${state.lines}`,
     );
   } catch (error) {
+    if (state.windowId !== windowId || state.viewLoadGeneration !== loadGeneration) return;
     // Same UX as the old refreshSnapshot catch: keep the last good snapshot
     // visible, raise the stale-icon, swallow silently. The whole batched
     // fetch having failed is a single signal — not three.
@@ -3518,6 +3580,7 @@ async function loadPanes() {
     renderTargetLabels();
     return;
   }
+  if (state.windowId !== windowId || state.viewLoadGeneration !== loadGeneration) return;
   state.panes = view.panes || [];
   state.paneId = view.activePaneId || "";
   const paneChanged = state.paneId !== previousPaneId;
@@ -3622,24 +3685,28 @@ function setSnapshotStale(stale, error) {
 }
 
 async function refreshSnapshot(addToChat = false, { forceScrollBottom = false } = {}) {
-  if (!state.paneId) {
+  const paneId = state.paneId;
+  const loadGeneration = state.viewLoadGeneration;
+  if (!paneId) {
     updateSnapshotText("Select a window.", { forceScrollBottom: true });
     setSnapshotStale(false);
     return;
   }
   try {
     const params = new URLSearchParams({
-      paneId: state.paneId,
+      paneId,
       mode: "tail",
       lines: String(state.lines),
     });
     const data = await api(`/api/capture?${params}`);
+    if (state.paneId !== paneId || state.viewLoadGeneration !== loadGeneration) return;
     updateSnapshotText(data.text || "[no visible output]", { forceScrollBottom });
     setSnapshotStale(false);
     if (addToChat) {
       addChat("pane", excerptForChat(data.text), "tmux output");
     }
   } catch (error) {
+    if (state.paneId !== paneId || state.viewLoadGeneration !== loadGeneration) return;
     // Keep the last good snapshot visible — wiping it on every transient
     // network blip is the worst possible UX. The toolbar icon is the only
     // signal that something's off; the user can hit Refresh to retry.
@@ -4849,8 +4916,10 @@ for (const button of document.querySelectorAll("[data-agent-fork]")) {
 }
 
 window.addEventListener("popstate", () => {
+  const urlTarget = readUrlTarget();
+  if (hasUrlTarget(urlTarget)) clearTargetViewForUrlNavigation(urlTarget);
   refreshTree({
-    urlTarget: readUrlTarget(),
+    urlTarget,
     forceUrlTarget: true,
   });
 });
@@ -4872,14 +4941,24 @@ refreshTree({
 
 // SPA router hook. Called by spa-router.mjs the moment this view becomes the
 // active one again (after the user navigated away to Command Center and back).
-// The 3-second auto-refresh interval keeps ticking even while this view is
-// hidden, so the displayed snapshot is at most one tick stale — but "at most
-// one tick stale" is exactly what the user is reporting as the bug. Fire a
-// fresh refreshTree+refreshSnapshot the moment they arrive so the data they
-// see is current the same frame they look at it, not 3 seconds later. The
-// existing autoRefreshInFlight back-pressure keeps this from racing a tick
-// that's already in flight.
+// If the URL names a target window, treat that navigation as foreground work:
+// clear the previous pane immediately and force the tree selection to consume
+// the new query. Plain returns without a target keep the old background-refresh
+// behavior.
 export function resumeView() {
+  const urlTarget = readUrlTarget();
+  if (hasUrlTarget(urlTarget)) {
+    clearTargetViewForUrlNavigation(urlTarget);
+    state.autoRefreshInFlight = true;
+    refreshTree({
+      urlTarget,
+      forceUrlTarget: true,
+      syncUrl: true,
+    }).finally(() => {
+      state.autoRefreshInFlight = false;
+    });
+    return;
+  }
   if (state.autoRefreshInFlight) return;
   state.autoRefreshInFlight = true;
   Promise.allSettled([refreshTree(), refreshSnapshot()]).finally(() => {
