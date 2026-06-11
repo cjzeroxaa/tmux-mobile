@@ -359,6 +359,48 @@
   max-width: 100%;
 }
 
+.cc-machine-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(167, 53, 53, 0.28);
+  border-radius: 8px;
+  background: rgba(167, 53, 53, 0.06);
+}
+
+.cc-machine-alert-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.cc-machine-alert-main strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.cc-machine-alert-main span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.cc-machine-alert-main code {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #8a2c2c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.cc-machine-alert-copy {
+  flex: 0 0 auto;
+}
+
 .cc-card {
   display: flex;
   flex-direction: column;
@@ -377,6 +419,14 @@
 
 .cc-card.is-running {
   border-color: rgba(53, 89, 122, 0.42);
+}
+
+.cc-card.is-waiting {
+  border-color: rgba(167, 53, 53, 0.38);
+}
+
+.cc-card.is-unverified {
+  border-color: rgba(126, 112, 91, 0.34);
 }
 
 .cc-card-header {
@@ -490,6 +540,20 @@
    * waiting on the agent" at a glance. */
   animation: cc-pulse 1.6s ease-in-out infinite;
   opacity: 1;
+}
+
+.cc-status-pill.is-waiting {
+  background: rgba(167, 53, 53, 0.12);
+  color: #9f2d2d;
+}
+
+.cc-status-pill.is-waiting::before {
+  opacity: 1;
+}
+
+.cc-status-pill.is-unverified {
+  background: rgba(126, 112, 91, 0.12);
+  color: #766a57;
 }
 
 @keyframes cc-pulse {
@@ -755,6 +819,10 @@
   }
 
   .cc-empty {
+    grid-column: 1 / -1;
+  }
+
+  .cc-machine-alert {
     grid-column: 1 / -1;
   }
 }

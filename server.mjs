@@ -5,7 +5,13 @@ import os from "node:os";
 import path from "node:path";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { currentBackend, localBackend, withBackend } from "./lib/backend.mjs";
+import {
+  currentBackend,
+  findClaudeSessionFromBackend,
+  localBackend,
+  readClaudeTranscriptFromSession,
+  withBackend,
+} from "./lib/backend.mjs";
 import { OP } from "./lib/protocol.mjs";
 import {
   computeWindowMetadata,
@@ -31,6 +37,7 @@ import {
   updateVoiceConfig,
   withVoiceUser,
 } from "./lib/voice-config.mjs";
+import { appRevision } from "./lib/revision.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -42,8 +49,7 @@ const PORT = Number(process.env.PORT || 3737);
 // name (which on Cloud Run / local shows unhelpful values like "localhost").
 // Override with TMUX_MOBILE_APP_TITLE.
 const APP_TITLE = process.env.TMUX_MOBILE_APP_TITLE || "tmux Mobile";
-const APP_REVISION =
-  process.env.K_REVISION || process.env.TMUX_MOBILE_REVISION || "dev";
+const APP_REVISION = appRevision(__dirname);
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
@@ -1693,15 +1699,45 @@ async function buildBriefingInputForPane({ windowInfo, pane, lineCount }) {
 async function safeAgentLastResponse(pane) {
   if (!pane?.pid) return null;
   const backend = currentBackend();
+  let exactClaudeSession = null;
+  try {
+    exactClaudeSession = await findClaudeSessionFromBackend(backend, {
+      rootPid: pane.pid,
+      cwd: pane.cwd || "",
+    });
+    const exactTranscript = exactClaudeSession
+      ? await readClaudeTranscriptFromSession(backend, exactClaudeSession)
+      : null;
+    const lastAssistantTurn = exactTranscript?.turns
+      ?.slice()
+      .reverse()
+      .find((turn) => turn.role === "assistant");
+    if (lastAssistantTurn) {
+      return {
+        kind: "claude",
+        sessionId: exactClaudeSession.sessionId,
+        transcriptPath: exactClaudeSession.transcriptPath,
+        text: lastAssistantTurn.text || "",
+      };
+    }
+  } catch {}
   if (typeof backend.agentLastResponse !== "function") return null;
   try {
     // Pass cwd so Claude Code's filesystem fallback can find the right
     // transcript — its CLI doesn't keep the JSONL file open so lsof alone
     // returns nothing.
-    return await backend.agentLastResponse({
+    const result = await backend.agentLastResponse({
       rootPid: pane.pid,
       cwd: pane.cwd || "",
     });
+    if (
+      exactClaudeSession &&
+      result?.kind === "claude" &&
+      result.sessionId !== exactClaudeSession.sessionId
+    ) {
+      return null;
+    }
+    return result;
   } catch {
     return null;
   }
@@ -1710,14 +1746,43 @@ async function safeAgentLastResponse(pane) {
 async function safeAgentTranscript(pane) {
   if (!pane?.pid) return null;
   const backend = currentBackend();
-  if (typeof backend.agentTranscript !== "function") return null;
+  let exactClaudeSession = null;
   try {
-    return await backend.agentTranscript({
+    exactClaudeSession = await findClaudeSessionFromBackend(backend, {
       rootPid: pane.pid,
       cwd: pane.cwd || "",
     });
+    const exactTranscript = exactClaudeSession
+      ? await readClaudeTranscriptFromSession(backend, exactClaudeSession)
+      : null;
+    if (exactTranscript) return exactTranscript;
+  } catch {}
+  const emptyExactClaudeTranscript = () =>
+    exactClaudeSession
+      ? {
+          kind: "claude",
+          sessionId: exactClaudeSession.sessionId,
+          transcriptPath: exactClaudeSession.transcriptPath,
+          turns: [],
+          turnsTotal: 0,
+        }
+      : null;
+  if (typeof backend.agentTranscript !== "function") return emptyExactClaudeTranscript();
+  try {
+    const result = await backend.agentTranscript({
+      rootPid: pane.pid,
+      cwd: pane.cwd || "",
+    });
+    if (
+      exactClaudeSession &&
+      result?.kind === "claude" &&
+      result.sessionId !== exactClaudeSession.sessionId
+    ) {
+      return emptyExactClaudeTranscript();
+    }
+    return result;
   } catch {
-    return null;
+    return emptyExactClaudeTranscript();
   }
 }
 
@@ -1731,8 +1796,9 @@ async function safeAgentTranscript(pane) {
  *   - which agent (codex/claude) and which transcript session UUID
  *   - the last user prompt and last assistant response, verbatim from the
  *     JSONL (not an LLM summary — we already have the exact text)
- *   - a status derived from who spoke last: if the last turn is from the
- *     user, the agent owes a reply -> "running"; otherwise -> "idle"
+ *   - a status derived from the live pane state, not transcript order. The
+ *     transcript can lag or contain injected tool/user records, so "last role"
+ *     is only exposed as context, never used as the live Working/Idle label.
  *   - a turn count so the UI can show conversation depth at a glance
  *
  * Per-pane work runs in parallel so even ten windows return in roughly the
@@ -1778,6 +1844,30 @@ async function listAgentSessions() {
       const lastTurn = turns[turns.length - 1] || null;
       const lastAssistantTurn = [...turns].reverse().find((t) => t.role === "assistant") || null;
       const lastUserTurn = [...turns].reverse().find((t) => t.role === "user") || null;
+      let turn = null;
+      let waitingForInput = false;
+      let waitingConfidence = "";
+      try {
+        const screen = cleanTerminalText(await capturePane(pane.id, "screen"));
+        const lines = screen.split("\n");
+        turn = detectTurn(info.kind, {
+          title: pane.title,
+          paneTail: lines.slice(-12).join("\n"),
+        });
+        const ask = detectAskQuestion(screen);
+        waitingForInput = Boolean(ask.waiting);
+        waitingConfidence = ask.confidence || "";
+      } catch {
+        turn = null;
+      }
+      const turnState = turn?.state || "unverified";
+      const status = waitingForInput
+        ? "waiting"
+        : turnState === "working"
+          ? "running"
+          : turnState === "idle"
+            ? "idle"
+            : "unverified";
 
       return {
         sessionId: session.id,
@@ -1794,14 +1884,15 @@ async function listAgentSessions() {
         lastUserText: lastUserTurn?.text || "",
         lastAssistantText: lastAssistantTurn?.text || "",
         lastRole: lastTurn?.role || "",
+        turn: turnState,
+        turnConfidence: turn?.confidence || "low",
+        waitingForInput,
+        waitingConfidence,
         // Prefer the agent's pre-slice total (added with the larger 32 MB tail
         // read). Old agent bundles don't send this — fall back to turns.length
         // so they still render, just pinned at the slice cap as before.
         turnCount: typeof info.turnsTotal === "number" ? info.turnsTotal : turns.length,
-        // If the most recent turn is from the user, the agent owes us a
-        // response — that's "running". Otherwise it has spoken and is now
-        // waiting for the next prompt — "idle".
-        status: lastTurn?.role === "user" ? "running" : "idle",
+        status,
         // ISO timestamp of the most recent turn (when the agent transcript
         // carries one). Drives the "recent activity" sort in the Command
         // Center; null for transcripts that predate per-turn timestamps.
@@ -1833,10 +1924,14 @@ async function localCommandCenterMachine(agentCount = 0) {
     os: process.platform,
     arch: process.arch,
     tmux: localTmuxVersion,
+    agentRevision: APP_REVISION,
+    agentCwd: __dirname,
+    expectedRevision: APP_REVISION,
     online: true,
     lastSeen: Date.now(),
     stale: false,
     missingOps: [],
+    revisionStatus: "current",
     agentCount,
   };
 }
@@ -3726,6 +3821,7 @@ if (MODE.kind === "register") {
         ? authenticateAgent
         : () => String(process.env.TMUX_MOBILE_USER || "default"),
       superAdminEmails: splitCsv(process.env.SUPER_ADMIN_EMAILS),
+      currentRevision: APP_REVISION,
     });
   }
 

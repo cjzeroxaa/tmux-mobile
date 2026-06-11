@@ -165,6 +165,39 @@ function machineLabel(machine) {
   return String(machine?.hostname || machine?.machineId || machine?.id || "local");
 }
 
+function shellPath(value) {
+  const path = String(value || "").trim() || "~/src/tmux-mobile";
+  if (path === "~" || path.startsWith("~/")) return path;
+  return `'${path.replaceAll("'", "'\\''")}'`;
+}
+
+function connectorUpdatePrompt(machine) {
+  const host = machine?.hostname || machine?.machineId || machine?.id || "this machine";
+  const cwd = shellPath(machine?.agentCwd || "~/src/tmux-mobile");
+  const current = machine?.agentRevision || "unknown";
+  const expected = machine?.expectedRevision || "current";
+  const controller = window.location.origin;
+  return [
+    `Update the tmux-mobile connector on ${host}.`,
+    "",
+    "Do not print or expose tokens, cookies, or other secrets.",
+    "Do not stop a plain `node server.mjs` process on 127.0.0.1:3737; that local server is production access for the machine.",
+    `Only restart the connector process that runs \`node server.mjs --register ${controller}\`.`,
+    "",
+    `Current connector revision shown by the controller: ${current}`,
+    `Expected controller revision: ${expected}`,
+    "",
+    "Steps:",
+    `1. cd ${cwd}`,
+    "2. git fetch --all --prune",
+    "3. git pull --ff-only",
+    "4. npm install",
+    `5. Stop the old tmux-mobile --register connector for ${controller}, if it is still running.`,
+    `6. Start it again with: node server.mjs --register ${controller}`,
+    "7. Confirm the machine reconnects and no longer shows as out of date.",
+  ].join("\n");
+}
+
 function mainAppHref({ machineId, sessionName, sessionId, windowIndex, windowName }) {
   // Main app reads its URL target via session + window query params (see
   // public/app.js readUrlTarget). machineId comes along too so controller
@@ -453,6 +486,24 @@ function chooseInteractAudioMimeType() {
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
 }
 
+const STATUS_LABELS = {
+  waiting: "Needs input",
+  running: "Working",
+  idle: "Idle",
+  unverified: "Unknown",
+};
+const STATUS_ORDER = ["waiting", "running", "unverified", "idle"];
+const STATUS_PRIORITY = new Map(STATUS_ORDER.map((status, index) => [status, index]));
+
+function statusLabel(status) {
+  return STATUS_LABELS[status] || STATUS_LABELS.unverified;
+}
+
+function statusClass(status) {
+  const normalized = STATUS_LABELS[status] ? status : "unverified";
+  return normalized !== "idle" ? ` is-${normalized}` : "";
+}
+
 function renderInteractVoiceWaveform() {
   if (!els.interactVoiceWaveform) return;
   if (els.interactVoiceWaveform.children.length !== INTERACT_WAVEFORM_SAMPLES) {
@@ -652,7 +703,7 @@ async function toggleInteractVoiceRecording() {
 function filterAndSort(agents) {
   let out = agents;
   if (state.filterStatuses.size > 0) {
-    out = out.filter((a) => state.filterStatuses.has(a.status));
+    out = out.filter((a) => state.filterStatuses.has(STATUS_LABELS[a.status] ? a.status : "unverified"));
   }
   if (state.filterMachines.size > 0) {
     out = out.filter((a) => state.filterMachines.has(agentMachineKey(a)));
@@ -679,10 +730,12 @@ function sortComparator(by) {
       return (a, b) => (a.windowName || "").localeCompare(b.windowName || "");
     case "status":
     default:
-      // Working first, then by window index — keep the previous default.
+      // Actionable first, unknown before calm idle.
       return (a, b) => {
         if (a.status === b.status) return a.windowIndex - b.windowIndex;
-        return a.status === "running" ? -1 : 1;
+        const pa = STATUS_PRIORITY.get(a.status) ?? STATUS_PRIORITY.get("unverified");
+        const pb = STATUS_PRIORITY.get(b.status) ?? STATUS_PRIORITY.get("unverified");
+        return pa - pb;
       };
   }
 }
@@ -694,8 +747,8 @@ function renderFilterRow() {
   const row = els.filterRow;
   row.innerHTML = "";
   // Status chips first.
-  for (const s of ["running", "idle"]) {
-    const label = s === "running" ? "Working" : "Idle";
+  for (const s of STATUS_ORDER) {
+    const label = statusLabel(s);
     const active = state.filterStatuses.has(s);
     row.append(chipButton({
       label,
@@ -824,6 +877,10 @@ function machinesFromAgents(agents) {
         online: true,
         stale: false,
         missingOps: [],
+        agentRevision: "",
+        expectedRevision: "",
+        revisionStatus: "",
+        agentCwd: "",
       });
     }
   }
@@ -842,6 +899,37 @@ function normalizeMachines(machines, agents) {
         ? machine.agentCount
         : counts.get(machineKey(machine)) || 0,
   }));
+}
+
+function staleMachines() {
+  return state.machines.filter((machine) => machine.stale);
+}
+
+function renderStaleMachine(machine) {
+  const wrap = document.createElement("div");
+  wrap.className = "cc-machine-alert";
+  const host = machineLabel(machine);
+  const expected = machine.expectedRevision || "current";
+  const current = machine.agentRevision || "unknown";
+  const parts = [];
+  if (machine.revisionStatus === "outdated") {
+    parts.push(`revision ${current}, expected ${expected}`);
+  } else if (machine.revisionStatus === "missing") {
+    parts.push("no connector revision reported");
+  }
+  if (machine.missingOps?.length) {
+    parts.push(`missing ops: ${machine.missingOps.join(", ")}`);
+  }
+  const detail = parts.length ? parts.join(" · ") : "connector is out of date";
+  wrap.innerHTML = `
+    <div class="cc-machine-alert-main">
+      <strong>${escapeHtml(host)} needs connector update</strong>
+      <span>${escapeHtml(detail)}</span>
+      <code>${escapeHtml(current)} -&gt; ${escapeHtml(expected)}</code>
+    </div>
+    <button class="small-button cc-machine-alert-copy" type="button" data-copy-update-machine="${escapeHtml(machineKey(machine))}">Copy update prompt</button>
+  `;
+  return wrap;
 }
 
 function readKeyForAgent(agent) {
@@ -937,7 +1025,7 @@ async function readAgent(agent) {
 
 function renderCard(agent) {
   const card = document.createElement("article");
-  card.className = `cc-card${agent.status === "running" ? " is-running" : ""}`;
+  card.className = `cc-card${statusClass(agent.status)}`;
 
   const header = document.createElement("div");
   header.className = "cc-card-header";
@@ -961,8 +1049,8 @@ function renderCard(agent) {
       <span class="cc-card-session">· ${escapeHtml(agent.sessionName || "")}</span>
     </span>
     <span class="cc-kind-chip">${escapeHtml(agent.kind)}</span>
-    <span class="cc-status-pill${agent.status === "running" ? " is-running" : ""}">
-      ${agent.status === "running" ? "Working" : "Idle"}
+    <span class="cc-status-pill${statusClass(agent.status)}">
+      ${escapeHtml(statusLabel(agent.status))}
     </span>
   `;
   card.append(header);
@@ -1039,6 +1127,9 @@ function renderAgents() {
   }
   const filtered = filterAndSort(state.agents);
   els.list.innerHTML = "";
+  for (const machine of staleMachines()) {
+    els.list.append(renderStaleMachine(machine));
+  }
   if (filtered.length === 0) {
     const note = document.createElement("div");
     note.className = "cc-empty";
@@ -1093,6 +1184,24 @@ function stopPolling() {
 
 els.refresh.addEventListener("click", () => loadAgents());
 els.list.addEventListener("click", (event) => {
+  const updateButton = event.target.closest("[data-copy-update-machine]");
+  if (updateButton) {
+    const machine = state.machines.find(
+      (item) => machineKey(item) === updateButton.dataset.copyUpdateMachine,
+    );
+    if (machine) {
+      navigator.clipboard.writeText(connectorUpdatePrompt(machine)).then(() => {
+        const previous = updateButton.textContent;
+        updateButton.textContent = "Copied";
+        setTimeout(() => {
+          updateButton.textContent = previous;
+        }, 1200);
+      }).catch(() => {
+        setStatus("Copy failed");
+      });
+    }
+    return;
+  }
   const interactButton = event.target.closest("[data-interact-key]");
   if (interactButton) {
     const agent = state.agents.find((item) => readKeyForAgent(item) === interactButton.dataset.interactKey);

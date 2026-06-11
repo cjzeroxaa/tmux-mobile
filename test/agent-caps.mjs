@@ -44,29 +44,62 @@ assert.equal(agentSupportsOp(legacyHello, OP.READFILE), false, "4 legacy no read
 assert.equal(agentSupportsOp(legacyHello, OP.TMUX), true, "4 legacy still has tmux");
 
 // 5. Version-skew "stale" computation (mirror of lib/hub.mjs listMachines): a
-//    machine is stale when its advertised ops miss any current AGENT_OP.
-function staleness(info) {
+//    machine is stale when its advertised ops miss any current AGENT_OP, or when
+//    it reports an older/unknown code revision than the controller expects.
+function staleness(info, currentRevision = "abc1234") {
   const advertised = Array.isArray(info?.ops) ? info.ops : LEGACY_AGENT_OPS;
   const missingOps = AGENT_OPS.filter((op) => !advertised.includes(op));
-  return { stale: missingOps.length > 0, missingOps };
+  const revisionStatus = !currentRevision || currentRevision === "dev"
+    ? "unverified"
+    : !info?.revision
+      ? "missing"
+      : revisionMatches(info.revision, currentRevision)
+        ? "current"
+        : "outdated";
+  return {
+    stale: missingOps.length > 0 || ["missing", "outdated"].includes(revisionStatus),
+    missingOps,
+    revisionStatus,
+  };
+}
+
+function revisionMatches(agentRevision, expectedRevision) {
+  if (agentRevision === expectedRevision) return true;
+  if (String(agentRevision).includes("-dirty") || String(expectedRevision).includes("-dirty")) {
+    return false;
+  }
+  return (
+    (agentRevision.length >= 7 && expectedRevision.startsWith(agentRevision)) ||
+    (expectedRevision.length >= 7 && agentRevision.startsWith(expectedRevision))
+  );
 }
 
 // current agent -> not stale, nothing missing.
-let s = staleness(helloFrame({ machine: "m" }));
+let s = staleness(helloFrame({ machine: "m", revision: "abc1234" }));
 assert.equal(s.stale, false, "5 current agent not stale");
 assert.deepEqual(s.missingOps, [], "5 current agent missing nothing");
+assert.equal(s.revisionStatus, "current", "5 current revision matches");
 
 // legacy agent (no ops) -> stale, missing the post-legacy ops (incl. PANECMD).
 s = staleness({ t: "hello", v: 1, machine: "m" });
 assert.equal(s.stale, true, "5 legacy agent stale");
 assert.ok(s.missingOps.includes(OP.PANECMD), "5 legacy missing panecmd");
 assert.ok(s.missingOps.includes(OP.READFILE), "5 legacy missing readfile");
+assert.equal(s.revisionStatus, "missing", "5 legacy lacks revision");
 
 // agent that has everything EXCEPT the newest op (the exact codex-skew case:
 // it predates PANECMD) -> stale, missing only that op.
 const almostCurrent = AGENT_OPS.filter((op) => op !== OP.PANECMD);
-s = staleness({ ops: almostCurrent, machine: "m" });
+s = staleness({ ops: almostCurrent, machine: "m", revision: "abc1234" });
 assert.equal(s.stale, true, "5 missing-one stale");
 assert.deepEqual(s.missingOps, [OP.PANECMD], "5 missing only panecmd");
+
+// agent with the current op surface but older code is stale too.
+s = staleness(helloFrame({ machine: "m", revision: "def5678" }));
+assert.equal(s.stale, true, "5 same ops but old revision stale");
+assert.equal(s.revisionStatus, "outdated", "5 old revision detected");
+
+s = staleness(helloFrame({ machine: "m", revision: "abc1234" }), "abc1234-dirty");
+assert.equal(s.stale, true, "5 dirty controller revision is not satisfied by clean sha");
 
 console.log("agent-caps unit tests passed");

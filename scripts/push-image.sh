@@ -35,6 +35,7 @@ aws ecr get-login-password --region "$AWS_REGION" \
 echo "==> Building linux/arm64 image (tag $TAG + :latest)..."
 docker buildx build \
   --platform linux/arm64 \
+  --build-arg "TMUX_MOBILE_REVISION=${TAG}" \
   --tag "${ECR_URL}:${TAG}" \
   --tag "${ECR_URL}:latest" \
   --push \

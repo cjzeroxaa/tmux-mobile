@@ -102,7 +102,12 @@ const staleDismissAtom = createPersistedAtom("tmux-mobile-stale-dismissed", {
 
 function staleDismissKey(machine) {
   const ops = [...(machine.missingOps || [])].sort().join(",");
-  return `${machine.id}|${ops}`;
+  const revision = [
+    machine.agentRevision || "",
+    machine.expectedRevision || "",
+    machine.revisionStatus || "",
+  ].join(">");
+  return `${machine.id}|${ops}|${revision}`;
 }
 
 function isStaleDismissed(machine) {
@@ -617,6 +622,39 @@ function selectedMachine() {
   return state.machines.find((item) => item.id === state.machineId);
 }
 
+function shellPath(value) {
+  const path = String(value || "").trim() || "~/src/tmux-mobile";
+  if (path === "~" || path.startsWith("~/")) return path;
+  return `'${path.replaceAll("'", "'\\''")}'`;
+}
+
+function connectorUpdatePrompt(machine) {
+  const host = machine?.hostname || machine?.machineId || machine?.id || "this machine";
+  const cwd = shellPath(machine?.agentCwd || "~/src/tmux-mobile");
+  const current = machine?.agentRevision || "unknown";
+  const expected = machine?.expectedRevision || state.serverRevision || "current";
+  const controller = window.location.origin;
+  return [
+    `Update the tmux-mobile connector on ${host}.`,
+    "",
+    "Do not print or expose tokens, cookies, or other secrets.",
+    "Do not stop a plain `node server.mjs` process on 127.0.0.1:3737; that local server is production access for the machine.",
+    `Only restart the connector process that runs \`node server.mjs --register ${controller}\`.`,
+    "",
+    `Current connector revision shown by the controller: ${current}`,
+    `Expected controller revision: ${expected}`,
+    "",
+    "Steps:",
+    `1. cd ${cwd}`,
+    "2. git fetch --all --prune",
+    "3. git pull --ff-only",
+    "4. npm install",
+    `5. Stop the old tmux-mobile --register connector for ${controller}, if it is still running.`,
+    `6. Start it again with: node server.mjs --register ${controller}`,
+    "7. Confirm the machine reconnects and no longer shows as out of date.",
+  ].join("\n");
+}
+
 function resolveMachineRouteId(machineId) {
   const id = String(machineId || "");
   if (!id) return "";
@@ -738,17 +776,27 @@ function updateStaleAgentBanner() {
   if (!machine || isStaleDismissed(machine)) {
     els.staleAgentBanner.hidden = true;
     els.staleAgentBanner.dataset.machineKey = "";
+    if (els.staleAgentCmd) els.staleAgentCmd.dataset.copyText = "";
     return;
   }
   els.staleAgentBanner.hidden = false;
   els.staleAgentBanner.dataset.machineKey = staleDismissKey(machine);
   if (els.staleAgentDetail) {
+    const revisionText =
+      machine.revisionStatus === "outdated"
+        ? ` It reports ${machine.agentRevision || "unknown"}, expected ${machine.expectedRevision || "current"}.`
+        : machine.revisionStatus === "missing"
+          ? " It does not report a code revision."
+          : "";
     els.staleAgentDetail.textContent =
       "Some features are disabled until you restart the connector on " +
-      `${machine.hostname || machine.id}.`;
+      `${machine.hostname || machine.id}.${revisionText}`;
   }
   if (els.staleAgentCmd) {
-    els.staleAgentCmd.textContent = `node server.mjs --register ${window.location.origin}`;
+    const expected = machine.expectedRevision || state.serverRevision || "current";
+    els.staleAgentCmd.textContent =
+      `update ${machine.hostname || machine.id}: ${machine.agentRevision || "unknown"} -> ${expected}`;
+    els.staleAgentCmd.dataset.copyText = connectorUpdatePrompt(machine);
   }
 }
 
@@ -4297,7 +4345,7 @@ if (els.staleAgentBanner) {
   els.staleAgentBanner.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-copy]");
     if (!button || !els.staleAgentCmd) return;
-    const text = els.staleAgentCmd.textContent;
+    const text = els.staleAgentCmd.dataset.copyText || els.staleAgentCmd.textContent;
     try {
       await navigator.clipboard.writeText(text);
       const previous = button.textContent;
