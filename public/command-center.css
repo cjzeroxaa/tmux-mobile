@@ -375,12 +375,6 @@
   min-width: 0;
 }
 
-.cc-card-footer a {
-  color: var(--accent-dark);
-  font-weight: 700;
-  text-decoration: none;
-}
-
 .cc-card.is-running {
   border-color: rgba(53, 89, 122, 0.42);
 }
@@ -572,27 +566,50 @@
   color: var(--muted);
 }
 
+.cc-card-footer > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cc-card-actions {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
 }
 
-.cc-interact-button,
-.cc-read-button {
-  min-height: 28px;
-  padding: 4px 10px;
+.cc-card-action {
+  appearance: none;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--surface-soft);
   color: var(--accent-dark);
   font: inherit;
-  font-size: 11px;
-  font-weight: 700;
   cursor: pointer;
+  text-decoration: none;
+}
+
+.cc-card-action svg {
+  width: 16px;
+  height: 16px;
+}
+
+.cc-card-action:active {
+  background: var(--surface);
+}
+
+.cc-card-action:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .cc-read-button.is-reading {
@@ -601,9 +618,13 @@
   color: #92400e;
 }
 
-.cc-read-button:disabled {
-  cursor: default;
-  opacity: 0.45;
+.cc-shortcut-button {
+  border-color: rgba(180, 83, 9, 0.32);
+  color: #92400e;
+}
+
+.cc-card-action.is-busy {
+  opacity: 0.65;
 }
 
 .cc-interact-panel {
