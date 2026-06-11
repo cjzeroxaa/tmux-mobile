@@ -27,12 +27,7 @@ const ICONS = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
   open:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>',
-  voice:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg>',
 };
-const DIRECT_SHORTCUTS = [
-  { id: "voice", text: "voice", title: 'Send "voice"', icon: ICONS.voice },
-];
 
 const els = {
   list: document.querySelector("#ccList"),
@@ -94,7 +89,6 @@ const state = {
   filterStatuses: new Set(SAVED.filterStatuses || []),
   interactAgent: null,
   interactSending: false,
-  shortcutSending: new Set(),
   interactVoice: {
     status: "idle",
     audioContext: null,
@@ -348,28 +342,6 @@ async function sendInteractText({ keepFocus = true } = {}) {
   } finally {
     state.interactSending = false;
     setInteractVoiceStatus(state.interactVoice.status, "");
-  }
-}
-
-function shortcutSendKey(agent, shortcut) {
-  return `${readKeyForAgent(agent)}::shortcut::${shortcut.id}`;
-}
-
-async function sendShortcut(agent, shortcut) {
-  const sendKey = shortcutSendKey(agent, shortcut);
-  if (state.shortcutSending.has(sendKey)) return;
-  state.shortcutSending.add(sendKey);
-  setStatus(`Sending ${shortcut.text}...`);
-  renderAgents();
-  try {
-    await sendTextToAgent(agent, shortcut.text);
-    setStatus(`Sent ${shortcut.text}`);
-    window.setTimeout(loadAgents, 700);
-  } catch (error) {
-    setStatus(`Shortcut failed: ${error.message}`);
-  } finally {
-    state.shortcutSending.delete(sendKey);
-    renderAgents();
   }
 }
 
@@ -943,17 +915,6 @@ function renderCard(agent) {
   const readKey = readKeyForAgent(agent);
   const readingThis = state.audio.busy && state.readingKey === readKey;
   const readDisabled = state.audio.busy && !readingThis;
-  const shortcutButtons = DIRECT_SHORTCUTS.map((shortcut) => {
-    const sending = state.shortcutSending.has(shortcutSendKey(agent, shortcut));
-    return cardActionButton({
-      className: "cc-shortcut-button",
-      title: shortcut.title,
-      dataAttrs: `data-shortcut-key="${escapeHtml(readKey)}" data-shortcut-id="${escapeHtml(shortcut.id)}"`,
-      disabled: sending,
-      busy: sending,
-      icon: shortcut.icon,
-    });
-  }).join("");
   footer.innerHTML = `
     <span>${agent.turnCount} turn${agent.turnCount === 1 ? "" : "s"} · session <code>${escapeHtml((agent.agentSessionId || "").slice(0, 8))}</code></span>
     <span class="cc-card-actions">
@@ -970,7 +931,6 @@ function renderCard(agent) {
         disabled: readDisabled,
         icon: readingThis ? ICONS.stop : ICONS.read,
       })}
-      ${shortcutButtons}
       ${cardActionLink({
         href: mainAppHref(agent),
         title: "Open in app",
@@ -1048,13 +1008,6 @@ els.list.addEventListener("click", (event) => {
   if (interactButton) {
     const agent = state.agents.find((item) => readKeyForAgent(item) === interactButton.dataset.interactKey);
     if (agent) openInteract(agent);
-    return;
-  }
-  const shortcutButton = event.target.closest("[data-shortcut-key]");
-  if (shortcutButton) {
-    const agent = state.agents.find((item) => readKeyForAgent(item) === shortcutButton.dataset.shortcutKey);
-    const shortcut = DIRECT_SHORTCUTS.find((item) => item.id === shortcutButton.dataset.shortcutId);
-    if (agent && shortcut) sendShortcut(agent, shortcut);
     return;
   }
   const button = event.target.closest("[data-read-key]");
