@@ -107,12 +107,6 @@ function machineLabel(machine) {
   return String(machine?.hostname || machine?.machineId || machine?.id || "local");
 }
 
-function machineAppHref(machine) {
-  const id = machineKey(machine);
-  if (isLocalMachineId(id)) return "/app";
-  return `/app/?machineId=${encodeURIComponent(id)}`;
-}
-
 function mainAppHref({ machineId, sessionName, sessionId, windowIndex, windowName }) {
   // Main app reads its URL target via session + window query params (see
   // public/app.js readUrlTarget). machineId comes along too so controller
@@ -222,7 +216,8 @@ function renderFilterRow() {
       onTap: () => toggleFilter("filterStatuses", s),
     }));
   }
-  // Then per-machine chips, only when more than one machine is in play.
+  // Then per-machine chips. This is where agentless machines stay visible
+  // without adding separate machine cards to the agent feed.
   const machines = new Map(); // id -> hostname
   for (const machine of state.machines) {
     const id = machineKey(machine);
@@ -236,7 +231,7 @@ function renderFilterRow() {
       if (!machines.has(id)) machines.set(id, a.machineHostname || id);
     }
   }
-  if (machines.size > 1) {
+  if (machines.size > 0) {
     const sep = document.createElement("span");
     sep.className = "cc-filter-sep";
     row.append(sep);
@@ -359,40 +354,6 @@ function normalizeMachines(machines, agents) {
         ? machine.agentCount
         : counts.get(machineKey(machine)) || 0,
   }));
-}
-
-function filterMachines(machines) {
-  if (state.filterMachines.size === 0) return machines;
-  return machines.filter((machine) => state.filterMachines.has(machineKey(machine)));
-}
-
-function renderMachineCard(machine) {
-  const card = document.createElement("article");
-  card.className = "cc-machine-card";
-  const id = machineKey(machine);
-  const label = machineLabel(machine);
-  const owner = String(machine.ownerEmail || machine.ownerId || "");
-  const ownerLocal = owner.replace(/@.*$/, "");
-  const agentCount =
-    typeof machine.agentCount === "number" ? machine.agentCount : 0;
-  const platform = [machine.os, machine.arch].filter(Boolean).join(" ");
-  const tmux = machine.tmux ? `tmux ${machine.tmux.replace(/^tmux\s+/, "")}` : "";
-  const meta = [platform, tmux].filter(Boolean).join(" · ") || "registered machine";
-  const stale = machine.stale ? `<span class="cc-machine-warning">update</span>` : "";
-  card.innerHTML = `
-    <div class="cc-machine-card-header">
-      <span class="cc-machine-title" title="${escapeHtml(id)}">${escapeHtml(label)}</span>
-      ${owner ? `<span class="cc-owner-chip" title="${escapeHtml(owner)}">${escapeHtml(ownerLocal)}</span>` : ""}
-      <span class="cc-status-pill${machine.online ? " is-running" : ""}">${machine.online ? "Online" : "Offline"}</span>
-      ${stale}
-    </div>
-    <div class="cc-machine-meta">${escapeHtml(meta)}</div>
-    <div class="cc-machine-footer">
-      <span class="cc-machine-count">${agentCount} agent${agentCount === 1 ? "" : "s"}</span>
-      <a class="cc-machine-open" href="${escapeHtml(machineAppHref(machine))}">Open</a>
-    </div>
-  `;
-  return card;
 }
 
 function readKeyForAgent(agent) {
@@ -549,24 +510,13 @@ function renderAgents() {
     renderEmpty();
     return;
   }
-  const machines = filterMachines(state.machines);
   const filtered = filterAndSort(state.agents);
   els.list.innerHTML = "";
-  for (const machine of machines) {
-    els.list.append(renderMachineCard(machine));
-  }
-  if (filtered.length === 0 && machines.length === 0) {
-    const note = document.createElement("div");
-    note.className = "cc-empty";
-    note.textContent = "No agents match the current filters.";
-    els.list.append(note);
-    return;
-  }
   if (filtered.length === 0) {
     const note = document.createElement("div");
     note.className = "cc-empty";
-    note.textContent = state.agents.length === 0
-      ? "No Codex or Claude Code agents running right now."
+    note.textContent = state.agents.length === 0 && state.machines.length > 0
+      ? `${state.machines.length} machine${state.machines.length === 1 ? "" : "s"} online, no Codex or Claude Code agents running right now.`
       : "No agents match the current filters.";
     els.list.append(note);
     return;
