@@ -50,6 +50,7 @@ const els = {
   interactSend: document.querySelector("#ccInteractSend"),
   interactStatus: document.querySelector("#ccInteractStatus"),
   interactSnippetChips: document.querySelector("#ccInteractSnippetChips"),
+  interactKeys: document.querySelector("#ccInteractKeys"),
   interactVoiceButton: document.querySelector("#ccInteractVoiceButton"),
   interactVoiceWaveform: document.querySelector("#ccInteractVoiceWaveform"),
   interactSubmitVoice: document.querySelector("#ccInteractSubmitVoice"),
@@ -219,6 +220,16 @@ async function sendTextToAgent(agent, text) {
   });
 }
 
+async function sendKeyToAgent(agent, key) {
+  if (!agent?.paneId) throw new Error("No target");
+  const machineId = agentMachineKey(agent);
+  return api("/api/key", {
+    method: "POST",
+    machineId,
+    body: JSON.stringify({ paneId: agent.paneId, key }),
+  });
+}
+
 function logClientEvent(event, details = {}, machineId = "") {
   const headers = { "content-type": "application/json" };
   if (!isLocalMachineId(machineId)) headers["x-machine-id"] = machineId;
@@ -354,6 +365,23 @@ async function sendInteractText({ keepFocus = true } = {}) {
   } finally {
     state.interactSending = false;
     setInteractVoiceStatus(state.interactVoice.status, "");
+  }
+}
+
+async function sendInteractKey(key) {
+  const agent = state.interactAgent;
+  if (!agent?.paneId) {
+    setInteractStatus("No target");
+    return;
+  }
+  try {
+    await sendKeyToAgent(agent, key);
+    setInteractStatus(`Sent ${key}`);
+    interactFocus();
+    window.setTimeout(loadAgents, 350);
+  } catch (error) {
+    setInteractStatus(`Key failed: ${error.message}`);
+    interactFocus();
   }
 }
 
@@ -1264,6 +1292,12 @@ els.list.addEventListener("click", (event) => {
 els.interactSend?.addEventListener("click", () =>
   sendInteractText({ keepFocus: false }),
 );
+els.interactKeys?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const button = target?.closest("[data-interact-key]");
+  if (!button) return;
+  sendInteractKey(button.dataset.interactKey);
+});
 els.interactClose?.addEventListener("click", closeInteract);
 els.interactBackdrop?.addEventListener("click", closeInteract);
 els.interactVoiceButton?.addEventListener("click", toggleInteractVoiceRecording);
