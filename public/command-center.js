@@ -6,6 +6,8 @@ import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
 // the agent's JSONL transcript. No tmux capture, no LLM summary.
 
 const POLL_MS = 4000;
+const INTERACT_WAVEFORM_SAMPLES = 40;
+const INTERACT_WAVEFORM_SAMPLE_INTERVAL_MS = 200;
 const SNIPPETS_KEY = "tmux-mobile-snippets";
 const DEFAULT_SNIPPETS = [
   { text: "yes" },
@@ -31,10 +33,15 @@ const els = {
   interactBackdrop: document.querySelector("#ccInteractBackdrop"),
   interactClose: document.querySelector("#ccInteractClose"),
   interactTarget: document.querySelector("#ccInteractTarget"),
+  interactInputArea: document.querySelector("#ccInteractInputArea"),
   interactInput: document.querySelector("#ccInteractInput"),
   interactSend: document.querySelector("#ccInteractSend"),
   interactStatus: document.querySelector("#ccInteractStatus"),
   interactSnippetChips: document.querySelector("#ccInteractSnippetChips"),
+  interactVoiceButton: document.querySelector("#ccInteractVoiceButton"),
+  interactVoiceWaveform: document.querySelector("#ccInteractVoiceWaveform"),
+  interactSubmitVoice: document.querySelector("#ccInteractSubmitVoice"),
+  interactCancelVoice: document.querySelector("#ccInteractCancelVoice"),
 };
 
 // Persisted view prefs — sort + status/machine filters stay across reloads
@@ -72,6 +79,17 @@ const state = {
   filterStatuses: new Set(SAVED.filterStatuses || []),
   interactAgent: null,
   interactSending: false,
+  interactVoice: {
+    status: "idle",
+    audioContext: null,
+    analyser: null,
+    sampleTimer: null,
+    waveform: [],
+    stream: null,
+    mediaRecorder: null,
+    chunks: [],
+    cancelRequested: false,
+  },
   readingKey: "",
   audio: {
     abortController: null,
@@ -255,6 +273,7 @@ function openInteract(agent) {
   if (state.interactSending) return;
   state.interactAgent = agent;
   state.interactSending = false;
+  resetInteractVoice();
   els.interactTarget.textContent = interactAgentLabel(agent);
   els.interactSend.disabled = false;
   setInteractStatus("");
@@ -265,7 +284,8 @@ function openInteract(agent) {
 }
 
 function closeInteract() {
-  if (state.interactSending) return;
+  if (state.interactSending || state.interactVoice.status === "transcribing") return;
+  resetInteractVoice();
   state.interactAgent = null;
   els.interactSheet.hidden = true;
   setInteractStatus("");
@@ -286,7 +306,7 @@ async function sendInteractText({ keepFocus = true } = {}) {
   }
 
   state.interactSending = true;
-  els.interactSend.disabled = true;
+  setInteractVoiceStatus(state.interactVoice.status, "");
   setInteractStatus("Sending...");
   interactClear();
   if (keepFocus) interactFocus();
@@ -306,7 +326,234 @@ async function sendInteractText({ keepFocus = true } = {}) {
     interactFocus();
   } finally {
     state.interactSending = false;
-    els.interactSend.disabled = false;
+    setInteractVoiceStatus(state.interactVoice.status, "");
+  }
+}
+
+function setInteractVoiceStatus(status, text) {
+  state.interactVoice.status = status;
+  if (text) setInteractStatus(text);
+  const listening = status === "recording";
+  const busy = status === "transcribing";
+  els.interactInputArea?.classList.toggle("listening", listening);
+  els.interactInputArea?.classList.toggle("busy", busy);
+  els.interactVoiceButton.disabled = status !== "idle" || state.interactSending;
+  els.interactVoiceButton.classList.toggle("recording", listening);
+  els.interactVoiceButton.classList.toggle("busy", busy);
+  els.interactVoiceButton.title = status === "idle" ? "Dictate" : text || status;
+  els.interactVoiceButton.setAttribute(
+    "aria-label",
+    status === "idle" ? "Dictate into the message box" : text || status,
+  );
+  els.interactSubmitVoice.disabled = !listening;
+  els.interactCancelVoice.disabled = !listening;
+  if (els.interactSend) {
+    els.interactSend.disabled = state.interactSending || status !== "idle";
+  }
+}
+
+function chooseInteractAudioMimeType() {
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/mpeg",
+  ];
+  if (!window.MediaRecorder?.isTypeSupported) return "";
+  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function renderInteractVoiceWaveform() {
+  if (!els.interactVoiceWaveform) return;
+  if (els.interactVoiceWaveform.children.length !== INTERACT_WAVEFORM_SAMPLES) {
+    els.interactVoiceWaveform.replaceChildren(
+      ...Array.from({ length: INTERACT_WAVEFORM_SAMPLES }, () =>
+        document.createElement("span"),
+      ),
+    );
+  }
+  const padded = [
+    ...Array(Math.max(0, INTERACT_WAVEFORM_SAMPLES - state.interactVoice.waveform.length)).fill(0),
+    ...state.interactVoice.waveform.slice(-INTERACT_WAVEFORM_SAMPLES),
+  ];
+  [...els.interactVoiceWaveform.children].forEach((bar, index) => {
+    const level = padded[index] || 0;
+    const pct = level > 0.02 ? 0.15 + level * 0.85 : 0.08;
+    bar.style.height = `${Math.max(3, Math.round(pct * 28))}px`;
+  });
+}
+
+function sampleInteractVoiceAmplitude() {
+  const analyser = state.interactVoice.analyser;
+  if (!analyser) return;
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteTimeDomainData(data);
+  let sum = 0;
+  for (let index = 0; index < data.length; index += 1) {
+    const value = (data[index] - 128) / 128;
+    sum += value * value;
+  }
+  const amplitude = Math.min(1, Math.sqrt(sum / data.length) * 3);
+  state.interactVoice.waveform = [...state.interactVoice.waveform, amplitude].slice(
+    -INTERACT_WAVEFORM_SAMPLES,
+  );
+  renderInteractVoiceWaveform();
+}
+
+function stopInteractVoiceAnalysis({ clearWaveform = true } = {}) {
+  if (state.interactVoice.sampleTimer) {
+    window.clearInterval(state.interactVoice.sampleTimer);
+    state.interactVoice.sampleTimer = null;
+  }
+  if (state.interactVoice.audioContext) {
+    state.interactVoice.audioContext.close().catch(() => {});
+    state.interactVoice.audioContext = null;
+  }
+  state.interactVoice.analyser = null;
+  if (clearWaveform) {
+    state.interactVoice.waveform = [];
+    renderInteractVoiceWaveform();
+  }
+}
+
+function startInteractVoiceAnalysis(stream) {
+  stopInteractVoiceAnalysis({ clearWaveform: true });
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextCtor) return;
+  const audioContext = new AudioContextCtor();
+  const source = audioContext.createMediaStreamSource(stream);
+  const analyser = audioContext.createAnalyser();
+  analyser.fftSize = 256;
+  source.connect(analyser);
+  state.interactVoice.audioContext = audioContext;
+  state.interactVoice.analyser = analyser;
+  state.interactVoice.sampleTimer = window.setInterval(
+    sampleInteractVoiceAmplitude,
+    INTERACT_WAVEFORM_SAMPLE_INTERVAL_MS,
+  );
+  sampleInteractVoiceAmplitude();
+}
+
+function stopInteractVoiceStream() {
+  if (state.interactVoice.stream) {
+    for (const track of state.interactVoice.stream.getTracks()) track.stop();
+  }
+  state.interactVoice.stream = null;
+}
+
+function resetInteractVoice() {
+  const recorder = state.interactVoice.mediaRecorder;
+  if (recorder && recorder.state === "recording") {
+    state.interactVoice.cancelRequested = true;
+    recorder.stop();
+    return;
+  }
+  stopInteractVoiceAnalysis({ clearWaveform: true });
+  stopInteractVoiceStream();
+  state.interactVoice.cancelRequested = false;
+  state.interactVoice.mediaRecorder = null;
+  state.interactVoice.chunks = [];
+  setInteractVoiceStatus("idle", "");
+}
+
+async function startInteractVoiceRecording() {
+  if (!state.interactAgent?.paneId) {
+    setInteractStatus("No target");
+    return;
+  }
+  if (!window.isSecureContext) {
+    setInteractStatus("Microphone needs HTTPS or localhost");
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    setInteractStatus("This browser does not support recording");
+    return;
+  }
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+    },
+  });
+  startInteractVoiceAnalysis(stream);
+  const mimeType = chooseInteractAudioMimeType();
+  const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+  state.interactVoice.chunks = [];
+  state.interactVoice.cancelRequested = false;
+  state.interactVoice.stream = stream;
+  state.interactVoice.mediaRecorder = recorder;
+
+  recorder.addEventListener("dataavailable", (event) => {
+    if (event.data?.size > 0) state.interactVoice.chunks.push(event.data);
+  });
+  recorder.addEventListener("stop", () => {
+    if (state.interactVoice.cancelRequested) {
+      resetInteractVoice();
+      setInteractStatus("Discarded");
+      return;
+    }
+    finishInteractVoiceRecording().catch((error) => {
+      resetInteractVoice();
+      setInteractStatus(`Voice failed: ${error.message}`);
+    });
+  });
+
+  recorder.start(1000);
+  setInteractVoiceStatus("recording", "Listening");
+}
+
+function submitInteractVoiceRecording() {
+  const recorder = state.interactVoice.mediaRecorder;
+  if (!recorder || recorder.state !== "recording") return;
+  state.interactVoice.cancelRequested = false;
+  stopInteractVoiceAnalysis({ clearWaveform: false });
+  setInteractVoiceStatus("transcribing", "Transcribing...");
+  recorder.stop();
+}
+
+function cancelInteractVoiceRecording() {
+  const recorder = state.interactVoice.mediaRecorder;
+  state.interactVoice.cancelRequested = true;
+  if (recorder && recorder.state === "recording") {
+    recorder.stop();
+    return;
+  }
+  resetInteractVoice();
+  setInteractStatus("Discarded");
+}
+
+async function finishInteractVoiceRecording() {
+  const mimeType = state.interactVoice.mediaRecorder?.mimeType || "audio/webm";
+  stopInteractVoiceAnalysis({ clearWaveform: false });
+  stopInteractVoiceStream();
+  const blob = new Blob(state.interactVoice.chunks, { type: mimeType });
+  state.interactVoice.chunks = [];
+  state.interactVoice.cancelRequested = false;
+  state.interactVoice.mediaRecorder = null;
+  if (blob.size === 0) throw new Error("No audio captured");
+
+  const machineId = agentMachineKey(state.interactAgent);
+  const data = await api("/api/transcribe", {
+    method: "POST",
+    machineId,
+    headers: { "content-type": mimeType || "audio/webm" },
+    body: blob,
+  });
+  const text = String(data.text || "").trim();
+  if (!text) throw new Error("No speech detected");
+  interactAppendText(text);
+  stopInteractVoiceAnalysis({ clearWaveform: true });
+  setInteractVoiceStatus("idle", "Ready");
+}
+
+async function toggleInteractVoiceRecording() {
+  if (state.interactVoice.status !== "idle") return;
+  try {
+    await startInteractVoiceRecording();
+  } catch (error) {
+    resetInteractVoice();
+    setInteractStatus(`Voice failed: ${error.message}`);
   }
 }
 
@@ -734,6 +981,9 @@ els.interactSend?.addEventListener("click", () =>
 );
 els.interactClose?.addEventListener("click", closeInteract);
 els.interactBackdrop?.addEventListener("click", closeInteract);
+els.interactVoiceButton?.addEventListener("click", toggleInteractVoiceRecording);
+els.interactSubmitVoice?.addEventListener("click", submitInteractVoiceRecording);
+els.interactCancelVoice?.addEventListener("click", cancelInteractVoiceRecording);
 els.interactInput?.addEventListener("input", () => {
   els.interactInput.classList.toggle("empty", interactGetText().trim().length === 0);
 });

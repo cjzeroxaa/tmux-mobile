@@ -100,12 +100,22 @@ node server.mjs --register https://eng.impo.ai --login</code></pre>
           <div id="ccInteractSnippetBar" class="snippet-bar" aria-label="Snippets">
             <div id="ccInteractSnippetChips" class="snippet-chips"></div>
           </div>
-          <div class="input-area">
+          <div id="ccInteractInputArea" class="input-area">
             <div id="ccInteractInput" class="lexical-editor empty" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Text input" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" aria-autocomplete="none" data-1p-ignore data-lpignore="true" data-form-type="other" data-protonpass-ignore="true" inputmode="text" data-placeholder="Message…"></div>
+            <div id="ccInteractVoiceWaveform" class="voice-waveform" aria-hidden="true"></div>
             <div class="input-actions">
               <span id="ccInteractStatus" class="settings-status cc-interact-status" role="status" aria-live="polite"></span>
               <div class="input-actions-right">
+                <button id="ccInteractVoiceButton" class="voice-button" type="button" title="Dictate" aria-label="Dictate into the message box">
+                  <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg>
+                </button>
                 <button id="ccInteractSend" class="small-button submit input-submit" type="button" title="Send" aria-label="Send">Send</button>
+                <button id="ccInteractCancelVoice" class="icon-button voice-action cancel listen-only" type="button" title="Discard" aria-label="Discard recording">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+                <button id="ccInteractSubmitVoice" class="icon-button voice-action submit listen-only" type="button" title="Keep (transcribe into box)" aria-label="Keep recording">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                </button>
               </div>
             </div>
           </div>
