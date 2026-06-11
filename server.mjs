@@ -245,6 +245,12 @@ function sanitizeVoicePrefix(raw) {
 const CONNECTOR_CLONE_URL =
   process.env.TMUX_MOBILE_CLONE_URL ||
   "https://github.com/cjzeroxaa/tmux-mobile.git";
+const DEFAULT_CONTROLLER_URL =
+  process.env.TMUX_MOBILE_CONTROLLER_URL || "https://eng.impo.ai";
+const CONNECTOR_UPDATE_SCRIPT_PATH = "scripts/update-connector.mjs";
+const CONNECTOR_UPDATE_SCRIPT_URL =
+  process.env.TMUX_MOBILE_UPDATE_SCRIPT_URL ||
+  defaultConnectorUpdateScriptUrl(CONNECTOR_CLONE_URL, APP_REVISION);
 const WINDOW_BRIEFING_MODEL =
   process.env.OPENAI_WINDOW_BRIEFING_MODEL || "gpt-5.4-mini";
 const AGENT_RESPONSE_EXTRACT_MODEL =
@@ -327,6 +333,29 @@ function parseRealtimeOutputTokenLimit(value) {
 function parsePositiveInteger(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+function defaultConnectorUpdateScriptUrl(cloneUrl, revision) {
+  const ref = safeUpdateToken(revision) || "main";
+  const repo = githubRepoPath(cloneUrl);
+  if (!repo) {
+    return `https://raw.githubusercontent.com/cjzeroxaa/tmux-mobile/${ref}/${CONNECTOR_UPDATE_SCRIPT_PATH}`;
+  }
+  return `https://raw.githubusercontent.com/${repo}/${ref}/${CONNECTOR_UPDATE_SCRIPT_PATH}`;
+}
+
+function githubRepoPath(cloneUrl) {
+  const url = String(cloneUrl || "").trim();
+  const https = url.match(/^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+?)(?:\.git)?$/i);
+  if (https) return `${https[1]}/${https[2]}`;
+  const ssh = url.match(/^git@github\.com:([^/\s]+)\/([^/\s]+?)(?:\.git)?$/i);
+  if (ssh) return `${ssh[1]}/${ssh[2]}`;
+  return "";
+}
+
+function safeUpdateToken(value) {
+  const text = String(value || "").trim();
+  return /^[A-Za-z0-9._/-]{1,120}$/.test(text) ? text : "";
 }
 
 function loadLocalEnv(filePath) {
@@ -821,6 +850,82 @@ async function createWindow(sessionId) {
     throw error;
   }
   return windowFromRow(row);
+}
+
+async function startConnectorUpdate(options = {}) {
+  const repoDir = safeUpdateValue(options.repoDir, 512) || "~/src/tmux-mobile";
+  const controllerUrl = safeControllerUrl(options.controllerUrl) || DEFAULT_CONTROLLER_URL;
+  const cloneUrl = safeUpdateValue(options.cloneUrl, 512) || CONNECTOR_CLONE_URL;
+  const expectedRevision =
+    safeUpdateToken(options.expectedRevision) ||
+    safeUpdateToken(APP_REVISION) ||
+    "";
+  const targetRef = safeUpdateToken(options.targetRef) || "main";
+  const nodePath = safeUpdateValue(options.nodePath, 512) || "node";
+  const machineLabel = safeUpdateValue(options.machineLabel, 120);
+  const sessionName = `tmux-mobile-update-${Date.now().toString(36)}`;
+  const windowName = "connector-update";
+  const scriptUrl = CONNECTOR_UPDATE_SCRIPT_URL;
+  const inner = [
+    "set -euo pipefail",
+    `export TMUX_MOBILE_UPDATE_REPO=${shellQuote(repoDir)}`,
+    `export TMUX_MOBILE_UPDATE_CONTROLLER=${shellQuote(controllerUrl)}`,
+    `export TMUX_MOBILE_UPDATE_CLONE_URL=${shellQuote(cloneUrl)}`,
+    `export TMUX_MOBILE_UPDATE_EXPECTED_REVISION=${shellQuote(expectedRevision)}`,
+    `export TMUX_MOBILE_UPDATE_REF=${shellQuote(targetRef)}`,
+    `export TMUX_MOBILE_UPDATE_SCRIPT_URL=${shellQuote(scriptUrl)}`,
+    `NODE_BIN=${shellQuote(nodePath)}`,
+    `echo "tmux-mobile connector update${machineLabel ? ` for ${machineLabel}` : ""}"`,
+    'echo "script: $TMUX_MOBILE_UPDATE_SCRIPT_URL"',
+    'if command -v curl >/dev/null 2>&1; then curl -fsSL "$TMUX_MOBILE_UPDATE_SCRIPT_URL" | "$NODE_BIN"; else "$NODE_BIN" --input-type=module -e \'const r=await fetch(process.env.TMUX_MOBILE_UPDATE_SCRIPT_URL); if(!r.ok) throw new Error(`download failed ${r.status}`); process.stdout.write(await r.text());\' | "$NODE_BIN"; fi',
+    'echo "update command finished; this window can be closed after the machine reconnects"',
+  ].join("; ");
+  const command = `bash -lc ${shellQuote(inner)}`;
+
+  await runTmux(["new-session", "-d", "-s", sessionName, "-n", windowName, command]);
+  return {
+    ok: true,
+    sessionName,
+    windowName,
+    repoDir,
+    controllerUrl,
+    expectedRevision,
+    scriptUrl,
+  };
+}
+
+function safeUpdateValue(value, maxLength) {
+  const text = String(value || "").trim();
+  if (!text || text.length > maxLength || /[\0\r\n]/.test(text)) return "";
+  return text;
+}
+
+function safeControllerUrl(value) {
+  const text = safeUpdateValue(value, 512);
+  if (!text) return "";
+  try {
+    const parsed = new URL(text);
+    return /^https?:$/.test(parsed.protocol) ? parsed.origin : "";
+  } catch {
+    return "";
+  }
+}
+
+function requestOrigin(req) {
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "")
+    .split(",")[0]
+    .trim();
+  const proto = forwardedProto || (req.socket?.encrypted ? "https" : "http");
+  const host = String(
+    req.headers["x-forwarded-host"] || req.headers.host || "127.0.0.1:3737",
+  )
+    .split(",")[0]
+    .trim();
+  return `${proto}://${host}`;
+}
+
+function shellQuote(value) {
+  return `'${String(value || "").replaceAll("'", "'\\''")}'`;
 }
 
 async function renameWindow(windowId, name) {
@@ -1926,6 +2031,7 @@ async function localCommandCenterMachine(agentCount = 0) {
     tmux: localTmuxVersion,
     agentRevision: APP_REVISION,
     agentCwd: __dirname,
+    nodePath: process.execPath,
     expectedRevision: APP_REVISION,
     online: true,
     lastSeen: Date.now(),
@@ -2736,6 +2842,24 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && url.pathname === "/api/sessions") {
     const body = await readJsonBody(req);
     sendJson(res, 200, await createSession(body.name));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/connector-update") {
+    const body = await readJsonBody(req);
+    sendJson(
+      res,
+      200,
+      await startConnectorUpdate({
+        repoDir: body.repoDir,
+        controllerUrl: body.controllerUrl || requestOrigin(req),
+        cloneUrl: body.cloneUrl || CONNECTOR_CLONE_URL,
+        expectedRevision: body.expectedRevision || APP_REVISION,
+        targetRef: body.targetRef || "main",
+        nodePath: body.nodePath || "node",
+        machineLabel: body.machineLabel,
+      }),
+    );
     return;
   }
 

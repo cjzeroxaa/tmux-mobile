@@ -99,6 +99,7 @@ const state = {
   deleteAgent: null,
   deleteBusy: false,
   deletingWindows: new Set(),
+  updatingMachines: new Set(),
   interactVoice: {
     status: "idle",
     audioContext: null,
@@ -163,39 +164,6 @@ function agentMachineKey(agent) {
 
 function machineLabel(machine) {
   return String(machine?.hostname || machine?.machineId || machine?.id || "local");
-}
-
-function shellPath(value) {
-  const path = String(value || "").trim() || "~/src/tmux-mobile";
-  if (path === "~" || path.startsWith("~/")) return path;
-  return `'${path.replaceAll("'", "'\\''")}'`;
-}
-
-function connectorUpdatePrompt(machine) {
-  const host = machine?.hostname || machine?.machineId || machine?.id || "this machine";
-  const cwd = shellPath(machine?.agentCwd || "~/src/tmux-mobile");
-  const current = machine?.agentRevision || "unknown";
-  const expected = machine?.expectedRevision || "current";
-  const controller = window.location.origin;
-  return [
-    `Update the tmux-mobile connector on ${host}.`,
-    "",
-    "Do not print or expose tokens, cookies, or other secrets.",
-    "Do not stop a plain `node server.mjs` process on 127.0.0.1:3737; that local server is production access for the machine.",
-    `Only restart the connector process that runs \`node server.mjs --register ${controller}\`.`,
-    "",
-    `Current connector revision shown by the controller: ${current}`,
-    `Expected controller revision: ${expected}`,
-    "",
-    "Steps:",
-    `1. cd ${cwd}`,
-    "2. git fetch --all --prune",
-    "3. git pull --ff-only",
-    "4. npm install",
-    `5. Stop the old tmux-mobile --register connector for ${controller}, if it is still running.`,
-    `6. Start it again with: node server.mjs --register ${controller}`,
-    "7. Confirm the machine reconnects and no longer shows as out of date.",
-  ].join("\n");
 }
 
 function mainAppHref({ machineId, sessionName, sessionId, windowIndex, windowName }) {
@@ -881,6 +849,7 @@ function machinesFromAgents(agents) {
         expectedRevision: "",
         revisionStatus: "",
         agentCwd: "",
+        nodePath: "",
       });
     }
   }
@@ -908,6 +877,8 @@ function staleMachines() {
 function renderStaleMachine(machine) {
   const wrap = document.createElement("div");
   wrap.className = "cc-machine-alert";
+  const key = machineKey(machine);
+  const updating = state.updatingMachines.has(key);
   const host = machineLabel(machine);
   const expected = machine.expectedRevision || "current";
   const current = machine.agentRevision || "unknown";
@@ -927,9 +898,37 @@ function renderStaleMachine(machine) {
       <span>${escapeHtml(detail)}</span>
       <code>${escapeHtml(current)} -&gt; ${escapeHtml(expected)}</code>
     </div>
-    <button class="small-button cc-machine-alert-copy" type="button" data-copy-update-machine="${escapeHtml(machineKey(machine))}">Copy update prompt</button>
+    <button class="small-button cc-machine-alert-copy" type="button" data-update-machine="${escapeHtml(key)}"${updating ? " disabled" : ""}>${updating ? "Starting..." : "Update connector"}</button>
   `;
   return wrap;
+}
+
+async function updateConnector(machine) {
+  const key = machineKey(machine);
+  if (!key || state.updatingMachines.has(key)) return;
+  state.updatingMachines.add(key);
+  setStatus(`Starting connector update on ${machineLabel(machine)}.`);
+  renderAgents();
+  try {
+    const result = await api("/api/connector-update", {
+      method: "POST",
+      machineId: key,
+      body: JSON.stringify({
+        repoDir: machine.agentCwd || "~/src/tmux-mobile",
+        expectedRevision: machine.expectedRevision || "",
+        nodePath: machine.nodePath || "node",
+        machineLabel: machineLabel(machine),
+      }),
+    });
+    setStatus(
+      `Update started on ${machineLabel(machine)} in ${result.sessionName || "tmux"}.`,
+    );
+  } catch (error) {
+    setStatus(`Update failed to start on ${machineLabel(machine)}: ${error.message}`);
+  } finally {
+    state.updatingMachines.delete(key);
+    renderAgents();
+  }
 }
 
 function readKeyForAgent(agent) {
@@ -1184,22 +1183,12 @@ function stopPolling() {
 
 els.refresh.addEventListener("click", () => loadAgents());
 els.list.addEventListener("click", (event) => {
-  const updateButton = event.target.closest("[data-copy-update-machine]");
+  const updateButton = event.target.closest("[data-update-machine]");
   if (updateButton) {
     const machine = state.machines.find(
-      (item) => machineKey(item) === updateButton.dataset.copyUpdateMachine,
+      (item) => machineKey(item) === updateButton.dataset.updateMachine,
     );
-    if (machine) {
-      navigator.clipboard.writeText(connectorUpdatePrompt(machine)).then(() => {
-        const previous = updateButton.textContent;
-        updateButton.textContent = "Copied";
-        setTimeout(() => {
-          updateButton.textContent = previous;
-        }, 1200);
-      }).catch(() => {
-        setStatus("Copy failed");
-      });
-    }
+    if (machine) updateConnector(machine);
     return;
   }
   const interactButton = event.target.closest("[data-interact-key]");
