@@ -877,7 +877,7 @@ async function startConnectorUpdate(options = {}) {
     `NODE_BIN=${shellQuote(nodePath)}`,
     `echo "tmux-mobile connector update${machineLabel ? ` for ${machineLabel}` : ""}"`,
     'echo "script: $TMUX_MOBILE_UPDATE_SCRIPT_URL"',
-    'if command -v curl >/dev/null 2>&1; then curl -fsSL "$TMUX_MOBILE_UPDATE_SCRIPT_URL" | "$NODE_BIN"; else "$NODE_BIN" --input-type=module -e \'const r=await fetch(process.env.TMUX_MOBILE_UPDATE_SCRIPT_URL); if(!r.ok) throw new Error(`download failed ${r.status}`); process.stdout.write(await r.text());\' | "$NODE_BIN"; fi',
+    'if command -v curl >/dev/null 2>&1; then curl -fsSL "$TMUX_MOBILE_UPDATE_SCRIPT_URL" | "$NODE_BIN" --input-type=module; else "$NODE_BIN" --input-type=module -e \'const r=await fetch(process.env.TMUX_MOBILE_UPDATE_SCRIPT_URL); if(!r.ok) throw new Error(`download failed ${r.status}`); process.stdout.write(await r.text());\' | "$NODE_BIN" --input-type=module; fi',
     'echo "update command finished; this window can be closed after the machine reconnects"',
   ].join("; ");
   const command = `bash -lc ${shellQuote(inner)}`;
