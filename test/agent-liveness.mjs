@@ -16,6 +16,7 @@ import { AGENT_WS_PATH } from "../lib/protocol.mjs";
 process.env.AGENT_REVISION_POLL_MS = "0"; // not under test here; keep hermetic
 process.env.AGENT_PING_INTERVAL_MS = "100";
 process.env.AGENT_PONG_TIMEOUT_MS = "300";
+process.env.TMUX_MOBILE_AGENT_ID = "10000000-0000-4000-8000-000000000002";
 const { runAgent } = await import("../lib/agent.mjs");
 
 const backend = {

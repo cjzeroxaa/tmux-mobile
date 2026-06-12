@@ -10,6 +10,7 @@ import { AGENT_CLOSE_CODE, AGENT_WS_PATH } from "../lib/protocol.mjs";
 process.env.AGENT_REVISION_POLL_MS = "0";
 process.env.AGENT_MAX_BACKOFF_MS = "80";
 process.env.AGENT_MACHINE = "replaced-test-machine";
+process.env.TMUX_MOBILE_AGENT_ID = "10000000-0000-4000-8000-000000000003";
 
 const { runAgent } = await import("../lib/agent.mjs");
 

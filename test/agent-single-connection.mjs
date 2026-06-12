@@ -26,6 +26,7 @@ process.env.AGENT_REVISION_POLL_MS = "50";
 process.env.AGENT_PING_INTERVAL_MS = "50";
 process.env.AGENT_PONG_TIMEOUT_MS = "140";
 process.env.AGENT_MAX_BACKOFF_MS = "80";
+process.env.TMUX_MOBILE_AGENT_ID = "10000000-0000-4000-8000-000000000007";
 const { runAgent } = await import("../lib/agent.mjs");
 
 const backend = {

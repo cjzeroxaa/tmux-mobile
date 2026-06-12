@@ -5,6 +5,8 @@ import { createHub } from "../lib/hub.mjs";
 import { AGENT_WS_PATH, helloFrame } from "../lib/protocol.mjs";
 
 const OWNER = "sonicgg@gmail.com";
+const AGENT_ONE = "00000000-0000-4000-8000-000000000001";
+const AGENT_TWO = "00000000-0000-4000-8000-000000000002";
 const viewer = { userId: OWNER, email: OWNER, hd: "" };
 const server = http.createServer();
 const hub = createHub(server, {
@@ -39,13 +41,14 @@ function waitFor(label, predicate, timeoutMs = 3_000) {
   });
 }
 
-async function connectMachine(port, machine, revision) {
+async function connectMachine(port, machine, revision, agentId = "") {
   const ws = new WebSocket(`ws://127.0.0.1:${port}${AGENT_WS_PATH}`);
   ws.on("error", () => {});
   await new Promise((resolve) => ws.once("open", resolve));
   ws.send(
     JSON.stringify(
       helloFrame({
+        agentId,
         machine,
         os: "darwin",
         arch: "arm64",
@@ -64,8 +67,9 @@ const { port } = server.address();
 
 let first;
 let second;
+let third;
 try {
-  first = await connectMachine(port, "MacBook-Pro-15.local", "old");
+  first = await connectMachine(port, "MacBook-Pro-15.local", "old", AGENT_ONE);
   const firstMachine = await waitFor("first aliased MacBook", () => {
     const machines = hub.listMachines(viewer);
     return machines.length === 1 && machines[0].rawMachineId === "MacBook-Pro-15.local"
@@ -75,10 +79,11 @@ try {
 
   assert.equal(firstMachine.machineId, "MacBook");
   assert.equal(firstMachine.hostname, "MacBook");
-  assert.ok(hub.hasMachine(viewer, "MacBook-Pro-15.local"));
+  assert.equal(firstMachine.agentId, AGENT_ONE);
+  assert.ok(hub.hasMachine(viewer, AGENT_ONE));
 
   const firstRouteId = firstMachine.id;
-  second = await connectMachine(port, "MacBook", "new");
+  second = await connectMachine(port, "MacBook", "new", AGENT_ONE);
   const secondMachine = await waitFor("replacement aliased MacBook", () => {
     const machines = hub.listMachines(viewer);
     return machines.length === 1 && machines[0].rawMachineId === "MacBook"
@@ -89,14 +94,26 @@ try {
   assert.equal(secondMachine.id, firstRouteId);
   assert.equal(secondMachine.machineId, "MacBook");
   assert.equal(secondMachine.hostname, "MacBook");
+  assert.equal(secondMachine.agentId, AGENT_ONE);
   assert.equal(secondMachine.agentRevision, "new");
-  assert.ok(hub.hasMachine(viewer, "MacBook"));
-  assert.ok(hub.hasMachine(viewer, "MacBook-Pro-15.local"));
+
+  third = await connectMachine(port, "MacBook", "other", AGENT_TWO);
+  const twoMachines = await waitFor("same-name different UUID MacBooks", () => {
+    const machines = hub.listMachines(viewer);
+    return machines.length === 2 ? machines : null;
+  });
+  assert.deepEqual(
+    twoMachines.map((machine) => machine.agentId).sort(),
+    [AGENT_ONE, AGENT_TWO],
+  );
+  assert.notEqual(twoMachines[0].id, twoMachines[1].id);
+  assert.equal(hub.hasMachine(viewer, "MacBook"), false);
 
   console.log("hub machine-alias replacement passed");
 } finally {
   first?.close();
   second?.close();
+  third?.close();
   hub.shutdown();
   await new Promise((resolve) => server.close(resolve));
 }

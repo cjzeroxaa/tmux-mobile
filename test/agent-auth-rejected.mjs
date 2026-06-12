@@ -8,6 +8,7 @@ import http from "node:http";
 import { AGENT_WS_PATH } from "../lib/protocol.mjs";
 
 process.env.AGENT_REVISION_POLL_MS = "0";
+process.env.TMUX_MOBILE_AGENT_ID = "10000000-0000-4000-8000-000000000001";
 const { runAgent } = await import("../lib/agent.mjs");
 
 const backend = {

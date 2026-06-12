@@ -14,6 +14,7 @@ process.env.AGENT_REVISION_POLL_MS = "150"; // fast poll for the test
 process.env.AGENT_PING_INTERVAL_MS = "200";
 process.env.AGENT_PONG_TIMEOUT_MS = "600";
 process.env.AGENT_MACHINE = "revision-test-machine";
+process.env.TMUX_MOBILE_AGENT_ID = "10000000-0000-4000-8000-000000000004";
 
 const { runAgent } = await import("../lib/agent.mjs");
 

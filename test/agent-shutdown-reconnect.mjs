@@ -19,6 +19,7 @@ process.env.AGENT_PING_INTERVAL_MS = "200";
 process.env.AGENT_PONG_TIMEOUT_MS = "600";
 process.env.AGENT_MAX_BACKOFF_MS = "300";
 process.env.AGENT_MACHINE = "shutdown-test-machine";
+process.env.TMUX_MOBILE_AGENT_ID = "10000000-0000-4000-8000-000000000006";
 
 const { runAgent } = await import("../lib/agent.mjs");
 const { createHub } = await import("../lib/hub.mjs");

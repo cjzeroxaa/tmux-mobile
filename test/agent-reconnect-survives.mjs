@@ -35,6 +35,7 @@ const child = spawn(
       AGENT_PING_INTERVAL_MS: "100",
       AGENT_PONG_TIMEOUT_MS: "300",
       AGENT_MAX_BACKOFF_MS: "200",
+      TMUX_MOBILE_AGENT_ID: "10000000-0000-4000-8000-000000000008",
     },
     stdio: "ignore",
   },
