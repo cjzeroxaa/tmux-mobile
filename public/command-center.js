@@ -194,6 +194,7 @@ const state = {
   deleteBusy: false,
   deletingWindows: new Set(),
   updatingMachines: new Set(),
+  selectedCardKey: "",
   interactVoice: {
     status: "idle",
     audioContext: null,
@@ -1109,6 +1110,132 @@ function readKeyForAgent(agent) {
   return `${agentMachineKey(agent)}::${agent.paneId || agent.windowId || ""}`;
 }
 
+function selectedAgentFrom(agents = filterAndSort(state.agents)) {
+  if (!state.selectedCardKey) return null;
+  return agents.find((agent) => readKeyForAgent(agent) === state.selectedCardKey) || null;
+}
+
+function ensureSelectedCard(agents) {
+  if (agents.length === 0) {
+    state.selectedCardKey = "";
+    return;
+  }
+  if (!selectedAgentFrom(agents)) {
+    state.selectedCardKey = readKeyForAgent(agents[0]);
+  }
+}
+
+function cardElements() {
+  return [...els.list.querySelectorAll(".cc-card[data-card-key]")];
+}
+
+function updateSelectedCard(key, { scroll = false } = {}) {
+  if (!key) return;
+  state.selectedCardKey = key;
+  for (const card of cardElements()) {
+    const selected = card.dataset.cardKey === key;
+    card.classList.toggle("is-selected", selected);
+    card.setAttribute("aria-selected", String(selected));
+    card.tabIndex = selected ? 0 : -1;
+    if (selected && scroll) {
+      card.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }
+}
+
+function syncSelectedCardDom({ scroll = false } = {}) {
+  if (!state.selectedCardKey) return;
+  updateSelectedCard(state.selectedCardKey, { scroll });
+}
+
+function cardColumnCount(cards) {
+  if (cards.length <= 1) return 1;
+  const firstTop = cards[0].offsetTop;
+  const columns = cards.filter((card) => Math.abs(card.offsetTop - firstTop) <= 2).length;
+  return Math.max(1, columns);
+}
+
+function moveSelectedCard(direction) {
+  const cards = cardElements();
+  if (cards.length === 0) return;
+  let index = cards.findIndex((card) => card.dataset.cardKey === state.selectedCardKey);
+  if (index < 0) index = 0;
+  const columns = cardColumnCount(cards);
+  const deltas = {
+    left: -1,
+    right: 1,
+    up: -columns,
+    down: columns,
+  };
+  const nextIndex = Math.max(
+    0,
+    Math.min(cards.length - 1, index + (deltas[direction] || 0)),
+  );
+  updateSelectedCard(cards[nextIndex].dataset.cardKey, { scroll: true });
+}
+
+function openSelectedAgent() {
+  const agent = selectedAgentFrom();
+  if (!agent) return;
+  const selectedLink = els.list.querySelector(".cc-card.is-selected .cc-open-button");
+  if (selectedLink) {
+    selectedLink.click();
+    return;
+  }
+  window.location.href = mainAppHref(agent);
+}
+
+function shortcutTargetIsEditable(target) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest("input, textarea, select, button, a, summary, [contenteditable='true']"));
+}
+
+function handleCardShortcuts(event) {
+  if (
+    event.defaultPrevented ||
+    event.isComposing ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey ||
+    shortcutTargetIsEditable(event.target) ||
+    !els.interactSheet?.hidden ||
+    !els.deleteDialog?.hidden ||
+    els.moreMenu?.open
+  ) {
+    return;
+  }
+
+  const directions = {
+    ArrowLeft: "left",
+    ArrowRight: "right",
+    ArrowUp: "up",
+    ArrowDown: "down",
+  };
+  if (directions[event.key]) {
+    event.preventDefault();
+    moveSelectedCard(directions[event.key]);
+    return;
+  }
+
+  const key = event.key.toLowerCase();
+  if (key === "i") {
+    const agent = selectedAgentFrom();
+    if (agent) {
+      event.preventDefault();
+      openInteract(agent);
+    }
+  } else if (key === "r") {
+    const agent = selectedAgentFrom();
+    if (agent) {
+      event.preventDefault();
+      readAgent(agent);
+    }
+  } else if (key === "o") {
+    event.preventDefault();
+    openSelectedAgent();
+  }
+}
+
 function deleteKeyForAgent(agent) {
   return `${agentMachineKey(agent)}::${agent.windowId || ""}`;
 }
@@ -1197,8 +1324,13 @@ async function readAgent(agent) {
 }
 
 function renderCard(agent) {
+  const cardKey = readKeyForAgent(agent);
+  const selected = state.selectedCardKey === cardKey;
   const card = document.createElement("article");
-  card.className = `cc-card${statusClass(agent.status)}`;
+  card.className = `cc-card${statusClass(agent.status)}${selected ? " is-selected" : ""}`;
+  card.dataset.cardKey = cardKey;
+  card.tabIndex = selected ? 0 : -1;
+  card.setAttribute("aria-selected", String(selected));
 
   const header = document.createElement("div");
   header.className = "cc-card-header";
@@ -1295,10 +1427,12 @@ function renderCard(agent) {
 
 function renderAgents() {
   if (state.machines.length === 0 && state.agents.length === 0) {
+    state.selectedCardKey = "";
     renderEmpty();
     return;
   }
   const filtered = filterAndSort(state.agents);
+  ensureSelectedCard(filtered);
   els.list.innerHTML = "";
   for (const machine of staleMachines()) {
     els.list.append(renderStaleMachine(machine));
@@ -1315,6 +1449,7 @@ function renderAgents() {
   for (const agent of filtered) {
     els.list.append(renderCard(agent));
   }
+  syncSelectedCardDom();
 }
 
 async function loadAgents() {
@@ -1357,7 +1492,12 @@ function stopPolling() {
 
 els.refresh.addEventListener("click", () => loadAgents());
 els.list.addEventListener("click", (event) => {
-  const updateButton = event.target.closest("[data-update-machine]");
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target) return;
+  const card = target.closest(".cc-card[data-card-key]");
+  if (card) updateSelectedCard(card.dataset.cardKey);
+
+  const updateButton = target.closest("[data-update-machine]");
   if (updateButton) {
     const machine = state.machines.find(
       (item) => machineKey(item) === updateButton.dataset.updateMachine,
@@ -1365,19 +1505,19 @@ els.list.addEventListener("click", (event) => {
     if (machine) updateConnector(machine);
     return;
   }
-  const interactButton = event.target.closest("[data-interact-key]");
+  const interactButton = target.closest("[data-interact-key]");
   if (interactButton) {
     const agent = state.agents.find((item) => readKeyForAgent(item) === interactButton.dataset.interactKey);
     if (agent) openInteract(agent);
     return;
   }
-  const deleteButton = event.target.closest("[data-delete-window-key]");
+  const deleteButton = target.closest("[data-delete-window-key]");
   if (deleteButton) {
     const agent = state.agents.find((item) => deleteKeyForAgent(item) === deleteButton.dataset.deleteWindowKey);
     if (agent) openDeleteWindowDialog(agent);
     return;
   }
-  const button = event.target.closest("[data-read-key]");
+  const button = target.closest("[data-read-key]");
   if (!button) return;
   const agent = state.agents.find((item) => readKeyForAgent(item) === button.dataset.readKey);
   if (agent) readAgent(agent);
@@ -1459,6 +1599,7 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape" && !els.interactSheet?.hidden) closeInteract();
 });
+document.addEventListener("keydown", handleCardShortcuts);
 
 for (const button of els.themeButtons) {
   button.addEventListener("click", () => {

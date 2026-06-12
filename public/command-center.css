@@ -499,6 +499,14 @@
   min-width: 0;
 }
 
+.cc-card.is-selected {
+  outline: 2px solid rgba(35, 131, 226, 0.56);
+  outline-offset: 2px;
+  box-shadow:
+    0 0 0 1px rgba(35, 131, 226, 0.14),
+    var(--shadow);
+}
+
 .cc-card.is-running {
   border-color: rgba(53, 89, 122, 0.42);
 }
