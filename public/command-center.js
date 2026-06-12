@@ -9,6 +9,12 @@ const POLL_MS = 4000;
 const INTERACT_WAVEFORM_SAMPLES = 40;
 const INTERACT_WAVEFORM_SAMPLE_INTERVAL_MS = 200;
 const SNIPPETS_KEY = "tmux-mobile-snippets";
+const THEME_KEY = "tmux-mobile-theme";
+const THEME_OPTIONS = ["kami", "dark", "auto"];
+const CC_FONT_KEY = "tmux-mobile-cc-font-size";
+const CC_FONT_MIN = 10;
+const CC_FONT_MAX = 18;
+const CC_FONT_DEFAULT = 13;
 const DEFAULT_SNIPPETS = [
   { text: "yes" },
   { text: "continue" },
@@ -41,6 +47,10 @@ const els = {
   welcomeClose: document.querySelector("#ccWelcomeClose"),
   welcomeShow: document.querySelector("#ccWelcomeShow"),
   moreMenu: document.querySelector("#ccMoreMenu"),
+  themeButtons: [...document.querySelectorAll("[data-cc-theme]")],
+  fontDecrease: document.querySelector("#ccFontDecrease"),
+  fontIncrease: document.querySelector("#ccFontIncrease"),
+  fontSizeValue: document.querySelector("#ccFontSizeValue"),
   interactSheet: document.querySelector("#ccInteractSheet"),
   interactBackdrop: document.querySelector("#ccInteractBackdrop"),
   interactClose: document.querySelector("#ccInteractClose"),
@@ -77,6 +87,89 @@ function savePrefs(prefs) {
   } catch {}
 }
 const SAVED = loadPrefs();
+
+function loadJson(key, fallback = {}) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) || fallback : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveJson(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+}
+
+function systemPrefersDark() {
+  return !!(
+    window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+  );
+}
+
+function themeIsDark(theme) {
+  if (theme === "dark") return true;
+  if (theme === "auto") return systemPrefersDark();
+  return false;
+}
+
+function readTheme() {
+  const theme = loadJson(THEME_KEY, { theme: "kami" }).theme;
+  return THEME_OPTIONS.includes(theme) ? theme : "kami";
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = themeIsDark(theme) ? "" : "kami";
+  for (const button of els.themeButtons) {
+    button.setAttribute("aria-pressed", String(button.dataset.ccTheme === theme));
+  }
+}
+
+function setTheme(theme) {
+  const next = THEME_OPTIONS.includes(theme) ? theme : "kami";
+  saveJson(THEME_KEY, { theme: next });
+  applyTheme(next);
+  window.dispatchEvent(new CustomEvent("tmux-mobile-theme-change", {
+    detail: { theme: next },
+  }));
+}
+
+function clampCommandCenterFont(px) {
+  const value = Number(px);
+  if (!Number.isFinite(value)) return CC_FONT_DEFAULT;
+  return Math.max(CC_FONT_MIN, Math.min(CC_FONT_MAX, Math.round(value)));
+}
+
+function readCommandCenterFontSize() {
+  return clampCommandCenterFont(loadJson(CC_FONT_KEY, { px: CC_FONT_DEFAULT }).px);
+}
+
+function applyCommandCenterFontSize(px) {
+  const clamped = clampCommandCenterFont(px);
+  const root = document.documentElement.style;
+  root.setProperty("--cc-card-title-size", `${clamped}px`);
+  root.setProperty("--cc-chip-size", `${Math.max(8, clamped - 3.5)}px`);
+  root.setProperty("--cc-machine-chip-size", `${Math.max(9, clamped - 2.5)}px`);
+  root.setProperty("--cc-status-size", `${Math.max(8.5, clamped - 3)}px`);
+  root.setProperty("--cc-cwd-size", `${Math.max(9, clamped - 2.5)}px`);
+  root.setProperty("--cc-section-label-size", `${Math.max(8, clamped - 3.5)}px`);
+  root.setProperty("--cc-section-text-size", `${Math.max(9.5, clamped - 1.5)}px`);
+  root.setProperty("--cc-footer-size", `${Math.max(9, clamped - 2.5)}px`);
+  if (els.fontSizeValue) els.fontSizeValue.textContent = String(clamped);
+  if (els.fontDecrease) els.fontDecrease.disabled = clamped <= CC_FONT_MIN;
+  if (els.fontIncrease) els.fontIncrease.disabled = clamped >= CC_FONT_MAX;
+}
+
+function stepCommandCenterFontSize(delta) {
+  const next = clampCommandCenterFont(readCommandCenterFontSize() + delta);
+  saveJson(CC_FONT_KEY, { px: next });
+  applyCommandCenterFontSize(next);
+}
+
+applyTheme(readTheme());
+applyCommandCenterFontSize(readCommandCenterFontSize());
 
 const state = {
   machines: [],
@@ -1365,6 +1458,22 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   if (event.key === "Escape" && !els.interactSheet?.hidden) closeInteract();
+});
+
+for (const button of els.themeButtons) {
+  button.addEventListener("click", () => {
+    setTheme(button.dataset.ccTheme);
+  });
+}
+els.fontDecrease?.addEventListener("click", () => stepCommandCenterFontSize(-1));
+els.fontIncrease?.addEventListener("click", () => stepCommandCenterFontSize(+1));
+window.addEventListener("tmux-mobile-theme-change", (event) => {
+  const theme = event.detail?.theme;
+  if (THEME_OPTIONS.includes(theme)) applyTheme(theme);
+});
+const themeMediaQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
+themeMediaQuery?.addEventListener("change", () => {
+  if (readTheme() === "auto") applyTheme("auto");
 });
 
 // Sort dropdown — hydrate the persisted selection, fire on change.

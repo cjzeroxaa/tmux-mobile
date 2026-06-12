@@ -7,7 +7,8 @@
     <script>
       try {
         var t = JSON.parse(localStorage.getItem("tmux-mobile-theme") || "{}").theme;
-        document.documentElement.dataset.theme = t === "dark" ? "" : "kami";
+        var dark = t === "dark" || (t === "auto" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "" : "kami";
       } catch (e) {
         document.documentElement.dataset.theme = "kami";
       }
@@ -38,6 +39,21 @@
           </summary>
           <div class="cc-more-panel" role="menu">
             <button id="ccWelcomeShow" class="cc-more-item" type="button" role="menuitem">Help</button>
+            <div class="cc-more-control" role="group" aria-label="Theme">
+              <span class="cc-more-control-label">Theme</span>
+              <div class="cc-theme-options">
+                <button class="cc-theme-option" type="button" data-cc-theme="kami" aria-pressed="false">Light</button>
+                <button class="cc-theme-option" type="button" data-cc-theme="dark" aria-pressed="false">Dark</button>
+              </div>
+            </div>
+            <div class="cc-more-control" role="group" aria-label="Font size">
+              <span class="cc-more-control-label">Font</span>
+              <div class="cc-font-controls">
+                <button id="ccFontDecrease" class="cc-font-button" type="button" aria-label="Smaller Command Center font">A-</button>
+                <span id="ccFontSizeValue" class="cc-font-value" aria-live="polite">13</span>
+                <button id="ccFontIncrease" class="cc-font-button" type="button" aria-label="Larger Command Center font">A+</button>
+              </div>
+            </div>
             <a id="ccBackToApp" class="cc-more-item" href="/app" role="menuitem">Main app</a>
             <a class="cc-more-item" href="/auth/logout" role="menuitem">Logout</a>
           </div>

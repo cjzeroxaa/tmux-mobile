@@ -18,6 +18,14 @@
    * that could hold a long unbreakable string carries min-width: 0 below
    * so it shrinks to its track, and the welcome <pre> wraps with
    * word-break instead of trying to fit a single 80-char URL on a phone. */
+  --cc-card-title-size: 13px;
+  --cc-chip-size: 9.5px;
+  --cc-machine-chip-size: 10.5px;
+  --cc-status-size: 10px;
+  --cc-cwd-size: 10.5px;
+  --cc-section-label-size: 9.5px;
+  --cc-section-text-size: 11.5px;
+  --cc-footer-size: 10.5px;
   height: 100dvh;
   overflow: auto;
   background: var(--bg);
@@ -121,7 +129,8 @@
   right: 0;
   z-index: 20;
   display: grid;
-  min-width: 140px;
+  gap: 4px;
+  min-width: 220px;
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -150,6 +159,79 @@
 .cc-more-item:hover,
 .cc-more-item:focus-visible {
   background: var(--surface-soft);
+}
+
+.cc-more-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 9px;
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cc-more-control + .cc-more-item,
+.cc-more-item + .cc-more-control {
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 11px;
+}
+
+.cc-more-control-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--muted);
+}
+
+.cc-theme-options,
+.cc-font-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.cc-theme-option,
+.cc-font-button {
+  min-width: 42px;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.cc-theme-option[aria-pressed="true"] {
+  border-color: rgba(26, 108, 189, 0.46);
+  background: rgba(35, 131, 226, 0.14);
+  color: var(--accent-dark);
+}
+
+.cc-font-button {
+  min-width: 30px;
+  width: 30px;
+  padding: 0;
+}
+
+.cc-font-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.cc-font-value {
+  min-width: 22px;
+  text-align: center;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
 }
 
 .cc-link {
@@ -442,7 +524,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--cc-card-title-size);
   font-weight: 800;
   color: var(--ink);
   overflow: hidden;
@@ -463,7 +545,7 @@
   background: rgba(53, 89, 122, 0.14);
   color: var(--accent-dark);
   font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 9.5px;
+  font-size: var(--cc-chip-size);
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -485,7 +567,7 @@
   background: rgba(37, 137, 94, 0.14);
   color: #14664a;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
+  font-size: var(--cc-machine-chip-size);
   font-weight: 850;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -504,7 +586,7 @@
   background: rgba(53, 89, 122, 0.10);
   color: var(--accent-dark);
   font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 9.5px;
+  font-size: var(--cc-chip-size);
   font-weight: 800;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -519,7 +601,7 @@
   border-radius: 999px;
   background: var(--surface-soft);
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--cc-status-size);
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -567,7 +649,7 @@
 
 .cc-card-cwd {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
+  font-size: var(--cc-cwd-size);
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -582,7 +664,7 @@
 
 .cc-section-label {
   font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 9.5px;
+  font-size: var(--cc-section-label-size);
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -603,7 +685,7 @@
   border-radius: 6px;
   padding: 8px 10px;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 11.5px;
+  font-size: var(--cc-section-text-size);
   line-height: 1.42;
   white-space: pre-wrap;
   word-break: break-word;
@@ -630,7 +712,7 @@
   justify-content: space-between;
   gap: 10px;
   font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 10.5px;
+  font-size: var(--cc-footer-size);
   color: var(--muted);
 }
 

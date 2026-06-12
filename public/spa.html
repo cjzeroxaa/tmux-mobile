@@ -9,7 +9,8 @@
     <script>
       try {
         var t = JSON.parse(localStorage.getItem("tmux-mobile-theme") || "{}").theme;
-        document.documentElement.dataset.theme = t === "dark" ? "" : "kami";
+        var dark = t === "dark" || (t === "auto" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "" : "kami";
       } catch (e) {
         document.documentElement.dataset.theme = "kami";
       }

@@ -4251,6 +4251,17 @@ els.themeToggle.addEventListener("click", () => {
   themeAtom.set({ theme: next });
   applyTheme(next);
   updateThemeToggle(next);
+  window.dispatchEvent(new CustomEvent("tmux-mobile-theme-change", {
+    detail: { theme: next },
+  }));
+});
+
+window.addEventListener("tmux-mobile-theme-change", (event) => {
+  const theme = event.detail?.theme;
+  if (!THEME_ORDER.includes(theme)) return;
+  themeAtom.set({ theme });
+  applyTheme(theme);
+  updateThemeToggle(theme);
 });
 
 // Voice settings sheet — lets the user pick the OpenAI voice models
