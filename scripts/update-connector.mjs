@@ -82,9 +82,16 @@ function verifyExpectedRevision() {
 }
 
 async function restartConnector() {
-  if (restartLaunchd()) return;
-  if (restartSystemd()) return;
-  await restartDetachedProcess();
+  const oldPids = connectorPids();
+  if (restartLaunchd()) {
+    await stopOldConnectorPids(oldPids);
+    return;
+  }
+  if (restartSystemd()) {
+    await stopOldConnectorPids(oldPids);
+    return;
+  }
+  await restartDetachedProcess(oldPids);
 }
 
 function restartLaunchd() {
@@ -211,9 +218,8 @@ function systemdQuoteEnv(value) {
   return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
-async function restartDetachedProcess() {
+async function restartDetachedProcess(oldPids = connectorPids()) {
   log("restart=detached-process");
-  const oldPids = connectorPids();
   const logFile = path.join(os.tmpdir(), "tmux-mobile-agent.log");
   const fd = openSync(logFile, "a");
   const child = spawn(process.execPath, ["server.mjs", "--register", controllerUrl], {
@@ -228,8 +234,14 @@ async function restartDetachedProcess() {
   child.unref();
   closeSync(fd);
 
+  await stopOldConnectorPids(oldPids, { exclude: [child.pid] });
+  log(`started connector pid=${child.pid} log=${logFile}`);
+}
+
+async function stopOldConnectorPids(oldPids, { exclude = [] } = {}) {
+  const excludeSet = new Set([process.pid, ...exclude].filter((pid) => Number.isInteger(pid)));
   for (const pid of oldPids) {
-    if (pid === process.pid || pid === child.pid) continue;
+    if (excludeSet.has(pid)) continue;
     try {
       process.kill(pid, "SIGTERM");
       log(`stopped old connector pid=${pid}`);
@@ -237,13 +249,12 @@ async function restartDetachedProcess() {
   }
   await sleep(1500);
   for (const pid of oldPids) {
-    if (pid === process.pid || pid === child.pid) continue;
+    if (excludeSet.has(pid)) continue;
     try {
       process.kill(pid, "SIGKILL");
       log(`killed old connector pid=${pid}`);
     } catch {}
   }
-  log(`started connector pid=${child.pid} log=${logFile}`);
 }
 
 function connectorPids() {
