@@ -1096,7 +1096,7 @@ async function updateConnector(machine) {
       }),
     });
     setStatus(
-      `Update started on ${machineLabel(machine)} in ${result.sessionName || "tmux"}.`,
+      `Update started on ${machineLabel(machine)}; the tmux update session closes on success.`,
     );
   } catch (error) {
     setStatus(`Update failed to start on ${machineLabel(machine)}: ${error.message}`);

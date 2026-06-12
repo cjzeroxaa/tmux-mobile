@@ -902,7 +902,8 @@ async function startConnectorUpdate(options = {}) {
     "else",
     '  "$NODE_BIN" --input-type=module -e \'const r=await fetch(process.env.TMUX_MOBILE_UPDATE_SCRIPT_URL); if(!r.ok) throw new Error(`download failed ${r.status}`); process.stdout.write(await r.text());\' | "$NODE_BIN" --input-type=module',
     "fi",
-    'echo "update command finished; this window can be closed after the machine reconnects"',
+    'echo "update command finished; closing this tmux update session"',
+    `if command -v tmux >/dev/null 2>&1; then tmux kill-session -t ${shellQuote(sessionName)} >/dev/null 2>&1 || true; fi`,
   ].join("\n");
   const command = `bash <<'${heredoc}'\n${inner}\n${heredoc}`;
 
