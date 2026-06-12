@@ -1174,15 +1174,21 @@ function moveSelectedCard(direction) {
   updateSelectedCard(cards[nextIndex].dataset.cardKey, { scroll: true });
 }
 
-function openSelectedAgent() {
+function openSelectedAgent({ newTab = false } = {}) {
   const agent = selectedAgentFrom();
   if (!agent) return;
+  const href = mainAppHref(agent);
+  if (newTab) {
+    const opened = window.open(href, "_blank", "noopener");
+    if (!opened) window.location.href = href;
+    return;
+  }
   const selectedLink = els.list.querySelector(".cc-card.is-selected .cc-open-button");
   if (selectedLink) {
     selectedLink.click();
     return;
   }
-  window.location.href = mainAppHref(agent);
+  window.location.href = href;
 }
 
 function shortcutTargetIsEditable(target) {
@@ -1210,10 +1216,15 @@ function handleCardShortcuts(event) {
     ArrowRight: "right",
     ArrowUp: "up",
     ArrowDown: "down",
+    h: "left",
+    l: "right",
+    k: "up",
+    j: "down",
   };
-  if (directions[event.key]) {
+  const direction = directions[event.key] || directions[event.key.toLowerCase()];
+  if (direction) {
     event.preventDefault();
-    moveSelectedCard(directions[event.key]);
+    moveSelectedCard(direction);
     return;
   }
 
@@ -1230,9 +1241,14 @@ function handleCardShortcuts(event) {
       event.preventDefault();
       readAgent(agent);
     }
+  } else if (key === "s") {
+    if (state.audio.busy) {
+      event.preventDefault();
+      stopRead();
+    }
   } else if (key === "o") {
     event.preventDefault();
-    openSelectedAgent();
+    openSelectedAgent({ newTab: true });
   }
 }
 
