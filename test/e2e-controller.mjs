@@ -450,6 +450,11 @@ try {
     machineId: aliceOneRoute,
     status: 503,
   });
+  await requestJson(baseUrl, "/api/command-center", {
+    cookie: consumerCookie,
+    machineId: aliceOneRoute,
+    status: 503,
+  });
   await requestJson(baseUrl, "/api/sessions", { cookie: bobCookie, machineId: aliceOneRoute });
 
   const bobAgent = startAgent(baseUrl, BOB, bobOne, tmpDir);
@@ -459,6 +464,16 @@ try {
 
   const bobOneRoute = routeForMachine(bobMachines, bobOne);
   await requestJson(baseUrl, "/api/sessions", { cookie: aliceCookie, machineId: bobOneRoute });
+  const bobCommandCenter = await requestJson(baseUrl, "/api/command-center", {
+    cookie: aliceCookie,
+    machineId: bobOneRoute,
+  });
+  assert.equal(bobCommandCenter.machines.length, 1, "per-machine command-center machine count");
+  assert.equal(bobCommandCenter.machines[0].id, bobOneRoute, "per-machine command-center route id");
+  assert.ok(
+    bobCommandCenter.agents.every((agent) => agent.machineId === bobOneRoute),
+    "per-machine command-center only returns requested machine agents",
+  );
 
   const consumerAgent = startAgent(baseUrl, CONSUMER, consumerOne, tmpDir);
   const consumerMachines = await waitForMachines(baseUrl, consumerCookie, [consumerOne]);

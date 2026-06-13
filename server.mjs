@@ -2085,6 +2085,31 @@ async function localCommandCenterMachine(agentCount = 0) {
   };
 }
 
+function commandCenterMachineMatches(machine, machineId) {
+  const id = String(machineId || "");
+  if (!id) return false;
+  return (
+    machine.id === id ||
+    machine.agentId === id ||
+    machine.machineId === id ||
+    machine.rawMachineId === id ||
+    machine.hostname === id ||
+    machine.rawHostname === id ||
+    machine.machineAlias === id
+  );
+}
+
+function tagCommandCenterAgents(result, machine) {
+  return (result.agents || []).map((agent) => ({
+    machineId: machine.id,
+    machineRawId: machine.machineId || "",
+    machineHostname: machine.hostname,
+    machineOwnerId: machine.ownerId || "",
+    machineOwnerHd: machine.ownerHd || "",
+    ...agent,
+  }));
+}
+
 async function buildWindowBriefingInput(windowId, lineCount) {
   requireId(windowId, "window");
   const [windowInfo, panes] = await Promise.all([
@@ -3960,6 +3985,27 @@ if (MODE.kind === "register") {
           // poison the whole feed.
           if (req.method === "GET" && url.pathname === "/api/command-center") {
             const online = hub.listMachines(viewer);
+            const requestedMachineId =
+              req.headers["x-machine-id"] || url.searchParams.get("machineId");
+            if (requestedMachineId) {
+              const machine = online.find((item) =>
+                commandCenterMachineMatches(item, requestedMachineId),
+              );
+              if (!machine || !hub.hasMachine(viewer, requestedMachineId)) {
+                sendJson(res, 503, { error: `Machine ${requestedMachineId} is offline` });
+                return;
+              }
+              const result = await withBackend(
+                hub.backendFor(viewer, requestedMachineId),
+                () => listAgentSessions(),
+              );
+              const agents = tagCommandCenterAgents(result, machine);
+              sendJson(res, 200, {
+                machines: [{ ...machine, agentCount: agents.length }],
+                agents,
+              });
+              return;
+            }
             const agentCounts = new Map(online.map((machine) => [machine.id, 0]));
             const all = [];
             await Promise.all(
@@ -3969,16 +4015,10 @@ if (MODE.kind === "register") {
                     hub.backendFor(viewer, machine.id),
                     () => listAgentSessions(),
                   );
-                  for (const a of result.agents || []) {
+                  const agents = tagCommandCenterAgents(result, machine);
+                  for (const a of agents) {
                     agentCounts.set(machine.id, (agentCounts.get(machine.id) || 0) + 1);
-                    all.push({
-                      machineId: machine.id,
-                      machineRawId: machine.machineId || "",
-                      machineHostname: machine.hostname,
-                      machineOwnerId: machine.ownerId || "",
-                      machineOwnerHd: machine.ownerHd || "",
-                      ...a,
-                    });
+                    all.push(a);
                   }
                 } catch {
                   // per-machine failure — keep the machine row, just omit agents

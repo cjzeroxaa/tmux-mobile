@@ -146,17 +146,29 @@ function readCommandCenterFontSize() {
   return clampCommandCenterFont(loadJson(CC_FONT_KEY, { px: CC_FONT_DEFAULT }).px);
 }
 
+function commandCenterFontTargets() {
+  const targets = [...document.querySelectorAll(".command-center-body")];
+  targets.push(document.documentElement);
+  return [...new Set(targets)];
+}
+
 function applyCommandCenterFontSize(px) {
   const clamped = clampCommandCenterFont(px);
-  const root = document.documentElement.style;
-  root.setProperty("--cc-card-title-size", `${clamped}px`);
-  root.setProperty("--cc-chip-size", `${Math.max(8, clamped - 3.5)}px`);
-  root.setProperty("--cc-machine-chip-size", `${Math.max(9, clamped - 2.5)}px`);
-  root.setProperty("--cc-status-size", `${Math.max(8.5, clamped - 3)}px`);
-  root.setProperty("--cc-cwd-size", `${Math.max(9, clamped - 2.5)}px`);
-  root.setProperty("--cc-section-label-size", `${Math.max(8, clamped - 3.5)}px`);
-  root.setProperty("--cc-section-text-size", `${Math.max(9.5, clamped - 1.5)}px`);
-  root.setProperty("--cc-footer-size", `${Math.max(9, clamped - 2.5)}px`);
+  const values = {
+    "--cc-card-title-size": `${clamped}px`,
+    "--cc-chip-size": `${Math.max(8, clamped - 3.5)}px`,
+    "--cc-machine-chip-size": `${Math.max(9, clamped - 2.5)}px`,
+    "--cc-status-size": `${Math.max(8.5, clamped - 3)}px`,
+    "--cc-cwd-size": `${Math.max(9, clamped - 2.5)}px`,
+    "--cc-section-label-size": `${Math.max(8, clamped - 3.5)}px`,
+    "--cc-section-text-size": `${Math.max(9.5, clamped - 1.5)}px`,
+    "--cc-footer-size": `${Math.max(9, clamped - 2.5)}px`,
+  };
+  for (const target of commandCenterFontTargets()) {
+    for (const [property, value] of Object.entries(values)) {
+      target.style.setProperty(property, value);
+    }
+  }
   if (els.fontSizeValue) els.fontSizeValue.textContent = String(clamped);
   if (els.fontDecrease) els.fontDecrease.disabled = clamped <= CC_FONT_MIN;
   if (els.fontIncrease) els.fontIncrease.disabled = clamped >= CC_FONT_MAX;
@@ -175,6 +187,8 @@ const state = {
   machines: [],
   agents: [],
   loading: false,
+  loadGeneration: 0,
+  machineLoads: new Map(),
   // Track which (windowId, section) cards the user expanded so a refresh
   // doesn't collapse what they were reading.
   expanded: new Set(),
@@ -1043,6 +1057,60 @@ function normalizeMachines(machines, agents) {
   }));
 }
 
+function replaceMachine(nextMachine) {
+  const key = machineKey(nextMachine);
+  if (!key) return;
+  let replaced = false;
+  state.machines = state.machines.map((machine) => {
+    if (machineKey(machine) !== key) return machine;
+    replaced = true;
+    return { ...machine, ...nextMachine };
+  });
+  if (!replaced) state.machines.push(nextMachine);
+}
+
+function replaceAgentsForMachine(machineId, agents) {
+  const key = String(machineId || "");
+  state.agents = [
+    ...state.agents.filter((agent) => agentMachineKey(agent) !== key),
+    ...agents,
+  ];
+  updateMachineAgentCounts();
+}
+
+function removeMachine(machineId) {
+  const key = String(machineId || "");
+  if (!key) return;
+  state.machines = state.machines.filter((machine) => machineKey(machine) !== key);
+  state.agents = state.agents.filter((agent) => agentMachineKey(agent) !== key);
+}
+
+function updateMachineAgentCounts() {
+  const counts = countAgentsByMachine(state.agents);
+  state.machines = state.machines.map((machine) => ({
+    ...machine,
+    agentCount: counts.get(machineKey(machine)) || 0,
+  }));
+}
+
+function machineLoadCounts() {
+  const counts = { loading: 0 };
+  for (const load of state.machineLoads.values()) {
+    if (load?.status === "loading") counts.loading += 1;
+  }
+  return counts;
+}
+
+function updateCommandCenterStatus() {
+  const loads = machineLoadCounts();
+  const base = `${state.machines.length} machine${state.machines.length === 1 ? "" : "s"} · ${state.agents.length} agent${state.agents.length === 1 ? "" : "s"}`;
+  if (loads.loading > 0) {
+    setStatus(`${base} · loading ${loads.loading}`);
+  } else {
+    setStatus(`${base} · refreshed ${nowLabel()}`);
+  }
+}
+
 function staleMachines() {
   return state.machines.filter((machine) => machine.stale);
 }
@@ -1444,6 +1512,15 @@ function renderCard(agent) {
 function renderAgents() {
   if (state.machines.length === 0 && state.agents.length === 0) {
     state.selectedCardKey = "";
+    const loads = machineLoadCounts();
+    if (loads.loading > 0) {
+      els.list.innerHTML = "";
+      const note = document.createElement("div");
+      note.className = "cc-empty";
+      note.textContent = `Loading agents from ${loads.loading} machine${loads.loading === 1 ? "" : "s"}…`;
+      els.list.append(note);
+      return;
+    }
     renderEmpty();
     return;
   }
@@ -1456,9 +1533,14 @@ function renderAgents() {
   if (filtered.length === 0) {
     const note = document.createElement("div");
     note.className = "cc-empty";
-    note.textContent = state.agents.length === 0 && state.machines.length > 0
-      ? `${state.machines.length} machine${state.machines.length === 1 ? "" : "s"} online, no Codex or Claude Code agents running right now.`
-      : "No agents match the current filters.";
+    const loads = machineLoadCounts();
+    if (state.agents.length === 0 && state.machines.length > 0 && loads.loading > 0) {
+      note.textContent = `Loading agents from ${loads.loading} machine${loads.loading === 1 ? "" : "s"}…`;
+    } else {
+      note.textContent = state.agents.length === 0 && state.machines.length > 0
+        ? `${state.machines.length} machine${state.machines.length === 1 ? "" : "s"} online, no Codex or Claude Code agents running right now.`
+        : "No agents match the current filters.";
+    }
     els.list.append(note);
     return;
   }
@@ -1468,30 +1550,102 @@ function renderAgents() {
   syncSelectedCardDom();
 }
 
+async function loadAgentsAggregate(generation) {
+  const data = await api("/api/command-center");
+  if (generation !== state.loadGeneration) return;
+  const agents = Array.isArray(data.agents) ? data.agents : [];
+  const machines = Array.isArray(data.machines)
+    ? normalizeMachines(data.machines, agents)
+    : machinesFromAgents(agents);
+  state.machines = machines;
+  state.agents = agents;
+  state.machineLoads.clear();
+  state.lastError = "";
+  updateCommandCenterStatus();
+  renderFilterRow();
+  renderAgents();
+}
+
+async function loadMachineAgents(machine, generation) {
+  const key = machineKey(machine);
+  if (!key) return;
+  try {
+    const data = await api("/api/command-center", { machineId: key });
+    if (generation !== state.loadGeneration) return;
+    const machines = Array.isArray(data.machines) ? data.machines : [];
+    const returnedMachine = machines[0];
+    if (returnedMachine) replaceMachine(returnedMachine);
+    const agents = Array.isArray(data.agents) ? data.agents : [];
+    replaceAgentsForMachine(key, agents);
+    state.machineLoads.set(key, { status: "loaded", error: "" });
+  } catch (error) {
+    if (generation !== state.loadGeneration) return;
+    removeMachine(key);
+    state.machineLoads.delete(key);
+  }
+  updateCommandCenterStatus();
+  renderFilterRow();
+  renderAgents();
+}
+
+async function loadAgentsByMachine(machines, generation) {
+  const normalizedMachines = normalizeMachines(machines, state.agents);
+  const machineKeys = new Set(normalizedMachines.map(machineKey).filter(Boolean));
+  state.machines = state.machines.filter((machine) => machineKeys.has(machineKey(machine)));
+  state.agents = state.agents.filter((agent) => machineKeys.has(agentMachineKey(agent)));
+  state.machineLoads = new Map(
+    normalizedMachines
+      .map((machine) => machineKey(machine))
+      .filter(Boolean)
+      .map((key) => [key, { status: "loading", error: "" }]),
+  );
+  state.lastError = "";
+  updateMachineAgentCounts();
+  updateCommandCenterStatus();
+  renderFilterRow();
+  renderAgents();
+
+  await Promise.allSettled(
+    normalizedMachines.map((machine) => loadMachineAgents(machine, generation)),
+  );
+  if (generation !== state.loadGeneration) return;
+  updateMachineAgentCounts();
+  updateCommandCenterStatus();
+  renderFilterRow();
+  renderAgents();
+}
+
 async function loadAgents() {
   if (state.loading) return;
   state.loading = true;
-  if (state.machines.length === 0 && state.agents.length === 0) setStatus("Loading…");
+  const generation = ++state.loadGeneration;
+  if (state.machines.length === 0 && state.agents.length === 0) setStatus("Loading machines…");
   try {
-    const data = await api("/api/command-center");
-    const agents = Array.isArray(data.agents) ? data.agents : [];
-    const machines = Array.isArray(data.machines)
-      ? normalizeMachines(data.machines, agents)
-      : machinesFromAgents(agents);
-    state.machines = machines;
-    state.agents = agents;
-    state.lastError = "";
-    setStatus(
-      `${state.machines.length} machine${state.machines.length === 1 ? "" : "s"} · ${state.agents.length} agent${state.agents.length === 1 ? "" : "s"} · refreshed ${nowLabel()}`,
-    );
-    renderFilterRow();
-    renderAgents();
+    let machines;
+    try {
+      machines = await api("/api/machines");
+    } catch (error) {
+      if (error.status === 404 || error.status === 400) {
+        await loadAgentsAggregate(generation);
+        return;
+      }
+      throw error;
+    }
+    if (!Array.isArray(machines)) {
+      await loadAgentsAggregate(generation);
+      return;
+    }
+    await loadAgentsByMachine(machines, generation);
   } catch (error) {
+    if (generation !== state.loadGeneration) return;
     state.lastError = error.message || String(error);
     setStatus(`Refresh failed at ${nowLabel()}`);
     if (state.machines.length === 0 && state.agents.length === 0) renderEmpty();
   } finally {
-    state.loading = false;
+    if (generation === state.loadGeneration) {
+      state.loading = false;
+      if (!state.lastError) updateCommandCenterStatus();
+    }
   }
 }
 
