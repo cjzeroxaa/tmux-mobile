@@ -422,6 +422,11 @@ recent history all populate the box; you review, then **Send** it to the pane.
 - **Global actions** in the topbar: **Read** (TTS of the window) and the
   **needs-attention** pill.
 
+## Agent notifications
+
+For Claude Code / Codex phone notification hooks, see
+[`docs/agent-notification-hooks.md`](docs/agent-notification-hooks.md).
+
 ## Voice transcription
 
 Voice mode uses the OpenAI transcription API from the local server. Set an API key before starting the server:
