@@ -14,11 +14,11 @@ The ntfy topic is local policy. Pick one per user/device instead of sharing a
 global topic. A simple convention is:
 
 ```bash
-export NTFY_TOPIC="mewoof-your-suffix"
+export NTFY_TOPIC="meowoof-your-suffix"
 ```
 
-For example: `mewoof-alice`, `mewoof-mini`, or `mewoof-prod`. Keep the
-`mewoof-` prefix and let each user choose the suffix.
+For example: `meowoof-alice`, `meowoof-mini`, or `meowoof-prod`. Keep the
+`meowoof-` prefix and let each user choose the suffix.
 
 ## Claude Code
 
