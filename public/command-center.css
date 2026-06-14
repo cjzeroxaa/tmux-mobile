@@ -667,6 +667,21 @@
   gap: 4px;
 }
 
+.cc-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cc-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
 .cc-section-label {
   font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: var(--cc-section-label-size);
@@ -674,6 +689,51 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
+}
+
+.cc-section-time {
+  flex: 0 0 auto;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: var(--cc-section-label-size);
+  font-weight: 700;
+  color: var(--muted);
+  opacity: 0.72;
+}
+
+.cc-section-copy {
+  appearance: none;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--accent-dark);
+  cursor: pointer;
+}
+
+.cc-section-copy svg {
+  width: 13px;
+  height: 13px;
+}
+
+.cc-section-copy:active {
+  background: var(--surface);
+}
+
+.cc-section-copy:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.cc-section-copy.is-copied {
+  border-color: rgba(22, 163, 74, 0.32);
+  background: rgba(22, 163, 74, 0.1);
+  color: #15803d;
+  opacity: 1;
 }
 
 .cc-section.user .cc-section-text {

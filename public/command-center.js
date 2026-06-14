@@ -33,6 +33,10 @@ const ICONS = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
   open:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>',
+  copy:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>',
+  check:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
   delete:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
 };
@@ -254,6 +258,52 @@ function abbrevHome(value) {
 
 function nowLabel() {
   return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function parseDateMs(value) {
+  const ms = Date.parse(value || "");
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function sameDay(a, b) {
+  return a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+}
+
+function exactTimeLabel(value) {
+  const ms = parseDateMs(value);
+  if (!ms) return "";
+  const date = new Date(ms);
+  const now = new Date();
+  const time = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (sameDay(date, now)) return `Today ${time}`;
+  return `${date.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  })} ${time}`;
+}
+
+function relativeTimeLabel(value) {
+  const ms = parseDateMs(value);
+  if (!ms) return "";
+  const diffMs = Date.now() - ms;
+  const future = diffMs < 0;
+  const seconds = Math.max(0, Math.round(Math.abs(diffMs) / 1000));
+  if (seconds < 45) return future ? "soon" : "now";
+  const units = [
+    ["d", 86400],
+    ["h", 3600],
+    ["m", 60],
+  ];
+  for (const [label, size] of units) {
+    if (seconds >= size) {
+      const count = Math.floor(seconds / size);
+      return future ? `in ${count}${label}` : `${count}${label} ago`;
+    }
+  }
+  return future ? "in 1m" : "1m ago";
 }
 
 function setStatus(text) {
@@ -976,14 +1026,85 @@ function renderEmpty() {
   els.list.append(empty);
 }
 
-function renderSection({ className, label, text, expandedKey }) {
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-9999px";
+  textarea.style.left = "-9999px";
+  document.body.append(textarea);
+  textarea.select();
+  try {
+    if (!document.execCommand("copy")) throw new Error("copy command failed");
+  } finally {
+    textarea.remove();
+  }
+}
+
+function renderSection({ className, label, text, timestamp, expandedKey }) {
   const wrap = document.createElement("div");
   wrap.className = `cc-section ${className}`;
   if (state.expanded.has(expandedKey)) wrap.classList.add("is-expanded");
 
-  const labelEl = document.createElement("div");
+  const heading = document.createElement("div");
+  heading.className = "cc-section-heading";
+
+  const title = document.createElement("div");
+  title.className = "cc-section-title";
+
+  const labelEl = document.createElement("span");
   labelEl.className = "cc-section-label";
   labelEl.textContent = label;
+
+  const relative = relativeTimeLabel(timestamp);
+  if (relative) {
+    const timeEl = document.createElement("time");
+    timeEl.className = "cc-section-time";
+    timeEl.dateTime = new Date(parseDateMs(timestamp)).toISOString();
+    timeEl.title = exactTimeLabel(timestamp);
+    timeEl.textContent = relative;
+    title.append(labelEl, timeEl);
+  } else {
+    title.append(labelEl);
+  }
+
+  const copyButton = document.createElement("button");
+  copyButton.className = "cc-section-copy";
+  copyButton.type = "button";
+  copyButton.title = `Copy ${label.toLowerCase()}`;
+  copyButton.setAttribute("aria-label", `Copy ${label.toLowerCase()}`);
+  copyButton.innerHTML = ICONS.copy;
+  copyButton.disabled = !text;
+  copyButton.addEventListener("click", async () => {
+    if (!text) return;
+    copyButton.disabled = true;
+    try {
+      await copyTextToClipboard(text);
+      copyButton.classList.add("is-copied");
+      copyButton.title = "Copied";
+      copyButton.setAttribute("aria-label", "Copied");
+      copyButton.innerHTML = ICONS.check;
+      window.setTimeout(() => {
+        copyButton.classList.remove("is-copied");
+        copyButton.title = `Copy ${label.toLowerCase()}`;
+        copyButton.setAttribute("aria-label", `Copy ${label.toLowerCase()}`);
+        copyButton.innerHTML = ICONS.copy;
+        copyButton.disabled = !text;
+      }, 1200);
+    } catch {
+      copyButton.title = "Copy failed";
+      window.setTimeout(() => {
+        copyButton.title = `Copy ${label.toLowerCase()}`;
+        copyButton.disabled = !text;
+      }, 1200);
+    }
+  });
+  heading.append(title, copyButton);
 
   const body = document.createElement("div");
   body.className = "cc-section-text";
@@ -1000,7 +1121,7 @@ function renderSection({ className, label, text, expandedKey }) {
     wrap.classList.toggle("is-expanded");
   });
 
-  wrap.append(labelEl, body);
+  wrap.append(heading, body);
   return wrap;
 }
 
@@ -1454,6 +1575,7 @@ function renderCard(agent) {
       className: "user",
       label: "Last prompt",
       text: agent.lastUserText,
+      timestamp: agent.lastUserAt,
       expandedKey: `${agentMachineKey(agent)}::${agent.windowId}::user`,
     }),
   );
@@ -1462,6 +1584,7 @@ function renderCard(agent) {
       className: "assistant",
       label: "Last response",
       text: agent.lastAssistantText,
+      timestamp: agent.lastAssistantAt,
       expandedKey: `${agentMachineKey(agent)}::${agent.windowId}::assistant`,
     }),
   );
