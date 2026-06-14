@@ -4,20 +4,8 @@
  * but structurally independent: no shared JS state, no shared DOM. */
 
 .command-center-body {
-  /* This class used to live on the document <body>, where it could rely on
-   * the viewport itself being the scroll container. Now (post-SPA) it
-   * lives on a wrapper <div> inside #viewRoot, and styles.css globally
-   * pins html/body to overflow: hidden — so this element MUST own its own
-   * scroll, with an explicit height for `overflow: auto` to mean anything.
-   * 100dvh matches the dynamic viewport (iOS Safari URL bar appear/
-   * disappear), same trick .app-shell uses elsewhere.
-   *
-   * We DO NOT use overflow-x: hidden as a defensive cap — that just clips
-   * content invisibly on a small viewport, which is worse than scrolling
-   * because the user can't recover. The fix is upstream: every container
-   * that could hold a long unbreakable string carries min-width: 0 below
-   * so it shrinks to its track, and the welcome <pre> wraps with
-   * word-break instead of trying to fit a single 80-char URL on a phone. */
+  /* This class used to rely on the viewport as the scroll container. Command
+   * Center now keeps chrome fixed and lets only the card feed scroll. */
   --cc-card-title-size: 13px;
   --cc-chip-size: 9.5px;
   --cc-machine-chip-size: 10.5px;
@@ -27,7 +15,7 @@
   --cc-section-text-size: 11.5px;
   --cc-footer-size: 10.5px;
   height: 100dvh;
-  overflow: auto;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -39,9 +27,10 @@
    * overflow-x: hidden by clipping content instead of fitting it. */
   min-width: 0;
   max-width: 100%;
-  min-height: 100dvh;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
   padding: 12px;
   padding-bottom: calc(12px + env(safe-area-inset-bottom));
@@ -434,11 +423,19 @@
 
 .cc-list {
   display: grid;
+  flex: 1 1 auto;
   grid-template-columns: 1fr;
   align-items: start;
+  align-content: start;
   gap: 10px;
   min-width: 0;
+  min-height: 0;
   max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 2px 2px 10px;
 }
 
 .cc-machine-alert {
