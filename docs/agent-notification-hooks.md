@@ -122,7 +122,11 @@ export TMUX_MOBILE_APP_URL="https://eng.impo.ai/app/"
 
 Then append whatever targeting data you can find:
 
-- `machineId`: the tmux-mobile machine id.
+- `machineId`: the durable tmux-mobile agent UUID from
+  `~/.config/tmux-mobile/agent.json` (`controllers["https://eng.impo.ai"].agentId`).
+  The query parameter is still named `machineId` for compatibility, but the
+  value should not be a display name like `mini` or `MSB-REBYTE`; names can
+  collide.
 - `session`: tmux session name.
 - `window`: tmux window index.
 - `windowName`: tmux window name.
@@ -130,11 +134,11 @@ Then append whatever targeting data you can find:
 Final links should look like:
 
 ```text
-https://eng.impo.ai/app/?machineId=mini&session=work&window=2&windowName=Codex+Task
+https://eng.impo.ai/app/?machineId=4503e6cd-795a-4f59-9592-d6c4a5df764f&session=work&window=2&windowName=Codex+Task
 ```
 
 The hook should include that URL in the ntfy body, for example:
 
 ```text
-Open: https://eng.impo.ai/app/?machineId=mini&session=work&window=2
+Open: https://eng.impo.ai/app/?machineId=4503e6cd-795a-4f59-9592-d6c4a5df764f&session=work&window=2
 ```

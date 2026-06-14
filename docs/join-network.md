@@ -178,11 +178,9 @@ launchd plist / systemd unit:
   Environment=AGENT_MACHINE=cj-mini
   ```
 
-> ⚠ Renaming changes the **machineId**, which is what `?machineId=…` deep
-> links and the per-machine RPC routing use. If anyone has bookmarked a
-> URL into a specific window, those bookmarks will break. (No display-name
-> overlay yet — both the picker label and the routing id are the same
-> string.)
+> `AGENT_MACHINE` is display-only for current connectors. Deep links should use
+> the durable `agentId` UUID from `~/.config/tmux-mobile/agent.json` as the
+> `?machineId=…` value, because display names can collide.
 
 ## Adding more machines
 

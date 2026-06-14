@@ -38,6 +38,11 @@ import {
   withVoiceUser,
 } from "./lib/voice-config.mjs";
 import { appRevision } from "./lib/revision.mjs";
+import {
+  createAgentRoundNtfyNotifier,
+  createNtfyConfig,
+  NTFY_TOPIC_PREFIX,
+} from "./lib/agent-ntfy.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -2105,11 +2110,92 @@ function tagCommandCenterAgents(result, machine) {
   return (result.agents || []).map((agent) => ({
     machineId: machine.id,
     machineRawId: machine.machineId || "",
+    machineAgentId: machine.agentId || "",
     machineHostname: machine.hostname,
     machineOwnerId: machine.ownerId || "",
     machineOwnerHd: machine.ownerHd || "",
     ...agent,
   }));
+}
+
+function observeCommandCenterAgentsForNtfy(machines, agents) {
+  if (!agentRoundNtfyNotifier.enabled) return;
+  void agentRoundNtfyNotifier.observeAgents({ machines, agents });
+}
+
+function viewerForMachineOwner(machine) {
+  const email = String(machine.ownerEmail || machine.ownerId || "").trim();
+  const userId = String(machine.ownerId || email).trim();
+  return {
+    email,
+    userId,
+    hd: String(machine.ownerHd || "").trim(),
+  };
+}
+
+async function sweepLocalAgentRoundsForNtfy() {
+  const result = await listAgentSessions();
+  const machine = await localCommandCenterMachine(result.agents?.length || 0);
+  const agents = tagCommandCenterAgents(result, machine);
+  await agentRoundNtfyNotifier.observeAgents({
+    machines: [{ ...machine, agentCount: agents.length }],
+    agents,
+  });
+}
+
+async function sweepHubAgentRoundsForNtfy(hub) {
+  const machines = typeof hub.listAllMachines === "function" ? hub.listAllMachines() : [];
+  await Promise.allSettled(
+    machines.map(async (machine) => {
+      const viewer = viewerForMachineOwner(machine);
+      if (!viewer.userId) return;
+      const result = await withBackend(
+        hub.backendFor(viewer, machine.id),
+        () => listAgentSessions(),
+      );
+      const agents = tagCommandCenterAgents(result, machine);
+      await agentRoundNtfyNotifier.observeAgents({
+        machines: [{ ...machine, agentCount: agents.length }],
+        agents,
+      });
+    }),
+  );
+}
+
+function startAgentRoundNtfyWatcher({ hub = null } = {}) {
+  if (!agentRoundNtfyNotifier.enabled) return () => {};
+  let running = false;
+  async function tick() {
+    if (running) return;
+    running = true;
+    try {
+      if (hub) {
+        await sweepHubAgentRoundsForNtfy(hub);
+      } else {
+        await sweepLocalAgentRoundsForNtfy();
+      }
+    } catch (error) {
+      logServerEvent("ntfy_agent_round_sweep_failed", {
+        message: error.message || String(error),
+      });
+    } finally {
+      running = false;
+    }
+  }
+  const timer = setInterval(tick, agentRoundNtfyNotifier.pollIntervalMs);
+  timer.unref?.();
+  const firstTick = setTimeout(tick, 1_000);
+  firstTick.unref?.();
+  logServerEvent("ntfy_agent_round_watcher_started", {
+    intervalMs: agentRoundNtfyNotifier.pollIntervalMs,
+    topicMinIntervalMs: agentRoundNtfyNotifier.topicMinIntervalMs,
+    baseUrl: agentRoundNtfyNotifier.baseUrl,
+    topicPrefix: NTFY_TOPIC_PREFIX,
+  });
+  return () => {
+    clearInterval(timer);
+    clearTimeout(firstTick);
+  };
 }
 
 async function buildWindowBriefingInput(windowId, lineCount) {
@@ -2887,6 +2973,16 @@ function logServerEvent(event, details = {}) {
   );
 }
 
+const agentRoundNtfyNotifier = createAgentRoundNtfyNotifier({
+  ...createNtfyConfig(process.env),
+  appBaseUrl:
+    process.env.NTFY_APP_BASE_URL ||
+    process.env.TMUX_MOBILE_PUBLIC_URL ||
+    DEFAULT_CONTROLLER_URL,
+}, {
+  logEvent: logServerEvent,
+});
+
 function logRequestError(req, url, status, error) {
   console.error(
     JSON.stringify({
@@ -3136,6 +3232,7 @@ async function handleApi(req, res, url) {
       machineOwnerHd: localMachine.ownerHd || "",
       ...agent,
     }));
+    observeCommandCenterAgentsForNtfy([localMachine], agents);
     sendJson(res, 200, { machines: [localMachine], agents });
     return;
   }
@@ -3841,6 +3938,7 @@ if (MODE.kind === "register") {
   runAgent(MODE.hubUrl, localBackend, { logEvent: logServerEvent });
 } else {
   let hub = null;
+  let stopAgentRoundWatcher = () => {};
 
   const server = http.createServer(async (req, res) => {
     let url;
@@ -4002,8 +4100,10 @@ if (MODE.kind === "register") {
                 () => listAgentSessions(),
               );
               const agents = tagCommandCenterAgents(result, machine);
+              const machines = [{ ...machine, agentCount: agents.length }];
+              observeCommandCenterAgentsForNtfy(machines, agents);
               sendJson(res, 200, {
-                machines: [{ ...machine, agentCount: agents.length }],
+                machines,
                 agents,
               });
               return;
@@ -4031,6 +4131,7 @@ if (MODE.kind === "register") {
               ...machine,
               agentCount: agentCounts.get(machine.id) || 0,
             }));
+            observeCommandCenterAgentsForNtfy(machines, all);
             sendJson(res, 200, { machines, agents: all });
             return;
           }
@@ -4084,6 +4185,7 @@ if (MODE.kind === "register") {
       machineAliases: MACHINE_ALIASES,
     });
   }
+  stopAgentRoundWatcher = startAgentRoundNtfyWatcher({ hub });
 
   server.listen(PORT, HOST, () => {
     console.log(`tmux ${MODE.kind} listening at http://${HOST}:${PORT}`);
@@ -4102,6 +4204,7 @@ if (MODE.kind === "register") {
       revision: APP_REVISION,
       message: "Closing agent connections so agents reconnect to the new revision.",
     });
+    stopAgentRoundWatcher();
     try {
       hub?.shutdown();
     } catch {}
