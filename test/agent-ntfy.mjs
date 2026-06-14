@@ -48,6 +48,18 @@ assert.equal(
   "agent app URL routes by durable machine agentId",
 );
 assert.equal(
+  buildAgentAppUrl({
+    machineId: "m-fin",
+    machineAgentId: "4503e6cd-795a-4f59-9592-d6c4a5df764f",
+    sessionName: "work",
+    windowId: "@1",
+    windowIndex: 2,
+    windowName: "Codex Task",
+  }),
+  "/app/?session=work&windowId=%401&window=2&machineId=4503e6cd-795a-4f59-9592-d6c4a5df764f&windowName=Codex+Task",
+  "command center agent URL uses the same durable route id",
+);
+assert.equal(
   buildAgentAppUrl(
     {
       machineId: "m-fin",
@@ -233,7 +245,7 @@ assert.equal(posts[0].url, "https://ntfy.example/meowoof-fin-mini");
 assert.equal(posts[0].options.method, "POST");
 assert.equal(
   posts[0].options.body,
-  "finished response\n\nOpen: https://eng.impo.ai/app/?session=work&window=2&machineId=4503e6cd-795a-4f59-9592-d6c4a5df764f&windowName=Codex+Task",
+  "finished response\n\nOpen: https://eng.impo.ai/app/?session=work&windowId=%401&window=2&machineId=4503e6cd-795a-4f59-9592-d6c4a5df764f&windowName=Codex+Task",
 );
 assert.match(posts[0].options.headers.Title, /FIN Mini codex finished/);
 assert.equal(posts[0].options.headers.Tags, "bell");
@@ -330,7 +342,7 @@ assert.equal(posts.length, 2, "different topics are not blocked by another topic
 assert.equal(posts[1].url, "https://ntfy.example/meowoof-air");
 assert.equal(
   posts[1].options.body,
-  "air finished\n\nOpen: https://eng.impo.ai/app/?session=work&window=2&machineId=38954708-7903-46eb-9224-819d0081f6a7&windowName=Codex+Task",
+  "air finished\n\nOpen: https://eng.impo.ai/app/?session=work&windowId=%401&window=2&machineId=38954708-7903-46eb-9224-819d0081f6a7&windowName=Codex+Task",
 );
 assert.equal(posts[1].options.headers.Tags, "bell");
 assert.equal(posts[1].options.headers.Click, undefined);
@@ -345,7 +357,7 @@ assert.equal(posts[2].options.headers.Priority, undefined);
 assert.equal(posts[2].options.headers.Click, undefined);
 assert.match(posts[2].options.body, /\[1\/2\] FIN Mini codex/);
 assert.match(posts[2].options.body, /which option should I pick\?/);
-assert.match(posts[2].options.body, /Open: https:\/\/eng\.impo\.ai\/app\/\?session=work&window=2&machineId=4503e6cd-795a-4f59-9592-d6c4a5df764f&windowName=Codex\+Task/);
+assert.match(posts[2].options.body, /Open: https:\/\/eng\.impo\.ai\/app\/\?session=work&windowId=%401&window=2&machineId=4503e6cd-795a-4f59-9592-d6c4a5df764f&windowName=Codex\+Task/);
 assert.match(posts[2].options.body, /\[2\/2\] FIN Mini codex/);
 assert.match(posts[2].options.body, /done too/);
 

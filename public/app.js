@@ -395,6 +395,7 @@ function readUrlTarget() {
   const params = new URLSearchParams(window.location.search);
   return {
     machineId: params.get("machineId") || "",
+    windowId: params.get("windowId") || "",
     session: params.get("session") || params.get("sessionName") || "",
     windowIndex: params.get("window") || params.get("windowIndex") || "",
     windowName: params.get("windowName") || "",
@@ -402,7 +403,7 @@ function readUrlTarget() {
 }
 
 function hasUrlTarget(target = readUrlTarget()) {
-  return Boolean(target.machineId || target.session || target.windowIndex || target.windowName);
+  return Boolean(target.machineId || target.windowId || target.session || target.windowIndex || target.windowName);
 }
 
 function updateTargetUrl() {
@@ -410,12 +411,14 @@ function updateTargetUrl() {
   const win = selectedWindow();
   const target = {
     machineId: state.runtimeMode === "hub" ? state.machineId || "" : "",
+    windowId: win?.id || "",
     session: session?.name || "",
     windowIndex: win ? String(win.index) : "",
     windowName: win?.name || "",
   };
   const params = new URLSearchParams();
   if (target.machineId) params.set("machineId", target.machineId);
+  if (target.windowId) params.set("windowId", target.windowId);
   if (target.session) params.set("session", target.session);
   if (target.windowIndex) params.set("window", target.windowIndex);
   if (target.windowName) params.set("windowName", target.windowName);
@@ -665,7 +668,13 @@ function resolveMachineRouteId(machineId) {
   if (!id) return "";
   if (state.machines.some((machine) => machine.id === id)) return id;
   const matches = state.machines.filter(
-    (machine) => machine.machineId === id || machine.hostname === id,
+    (machine) =>
+      machine.agentId === id ||
+      machine.machineId === id ||
+      machine.rawMachineId === id ||
+      machine.hostname === id ||
+      machine.rawHostname === id ||
+      machine.machineAlias === id,
   );
   return matches.length === 1 ? matches[0].id : id;
 }
@@ -2805,7 +2814,10 @@ async function applyTreeAndSelectWindow({
   const currentWindowExists = state.windows.some((item) => item.id === state.windowId);
   if (forceUrlTarget || !currentWindowExists) {
     let target = null;
-    if (urlTarget.session && (urlTarget.windowIndex || urlTarget.windowName)) {
+    if (urlTarget.windowId) {
+      target = state.windows.find((win) => win.id === urlTarget.windowId) || null;
+    }
+    if (!target && urlTarget.session && (urlTarget.windowIndex || urlTarget.windowName)) {
       const session = state.sessions.find((item) => item.name === urlTarget.session);
       if (session) {
         const sessionWindows = state.windows.filter((win) => win.sessionId === session.id);

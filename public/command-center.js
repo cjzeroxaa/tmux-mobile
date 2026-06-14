@@ -1,3 +1,4 @@
+import { buildAgentAppUrl } from "./agent-link.mjs";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
 
 // Command Center — separate top-level page. Polls /api/command-center on
@@ -324,19 +325,6 @@ function agentMachineKey(agent) {
 
 function machineLabel(machine) {
   return String(machine?.hostname || machine?.machineId || machine?.id || "local");
-}
-
-function mainAppHref({ machineId, sessionName, sessionId, windowIndex, windowName }) {
-  // Main app reads its URL target via session + window query params (see
-  // public/app.js readUrlTarget). machineId comes along too so controller
-  // mode lands on the right machine without an extra round-trip.
-  const params = new URLSearchParams({
-    session: sessionName || sessionId,
-    window: String(windowIndex),
-  });
-  if (machineId && !isLocalMachineId(machineId)) params.set("machineId", machineId);
-  if (windowName) params.set("windowName", windowName);
-  return `/app/?${params.toString()}`;
 }
 
 async function api(path, options = {}) {
@@ -1366,7 +1354,7 @@ function moveSelectedCard(direction) {
 function openSelectedAgent({ newTab = false } = {}) {
   const agent = selectedAgentFrom();
   if (!agent) return;
-  const href = mainAppHref(agent);
+  const href = buildAgentAppUrl(agent);
   if (newTab) {
     const opened = window.open(href, "_blank", "noopener");
     if (!opened) window.location.href = href;
@@ -1613,7 +1601,7 @@ function renderCard(agent) {
         icon: readingThis ? ICONS.stop : ICONS.read,
       })}
       ${cardActionLink({
-        href: mainAppHref(agent),
+        href: buildAgentAppUrl(agent),
         title: "Open in app",
         icon: ICONS.open,
       })}
