@@ -498,9 +498,7 @@
 
 .cc-card.is-selected {
   border-color: rgba(35, 131, 226, 0.6);
-  box-shadow:
-    0 0 0 2px rgba(35, 131, 226, 0.38),
-    var(--shadow);
+  box-shadow: var(--shadow);
 }
 
 .cc-card.is-running {
