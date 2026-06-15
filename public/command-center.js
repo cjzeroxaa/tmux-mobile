@@ -1,4 +1,11 @@
 import { buildAgentAppUrl } from "./agent-link.mjs";
+import {
+  clearCommandCenterGrace,
+  commandCenterGraceActive,
+  commandCenterGraceMachineKeys,
+  createCommandCenterGrace,
+  holdCommandCenterSnapshot as holdCommandCenterGraceSnapshot,
+} from "./command-center-grace.mjs";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
 
 // Command Center — separate top-level page. Polls /api/command-center on
@@ -216,6 +223,7 @@ const state = {
   expanded: new Set(),
   pollTimer: null,
   lastError: "",
+  reconnectGrace: createCommandCenterGrace(),
   // Filter sets are Sets of allowed values. Empty = "show all" for that
   // category. Hydrated from localStorage on boot.
   // Default to newest-first: it's what the user usually asks the dashboard
@@ -371,7 +379,26 @@ function machineByKey(key) {
   };
 }
 
+function startAgentMachineIds() {
+  const ids = new Set();
+  for (const machine of state.machines) {
+    const id = machineKey(machine);
+    if (id) ids.add(id);
+  }
+  if (ids.size === 0) {
+    for (const agent of state.agents) {
+      const id = agentMachineKey(agent);
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
 function exactlySelectedMachineId() {
+  if (state.filterMachines.size === 0) {
+    const ids = startAgentMachineIds();
+    return ids.length === 1 ? ids[0] : "";
+  }
   if (state.filterMachines.size !== 1) return "";
   return [...state.filterMachines][0] || "";
 }
@@ -1073,9 +1100,13 @@ function renderEmpty() {
   els.list.innerHTML = "";
   const empty = document.createElement("div");
   empty.className = "cc-empty";
-  empty.textContent = state.lastError
-    ? `Couldn't load agents — ${state.lastError}`
-    : "No machines online.";
+  if (commandCenterGraceActive(state.reconnectGrace)) {
+    empty.textContent = "Reconnecting to machines...";
+  } else {
+    empty.textContent = state.lastError
+      ? `Couldn't load agents — ${state.lastError}`
+      : "No machines online.";
+  }
   els.list.append(empty);
 }
 
@@ -1267,10 +1298,48 @@ function updateMachineAgentCounts() {
   }));
 }
 
+function currentCommandCenterMachineKeys() {
+  const keys = new Set();
+  for (const machine of state.machines) {
+    const key = machineKey(machine);
+    if (key) keys.add(key);
+  }
+  for (const agent of state.agents) {
+    const key = agentMachineKey(agent);
+    if (key) keys.add(key);
+  }
+  return [...keys];
+}
+
+function hasCommandCenterSnapshot() {
+  return state.machines.length > 0 || state.agents.length > 0;
+}
+
+function markReconnectLoads(machineKeys) {
+  for (const key of machineKeys) {
+    if (!key) continue;
+    state.machineLoads.set(String(key), { status: "reconnecting", error: "" });
+  }
+}
+
+function holdCommandCenterSnapshot(machineKeys = currentCommandCenterMachineKeys()) {
+  if (!hasCommandCenterSnapshot()) return false;
+  const held = holdCommandCenterGraceSnapshot(state.reconnectGrace, machineKeys);
+  if (!held) return false;
+  markReconnectLoads(commandCenterGraceMachineKeys(state.reconnectGrace));
+  state.lastError = "";
+  return true;
+}
+
+function clearCommandCenterReconnect(machineKeys = null) {
+  clearCommandCenterGrace(state.reconnectGrace, machineKeys);
+}
+
 function machineLoadCounts() {
-  const counts = { loading: 0 };
+  const counts = { loading: 0, reconnecting: 0 };
   for (const load of state.machineLoads.values()) {
     if (load?.status === "loading") counts.loading += 1;
+    if (load?.status === "reconnecting") counts.reconnecting += 1;
   }
   return counts;
 }
@@ -1278,7 +1347,9 @@ function machineLoadCounts() {
 function updateCommandCenterStatus() {
   const loads = machineLoadCounts();
   const base = `${state.machines.length} machine${state.machines.length === 1 ? "" : "s"} · ${state.agents.length} agent${state.agents.length === 1 ? "" : "s"}`;
-  if (loads.loading > 0) {
+  if (commandCenterGraceActive(state.reconnectGrace)) {
+    setStatus(`${base} · reconnecting`);
+  } else if (loads.loading > 0) {
     setStatus(`${base} · loading ${loads.loading}`);
   } else {
     setStatus(`${base} · refreshed ${nowLabel()}`);
@@ -2036,6 +2107,13 @@ async function loadAgentsAggregate(generation) {
   const machines = Array.isArray(data.machines)
     ? normalizeMachines(data.machines, agents)
     : machinesFromAgents(agents);
+  if (machines.length === 0 && agents.length === 0 && holdCommandCenterSnapshot()) {
+    updateCommandCenterStatus();
+    renderFilterRow();
+    renderAgents();
+    return;
+  }
+  clearCommandCenterReconnect();
   state.machines = machines;
   state.agents = agents;
   state.machineLoads.clear();
@@ -2056,11 +2134,19 @@ async function loadMachineAgents(machine, generation) {
     if (returnedMachine) replaceMachine(returnedMachine);
     const agents = Array.isArray(data.agents) ? data.agents : [];
     replaceAgentsForMachine(key, agents);
+    clearCommandCenterReconnect([key]);
     state.machineLoads.set(key, { status: "loaded", error: "" });
   } catch (error) {
     if (generation !== state.loadGeneration) return;
-    removeMachine(key);
-    state.machineLoads.delete(key);
+    if (holdCommandCenterSnapshot([key])) {
+      state.machineLoads.set(key, {
+        status: "reconnecting",
+        error: error.message || String(error),
+      });
+    } else {
+      removeMachine(key);
+      state.machineLoads.delete(key);
+    }
   }
   updateCommandCenterStatus();
   renderFilterRow();
@@ -2068,16 +2154,34 @@ async function loadMachineAgents(machine, generation) {
 }
 
 async function loadAgentsByMachine(machines, generation) {
-  const normalizedMachines = normalizeMachines(machines, state.agents);
+  let normalizedMachines = normalizeMachines(machines, state.agents);
+  if (normalizedMachines.length === 0 && holdCommandCenterSnapshot()) {
+    updateCommandCenterStatus();
+    renderFilterRow();
+    renderAgents();
+    return;
+  }
+  const nextKeys = new Set(normalizedMachines.map(machineKey).filter(Boolean));
+  const missingGraceMachines = state.machines.filter((machine) => {
+    const key = machineKey(machine);
+    return key && !nextKeys.has(key);
+  });
+  const missingGraceKeys = missingGraceMachines.map(machineKey).filter(Boolean);
+  const machinesToLoad = normalizedMachines;
+  if (missingGraceKeys.length > 0 && holdCommandCenterSnapshot(missingGraceKeys)) {
+    normalizedMachines = [...normalizedMachines, ...missingGraceMachines];
+  }
+  clearCommandCenterReconnect([...nextKeys]);
   const machineKeys = new Set(normalizedMachines.map(machineKey).filter(Boolean));
   state.machines = state.machines.filter((machine) => machineKeys.has(machineKey(machine)));
   state.agents = state.agents.filter((agent) => machineKeys.has(agentMachineKey(agent)));
   state.machineLoads = new Map(
-    normalizedMachines
+    normalizeMachines(machines, state.agents)
       .map((machine) => machineKey(machine))
       .filter(Boolean)
       .map((key) => [key, { status: "loading", error: "" }]),
   );
+  markReconnectLoads(commandCenterGraceMachineKeys(state.reconnectGrace));
   state.lastError = "";
   updateMachineAgentCounts();
   updateCommandCenterStatus();
@@ -2085,7 +2189,7 @@ async function loadAgentsByMachine(machines, generation) {
   renderAgents();
 
   await Promise.allSettled(
-    normalizedMachines.map((machine) => loadMachineAgents(machine, generation)),
+    machinesToLoad.map((machine) => loadMachineAgents(machine, generation)),
   );
   if (generation !== state.loadGeneration) return;
   updateMachineAgentCounts();
@@ -2119,6 +2223,12 @@ async function loadAgents() {
   } catch (error) {
     if (error.silent) return;
     if (generation !== state.loadGeneration) return;
+    if (holdCommandCenterSnapshot()) {
+      updateCommandCenterStatus();
+      renderFilterRow();
+      renderAgents();
+      return;
+    }
     state.lastError = error.message || String(error);
     setStatus(`Refresh failed at ${nowLabel()}`);
     if (state.machines.length === 0 && state.agents.length === 0) renderEmpty();
