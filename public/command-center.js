@@ -100,8 +100,8 @@ const els = {
   deleteConfirm: document.querySelector("#ccDeleteConfirm"),
 };
 
-// Persisted view prefs — sort + status/machine filters stay across reloads
-// so a user's "only show working on mac-mini" lens is sticky.
+// Persisted view prefs — sort + machine filters stay across reloads
+// so a user's machine lens is sticky.
 function loadPrefs() {
   try {
     const raw = localStorage.getItem("tmux-mobile-cc-prefs");
@@ -224,14 +224,13 @@ const state = {
   pollTimer: null,
   lastError: "",
   reconnectGrace: createCommandCenterGrace(),
-  // Filter sets are Sets of allowed values. Empty = "show all" for that
-  // category. Hydrated from localStorage on boot.
+  // Machine filter is a Set of allowed machine ids. Empty = "show all".
+  // Hydrated from localStorage on boot.
   // Default to newest-first: it's what the user usually asks the dashboard
   // anyway ('what changed most recently?'). Existing pref values still win
   // when present, so anyone who explicitly chose 'status' keeps it.
   sortBy: SAVED.sortBy || "recent",
   filterMachines: new Set(SAVED.filterMachines || []),
-  filterStatuses: new Set(SAVED.filterStatuses || []),
   interactAgent: null,
   interactSending: false,
   deleteAgent: null,
@@ -965,9 +964,6 @@ function handleInteractVoiceShortcut(event) {
 // before renderAgents and feed it the result.
 function filterAndSort(agents) {
   let out = agents;
-  if (state.filterStatuses.size > 0) {
-    out = out.filter((a) => state.filterStatuses.has(STATUS_LABELS[a.status] ? a.status : "unverified"));
-  }
   if (state.filterMachines.size > 0) {
     out = out.filter((a) => state.filterMachines.has(agentMachineKey(a)));
   }
@@ -1003,25 +999,13 @@ function sortComparator(by) {
   }
 }
 
-// Rebuild the chip row whenever the agent list changes (e.g. a new
-// machine came online). Status chips are stable; machine chips come from
-// the distinct machineIds seen in the payload.
+// Rebuild the machine chip row whenever the agent list changes (e.g. a new
+// machine came online). Status is displayed on cards, not used as a filter.
 function renderFilterRow() {
   const row = els.filterRow;
   row.innerHTML = "";
-  // Status chips first.
-  for (const s of STATUS_ORDER) {
-    const label = statusLabel(s);
-    const active = state.filterStatuses.has(s);
-    row.append(chipButton({
-      label,
-      active,
-      kind: "status",
-      onTap: () => toggleFilter("filterStatuses", s),
-    }));
-  }
-  // Then per-machine chips. This is where agentless machines stay visible
-  // without adding separate machine cards to the agent feed.
+  // Agentless machines stay visible without adding separate machine cards to
+  // the agent feed.
   const machines = new Map(); // id -> hostname
   for (const machine of state.machines) {
     const id = machineKey(machine);
@@ -1074,7 +1058,6 @@ function toggleFilter(setName, value) {
 function persistPrefs() {
   savePrefs({
     sortBy: state.sortBy,
-    filterStatuses: [...state.filterStatuses],
     filterMachines: [...state.filterMachines],
   });
 }
