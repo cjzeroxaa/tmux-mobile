@@ -100,21 +100,9 @@ const els = {
   deleteConfirm: document.querySelector("#ccDeleteConfirm"),
 };
 
-// Persisted view prefs — sort + machine filters stay across reloads
-// so a user's machine lens is sticky.
-function loadPrefs() {
-  try {
-    const raw = localStorage.getItem("tmux-mobile-cc-prefs");
-    if (!raw) return {};
-    return JSON.parse(raw) || {};
-  } catch { return {}; }
-}
-function savePrefs(prefs) {
-  try {
-    localStorage.setItem("tmux-mobile-cc-prefs", JSON.stringify(prefs));
-  } catch {}
-}
-const SAVED = loadPrefs();
+try {
+  localStorage.removeItem("tmux-mobile-cc-prefs");
+} catch {}
 
 function loadJson(key, fallback = {}) {
   try {
@@ -224,13 +212,9 @@ const state = {
   pollTimer: null,
   lastError: "",
   reconnectGrace: createCommandCenterGrace(),
-  // Machine filter is a Set of allowed machine ids. Empty = "show all".
-  // Hydrated from localStorage on boot.
-  // Default to newest-first: it's what the user usually asks the dashboard
-  // anyway ('what changed most recently?'). Existing pref values still win
-  // when present, so anyone who explicitly chose 'status' keeps it.
-  sortBy: SAVED.sortBy || "recent",
-  filterMachines: new Set(SAVED.filterMachines || []),
+  // Machine filter is in-memory only. Empty = "show all".
+  sortBy: "recent",
+  filterMachines: new Set(),
   interactAgent: null,
   interactSending: false,
   deleteAgent: null,
@@ -1050,16 +1034,8 @@ function toggleFilter(setName, value) {
   const s = state[setName];
   if (s.has(value)) s.delete(value);
   else s.add(value);
-  persistPrefs();
   renderFilterRow();
   renderAgents();
-}
-
-function persistPrefs() {
-  savePrefs({
-    sortBy: state.sortBy,
-    filterMachines: [...state.filterMachines],
-  });
 }
 
 function renderEmpty() {
@@ -2399,11 +2375,10 @@ themeMediaQuery?.addEventListener("change", () => {
   if (readTheme() === "auto") applyTheme("auto");
 });
 
-// Sort dropdown — hydrate the persisted selection, fire on change.
+// Sort dropdown is intentionally in-memory only.
 els.sortSelect.value = state.sortBy;
 els.sortSelect.addEventListener("change", () => {
   state.sortBy = els.sortSelect.value;
-  persistPrefs();
   renderAgents();
 });
 
