@@ -481,6 +481,7 @@
 }
 
 .cc-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -503,6 +504,32 @@
 
 .cc-card.is-running {
   border-color: rgba(53, 89, 122, 0.42);
+}
+
+.cc-card.is-running::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  padding: 1px;
+  border-radius: 11px;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--cc-running-border-angle),
+    rgba(35, 131, 226, 0.12) 0deg,
+    rgba(35, 131, 226, 0.9) 42deg,
+    rgba(73, 164, 135, 0.76) 82deg,
+    rgba(35, 131, 226, 0.12) 124deg,
+    rgba(35, 131, 226, 0.12) 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: cc-running-border 2.6s linear infinite;
 }
 
 .cc-card.is-waiting {
@@ -647,6 +674,23 @@
 @keyframes cc-pulse {
   0%, 100% { opacity: 0.35; transform: scale(0.85); }
   50%      { opacity: 1;    transform: scale(1); }
+}
+
+@property --cc-running-border-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes cc-running-border {
+  to { --cc-running-border-angle: 360deg; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cc-card.is-running::before,
+  .cc-status-pill.is-running::before {
+    animation: none;
+  }
 }
 
 .cc-card-cwd {
