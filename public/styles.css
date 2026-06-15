@@ -1416,6 +1416,10 @@ input {
   display: none;
 }
 
+.toolbar #fullscreenSnapshot {
+  margin-left: auto;
+}
+
 .fullscreen-only {
   display: none;
 }
