@@ -6,6 +6,8 @@ import {
   createCommandCenterGrace,
   holdCommandCenterSnapshot as holdCommandCenterGraceSnapshot,
 } from "./command-center-grace.mjs";
+import { linkifyEscaped } from "./linkify.js";
+import { renderMarkdown } from "./markdown.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
 
 // Command Center — separate top-level page. Polls /api/command-center on
@@ -1239,7 +1241,12 @@ async function copyTextToClipboard(text) {
   }
 }
 
-function renderSection({ className, label, text, timestamp, expandedKey }) {
+function renderSectionContent(text, format) {
+  if (format === "markdown") return renderMarkdown(text);
+  return linkifyEscaped(escapeHtml(text));
+}
+
+function renderSection({ className, label, text, timestamp, expandedKey, format = "plain" }) {
   const wrap = document.createElement("div");
   wrap.className = `cc-section ${className}`;
   if (state.expanded.has(expandedKey)) wrap.classList.add("is-expanded");
@@ -1301,14 +1308,17 @@ function renderSection({ className, label, text, timestamp, expandedKey }) {
 
   const body = document.createElement("div");
   body.className = "cc-section-text";
+  if (format === "markdown") body.classList.add("is-markdown");
   if (!text) {
     body.classList.add("is-empty");
     body.textContent = "(nothing yet)";
   } else {
-    body.textContent = text;
+    body.innerHTML = renderSectionContent(text, format);
   }
 
-  body.addEventListener("click", () => {
+  body.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest("a, button, input, select, textarea")) return;
     if (state.expanded.has(expandedKey)) state.expanded.delete(expandedKey);
     else state.expanded.add(expandedKey);
     wrap.classList.toggle("is-expanded");
@@ -2099,6 +2109,7 @@ function renderCard(agent) {
       text: agent.lastUserText,
       timestamp: agent.lastUserAt,
       expandedKey: `${agentMachineKey(agent)}::${agent.windowId}::user`,
+      format: "plain",
     }),
   );
   card.append(
@@ -2108,6 +2119,7 @@ function renderCard(agent) {
       text: agent.lastAssistantText,
       timestamp: agent.lastAssistantAt,
       expandedKey: `${agentMachineKey(agent)}::${agent.windowId}::assistant`,
+      format: "markdown",
     }),
   );
 

@@ -812,6 +812,113 @@
   font-style: italic;
 }
 
+.cc-section-text a,
+.cc-section-text .pane-link {
+  color: var(--accent-dark);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cc-section-text .pane-file {
+  color: var(--accent-dark);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.cc-section-text.is-markdown {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  white-space: normal;
+}
+
+.cc-section-text.is-markdown > :first-child {
+  margin-top: 0;
+}
+
+.cc-section-text.is-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.cc-section-text.is-markdown p,
+.cc-section-text.is-markdown ul,
+.cc-section-text.is-markdown ol,
+.cc-section-text.is-markdown blockquote,
+.cc-section-text.is-markdown pre,
+.cc-section-text.is-markdown table {
+  margin: 0 0 0.55em;
+}
+
+.cc-section-text.is-markdown h1,
+.cc-section-text.is-markdown h2,
+.cc-section-text.is-markdown h3,
+.cc-section-text.is-markdown h4,
+.cc-section-text.is-markdown h5,
+.cc-section-text.is-markdown h6 {
+  margin: 0 0 0.45em;
+  font-size: 1em;
+  line-height: 1.25;
+}
+
+.cc-section-text.is-markdown ul,
+.cc-section-text.is-markdown ol {
+  padding-left: 1.25em;
+}
+
+.cc-section-text.is-markdown li {
+  margin: 0.18em 0;
+}
+
+.cc-section-text.is-markdown code,
+.cc-section-text.is-markdown pre {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.cc-section-text.is-markdown code {
+  padding: 0.08em 0.28em;
+  border-radius: 4px;
+  background: var(--surface-soft);
+  font-size: 0.94em;
+}
+
+.cc-section-text.is-markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  white-space: pre;
+}
+
+.cc-section-text.is-markdown pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.cc-section-text.is-markdown blockquote {
+  padding-left: 0.8em;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+
+.cc-section-text.is-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+
+.cc-section-text.is-markdown th,
+.cc-section-text.is-markdown td {
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+}
+
+.cc-section-text.is-markdown img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
 .cc-card-footer {
   display: flex;
   align-items: center;
