@@ -2083,13 +2083,17 @@ function renderCard(agent) {
   const ownerChip = agent.machineOwnerId
     ? `<span class="cc-owner-chip" title="${escapeHtml(agent.machineOwnerId)}">${escapeHtml(ownerLocal)}</span>`
     : "";
+  const session = agent.sessionName
+    ? `<span class="cc-card-session">· ${escapeHtml(agent.sessionName || "")}</span>`
+    : "";
   header.innerHTML = `
+    <span class="cc-card-title">
+      <span class="cc-card-window-name">${escapeHtml(agent.windowName || "(unnamed)")}</span>
+      <span class="cc-card-window-index">#${escapeHtml(agent.windowIndex)}</span>
+      ${session}
+    </span>
     ${machineChip}
     ${ownerChip}
-    <span class="cc-card-title">
-      <span>${agent.windowIndex}: ${escapeHtml(agent.windowName || "(unnamed)")}</span>
-      <span class="cc-card-session">· ${escapeHtml(agent.sessionName || "")}</span>
-    </span>
     <span class="cc-kind-chip">${escapeHtml(agent.kind)}</span>
     <span class="cc-status-pill${statusClass(agent.status)}">
       ${escapeHtml(statusLabel(agent.status))}

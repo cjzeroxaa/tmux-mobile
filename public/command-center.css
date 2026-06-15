@@ -543,27 +543,49 @@
 .cc-card-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 .cc-card-title {
-  flex: 1 1 auto;
+  flex: 1 1 100%;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: var(--cc-card-title-size);
-  font-weight: 800;
+  gap: 7px;
+  line-height: 1.24;
   color: var(--ink);
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.cc-card-session {
-  font-weight: 600;
+.cc-card-window-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: calc(var(--cc-card-title-size) + 1.5px);
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.cc-card-window-index {
+  flex: 0 0 auto;
   color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--cc-cwd-size);
+  font-weight: 700;
+  opacity: 0.72;
+}
+
+.cc-card-session {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: var(--cc-cwd-size);
+  font-weight: 600;
+  opacity: 0.72;
 }
 
 .cc-kind-chip {
@@ -571,19 +593,19 @@
   flex: 0 0 auto;
   padding: 1px 7px;
   border-radius: 999px;
-  background: rgba(53, 89, 122, 0.14);
-  color: var(--accent-dark);
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  color: var(--muted);
   font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: var(--cc-chip-size);
-  font-weight: 800;
+  font-weight: 750;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  opacity: 0.82;
 }
 
-/* Per-machine chip on each card (controller mode only). This is the primary
- * cross-machine scan target, so it is intentionally stronger than the agent
- * type chip. Whole hostname can be long (e.g. tigris-bigeye.ts.net), so allow
- * it to ellipsize on narrow phones. */
+/* Per-machine chip on each card (controller mode only). Kept visible, but
+ * visually secondary to the tmux window name. */
 .cc-machine-chip {
   display: inline-flex;
   align-items: center;
@@ -591,34 +613,36 @@
   max-width: 100%;
   min-height: 20px;
   padding: 2px 8px;
-  border: 1px solid rgba(29, 116, 84, 0.36);
+  border: 1px solid var(--line);
   border-radius: 999px;
-  background: rgba(37, 137, 94, 0.14);
-  color: #14664a;
+  background: var(--surface-soft);
+  color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--cc-machine-chip-size);
-  font-weight: 850;
+  font-weight: 750;
   letter-spacing: 0.02em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.26);
+  opacity: 0.82;
 }
 
-/* Whose Google account registered the machine. Slightly accented so it
- * reads as "contributor" not "context"; full email in the title attr. */
+/* Whose Google account registered the machine. Secondary metadata; full email
+ * lives in the title attr. */
 .cc-owner-chip {
   display: inline-block;
   flex: 0 0 auto;
   padding: 1px 7px;
   border-radius: 999px;
-  background: rgba(53, 89, 122, 0.10);
-  color: var(--accent-dark);
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  color: var(--muted);
   font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: var(--cc-chip-size);
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  opacity: 0.78;
 }
 
 .cc-status-pill {
@@ -628,6 +652,7 @@
   flex: 0 0 auto;
   padding: 2px 8px;
   border-radius: 999px;
+  border: 1px solid var(--line);
   background: var(--surface-soft);
   color: var(--muted);
   font-size: var(--cc-status-size);
@@ -646,7 +671,8 @@
 }
 
 .cc-status-pill.is-running {
-  background: rgba(53, 89, 122, 0.16);
+  border-color: rgba(53, 89, 122, 0.28);
+  background: rgba(53, 89, 122, 0.08);
   color: var(--accent-dark);
 }
 
@@ -658,8 +684,9 @@
 }
 
 .cc-status-pill.is-waiting {
-  background: rgba(167, 53, 53, 0.12);
-  color: #9f2d2d;
+  border-color: rgba(167, 53, 53, 0.24);
+  background: rgba(167, 53, 53, 0.07);
+  color: #9f4f4f;
 }
 
 .cc-status-pill.is-waiting::before {
@@ -667,8 +694,9 @@
 }
 
 .cc-status-pill.is-unverified {
-  background: rgba(126, 112, 91, 0.12);
-  color: #766a57;
+  border-color: rgba(126, 112, 91, 0.2);
+  background: rgba(126, 112, 91, 0.07);
+  color: var(--muted);
 }
 
 @keyframes cc-pulse {
@@ -697,6 +725,7 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--cc-cwd-size);
   color: var(--muted);
+  opacity: 0.72;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
