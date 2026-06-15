@@ -505,6 +505,21 @@ function requireSessionName(value) {
   return name;
 }
 
+function requireDirectoryPath(value) {
+  const dirPath = String(value || "").trim();
+  if (!dirPath) {
+    const error = new Error("Directory path is required");
+    error.status = 400;
+    throw error;
+  }
+  if (dirPath.length > 4096 || /[\0\r\n]/.test(dirPath)) {
+    const error = new Error("Directory path is invalid");
+    error.status = 400;
+    throw error;
+  }
+  return dirPath;
+}
+
 function parseLines(value) {
   const lines = Number(value || 500);
   if (!Number.isFinite(lines) || lines < 1) return 500;
@@ -782,6 +797,82 @@ async function createSession(name) {
     throw error;
   }
   return sessionFromRow(row);
+}
+
+const START_AGENT_COMMANDS = {
+  codex: { command: "codex", windowName: "codex" },
+  claude: { command: "claude", windowName: "claude" },
+};
+
+function requireStartAgentKind(value) {
+  const kind = String(value || "").trim().toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(START_AGENT_COMMANDS, kind)) return kind;
+  const error = new Error("Agent kind must be codex or claude");
+  error.status = 400;
+  throw error;
+}
+
+function sessionSlug(value) {
+  const cleaned = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32);
+  return cleaned || "work";
+}
+
+function defaultStartAgentSessionName(kind, cwd) {
+  const trimmed = String(cwd || "").replace(/\/+$/, "");
+  const base = path.basename(trimmed) || "home";
+  return `${kind}-${sessionSlug(base)}-${Date.now().toString(36)}`;
+}
+
+async function startAgentSession(options = {}) {
+  const kind = requireStartAgentKind(options.kind);
+  const cwd = requireDirectoryPath(options.cwd);
+  const spec = START_AGENT_COMMANDS[kind];
+  const sessionName = requireSessionName(
+    options.sessionName || defaultStartAgentSessionName(kind, cwd),
+  );
+  const format = `${formats.sessions}\t#{window_id}\t#{pane_id}`;
+  const stdout = await runTmux(
+    [
+      "new-session",
+      "-d",
+      "-P",
+      "-F",
+      format,
+      "-s",
+      sessionName,
+      "-n",
+      spec.windowName,
+      "-c",
+      cwd,
+    ],
+    { timeout: 5000 },
+  );
+  const [row] = rows(stdout);
+  if (!row) {
+    const error = new Error("tmux did not return the new agent session");
+    error.status = 500;
+    throw error;
+  }
+  requireTmuxFieldCount(row, 7, "agent session");
+  const session = sessionFromRow(row.slice(0, 5));
+  const windowId = requireId(row[5], "window");
+  const paneId = requireId(row[6], "pane");
+  await sendTextToPane(paneId, spec.command, { enter: true });
+  clearSessionSummaryCache(session.id);
+  return {
+    ok: true,
+    kind,
+    command: spec.command,
+    cwd,
+    session,
+    windowId,
+    paneId,
+  };
 }
 
 async function renameSession(sessionId, name) {
@@ -3055,6 +3146,20 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/agent-sessions") {
+    const body = await readJsonBody(req);
+    sendJson(
+      res,
+      200,
+      await startAgentSession({
+        kind: body.kind,
+        cwd: body.cwd,
+        sessionName: body.sessionName,
+      }),
+    );
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/connector-update") {
     const body = await readJsonBody(req);
     sendJson(
@@ -3263,8 +3368,13 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "GET" && url.pathname === "/api/directories") {
-    const paneId = requireId(url.searchParams.get("paneId"), "pane");
-    sendJson(res, 200, await listPaneDirectories(paneId));
+    const explicitPath = url.searchParams.get("path");
+    if (explicitPath !== null) {
+      sendJson(res, 200, await directoriesForCwd(requireDirectoryPath(explicitPath)));
+    } else {
+      const paneId = requireId(url.searchParams.get("paneId"), "pane");
+      sendJson(res, 200, await listPaneDirectories(paneId));
+    }
     return;
   }
 

@@ -421,6 +421,12 @@
   font-weight: 700;
 }
 
+.cc-start-agent-open {
+  flex: 0 0 auto;
+  min-height: 32px;
+  white-space: nowrap;
+}
+
 .cc-list {
   display: grid;
   flex: 1 1 auto;
@@ -875,6 +881,105 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.cc-start-agent-panel {
+  max-height: 92dvh;
+  min-height: min(640px, 88dvh);
+  overflow: hidden;
+}
+
+.cc-start-agent-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.cc-start-agent-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--ink);
+}
+
+.cc-start-agent-field > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cc-start-agent-field select,
+.cc-start-agent-field input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.cc-agent-kind-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+}
+
+.cc-agent-kind-option {
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.cc-agent-kind-option[aria-pressed="true"] {
+  border-color: rgba(35, 131, 226, 0.48);
+  background: rgba(35, 131, 226, 0.13);
+  color: var(--accent-dark);
+}
+
+.cc-start-agent-path-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cc-start-agent-directory {
+  flex: 1 1 auto;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 180px;
+  overflow: hidden;
+}
+
+.cc-start-agent-status {
+  min-height: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cc-start-agent-status.is-error {
+  color: #b91c1c;
+}
+
+.cc-start-agent-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .cc-alert-overlay {

@@ -90,6 +90,7 @@ node server.mjs --register https://eng.impo.ai --login</code></pre>
            plain native <select> so the iOS picker UX comes for free. -->
       <section class="cc-controls">
         <div id="ccFilterRow" class="cc-filter-row" role="toolbar" aria-label="Filter agents"></div>
+        <button id="ccStartAgentOpen" class="small-button cc-start-agent-open" type="button">Start agent</button>
         <label class="cc-sort">
           <span>Sort</span>
           <select id="ccSort" class="cc-sort-select">
@@ -145,6 +146,59 @@ node server.mjs --register https://eng.impo.ai --login</code></pre>
             <button type="button" data-interact-key="C-u" class="direct-key" title="Delete to start of line" aria-label="Delete line">⌫line</button>
             <button type="button" data-interact-key="Down" class="direct-key" title="Down" aria-label="Down">↓</button>
           </div>
+        </div>
+      </section>
+    </div>
+
+    <div id="ccStartAgentSheet" class="settings-sheet" hidden>
+      <button id="ccStartAgentBackdrop" class="settings-backdrop" type="button" aria-label="Close start agent"></button>
+      <section class="settings-panel cc-start-agent-panel" role="dialog" aria-modal="true" aria-labelledby="ccStartAgentTitle">
+        <div class="settings-panel-header">
+          <h2 id="ccStartAgentTitle">Start Agent</h2>
+          <button id="ccStartAgentClose" class="icon-button" type="button" title="Close" aria-label="Close">X</button>
+        </div>
+
+        <div class="cc-start-agent-form">
+          <label class="cc-start-agent-field">
+            <span>Machine</span>
+            <select id="ccStartAgentMachine"></select>
+          </label>
+
+          <div class="cc-start-agent-field">
+            <span>Agent</span>
+            <div class="cc-agent-kind-options" role="group" aria-label="Agent">
+              <button class="cc-agent-kind-option" type="button" data-start-agent-kind="codex" aria-pressed="true">Codex</button>
+              <button class="cc-agent-kind-option" type="button" data-start-agent-kind="claude" aria-pressed="false">Claude Code</button>
+            </div>
+          </div>
+
+          <label class="cc-start-agent-field">
+            <span>Session</span>
+            <input id="ccStartAgentSessionName" type="text" autocomplete="off" placeholder="auto" />
+          </label>
+
+          <label class="cc-start-agent-field">
+            <span>Directory</span>
+            <div class="cc-start-agent-path-row">
+              <input id="ccStartAgentPath" type="text" autocomplete="off" spellcheck="false" />
+              <button id="ccStartAgentLoadDir" class="small-button" type="button">Load</button>
+            </div>
+          </label>
+        </div>
+
+        <section id="ccStartAgentDirectoryNavigator" class="directory-navigator cc-start-agent-directory" aria-label="Start agent directory">
+          <div class="directory-header">
+            <span>Dir</span>
+            <strong id="ccStartAgentDirectoryPath">Select a machine</strong>
+          </div>
+          <div id="ccStartAgentDirectoryList" class="directory-list"></div>
+        </section>
+
+        <p id="ccStartAgentStatus" class="settings-status cc-start-agent-status" role="status" aria-live="polite"></p>
+
+        <div class="cc-start-agent-actions">
+          <button id="ccStartAgentCancel" class="small-button" type="button">Cancel</button>
+          <button id="ccStartAgentSubmit" class="small-button submit" type="button">Start</button>
         </div>
       </section>
     </div>

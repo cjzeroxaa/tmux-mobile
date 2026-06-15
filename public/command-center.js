@@ -70,6 +70,22 @@ const els = {
   interactVoiceWaveform: document.querySelector("#ccInteractVoiceWaveform"),
   interactSubmitVoice: document.querySelector("#ccInteractSubmitVoice"),
   interactCancelVoice: document.querySelector("#ccInteractCancelVoice"),
+  startAgentOpen: document.querySelector("#ccStartAgentOpen"),
+  startAgentSheet: document.querySelector("#ccStartAgentSheet"),
+  startAgentBackdrop: document.querySelector("#ccStartAgentBackdrop"),
+  startAgentClose: document.querySelector("#ccStartAgentClose"),
+  startAgentMachine: document.querySelector("#ccStartAgentMachine"),
+  startAgentKindButtons: [
+    ...document.querySelectorAll("[data-start-agent-kind]"),
+  ],
+  startAgentSessionName: document.querySelector("#ccStartAgentSessionName"),
+  startAgentPath: document.querySelector("#ccStartAgentPath"),
+  startAgentLoadDir: document.querySelector("#ccStartAgentLoadDir"),
+  startAgentDirectoryPath: document.querySelector("#ccStartAgentDirectoryPath"),
+  startAgentDirectoryList: document.querySelector("#ccStartAgentDirectoryList"),
+  startAgentStatus: document.querySelector("#ccStartAgentStatus"),
+  startAgentCancel: document.querySelector("#ccStartAgentCancel"),
+  startAgentSubmit: document.querySelector("#ccStartAgentSubmit"),
   deleteDialog: document.querySelector("#ccDeleteDialog"),
   deleteTarget: document.querySelector("#ccDeleteTarget"),
   deleteStatus: document.querySelector("#ccDeleteStatus"),
@@ -213,6 +229,20 @@ const state = {
   deleteBusy: false,
   deletingWindows: new Set(),
   updatingMachines: new Set(),
+  startAgent: {
+    machineId: "",
+    kind: "codex",
+    cwd: "",
+    loadingDirs: false,
+    starting: false,
+    generation: 0,
+    directories: {
+      cwd: "",
+      parent: "",
+      entries: [],
+      error: "",
+    },
+  },
   selectedCardKey: "",
   interactVoice: {
     status: "idle",
@@ -325,6 +355,10 @@ function agentMachineKey(agent) {
 
 function machineLabel(machine) {
   return String(machine?.hostname || machine?.machineId || machine?.id || "local");
+}
+
+function machineByKey(key) {
+  return state.machines.find((machine) => machineKey(machine) === key) || null;
 }
 
 async function api(path, options = {}) {
@@ -976,6 +1010,7 @@ function renderFilterRow() {
       }));
     }
   }
+  if (!els.startAgentSheet?.hidden) renderStartAgentMachineOptions();
 }
 
 function chipButton({ label, active, kind, onTap }) {
@@ -1283,8 +1318,264 @@ async function updateConnector(machine) {
   }
 }
 
+function defaultStartAgentDirectory(machine) {
+  return String(machine?.agentCwd || "").trim() || "/";
+}
+
+function setStartAgentStatus(text, { error = false } = {}) {
+  if (!els.startAgentStatus) return;
+  els.startAgentStatus.textContent = text || "";
+  els.startAgentStatus.classList.toggle("is-error", Boolean(error));
+}
+
+function setStartAgentKind(kind) {
+  const next = kind === "claude" ? "claude" : "codex";
+  state.startAgent.kind = next;
+  for (const button of els.startAgentKindButtons) {
+    button.setAttribute("aria-pressed", String(button.dataset.startAgentKind === next));
+  }
+}
+
+function selectedStartAgentMachine() {
+  return machineByKey(state.startAgent.machineId) || state.machines[0] || null;
+}
+
+function renderStartAgentMachineOptions() {
+  if (!els.startAgentMachine) return;
+  const machines = state.machines;
+  const validIds = new Set(machines.map(machineKey).filter(Boolean));
+  if (!validIds.has(state.startAgent.machineId)) {
+    state.startAgent.machineId = machines[0] ? machineKey(machines[0]) : "";
+  }
+  els.startAgentMachine.replaceChildren(
+    ...machines.map((machine) => {
+      const option = document.createElement("option");
+      option.value = machineKey(machine);
+      option.textContent = machineLabel(machine);
+      return option;
+    }),
+  );
+  els.startAgentMachine.value = state.startAgent.machineId;
+  els.startAgentMachine.disabled = machines.length === 0 || state.startAgent.starting;
+}
+
+function syncStartAgentControls() {
+  const busy = state.startAgent.starting;
+  const hasMachine = Boolean(state.startAgent.machineId);
+  if (els.startAgentSessionName) els.startAgentSessionName.disabled = busy || !hasMachine;
+  if (els.startAgentPath) els.startAgentPath.disabled = busy || !hasMachine;
+  if (els.startAgentLoadDir) {
+    els.startAgentLoadDir.disabled = busy || !hasMachine || state.startAgent.loadingDirs;
+    els.startAgentLoadDir.textContent = state.startAgent.loadingDirs ? "Loading" : "Load";
+  }
+  for (const button of els.startAgentKindButtons) {
+    button.disabled = busy || !hasMachine;
+  }
+  if (els.startAgentSubmit) {
+    els.startAgentSubmit.disabled = busy || !hasMachine || state.startAgent.loadingDirs;
+    els.startAgentSubmit.textContent = busy ? "Starting..." : "Start";
+  }
+}
+
+function startDirectoryStatus(text) {
+  const item = document.createElement("span");
+  item.className = "directory-status";
+  item.textContent = text;
+  return item;
+}
+
+function startDirectoryButton(label, targetPath, className = "") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `directory-button ${className}`.trim();
+  button.textContent = label;
+  button.title = targetPath;
+  button.dataset.startAgentCwd = targetPath;
+  return button;
+}
+
+function renderStartAgentDirectories() {
+  if (!els.startAgentDirectoryPath || !els.startAgentDirectoryList) return;
+  const { cwd, parent, entries, error } = state.startAgent.directories;
+  els.startAgentDirectoryPath.textContent =
+    cwd || error || (state.startAgent.machineId ? "Directory unavailable" : "Select a machine");
+  els.startAgentDirectoryList.replaceChildren();
+  if (state.startAgent.loadingDirs && entries.length === 0) {
+    els.startAgentDirectoryList.append(startDirectoryStatus("Loading directories..."));
+    return;
+  }
+  if (error && entries.length === 0) {
+    els.startAgentDirectoryList.append(startDirectoryStatus(error));
+    return;
+  }
+  if (parent && parent !== cwd) {
+    els.startAgentDirectoryList.append(startDirectoryButton("..", parent, "parent"));
+  }
+  const visibleEntries = entries.filter((entry) => !entry.hidden && !entry.name.startsWith("."));
+  for (const entry of visibleEntries) {
+    els.startAgentDirectoryList.append(startDirectoryButton(entry.name, entry.path));
+  }
+  if (visibleEntries.length === 0 && !(parent && parent !== cwd)) {
+    els.startAgentDirectoryList.append(startDirectoryStatus("No child directories."));
+  }
+}
+
+function renderStartAgentSheet() {
+  renderStartAgentMachineOptions();
+  setStartAgentKind(state.startAgent.kind);
+  if (els.startAgentPath && els.startAgentPath.value !== state.startAgent.cwd) {
+    els.startAgentPath.value = state.startAgent.cwd;
+  }
+  renderStartAgentDirectories();
+  syncStartAgentControls();
+}
+
+async function loadStartAgentDirectories({ path: targetPath } = {}) {
+  const machineId = state.startAgent.machineId;
+  const cwd = String(targetPath ?? els.startAgentPath?.value ?? state.startAgent.cwd).trim();
+  if (!machineId) {
+    setStartAgentStatus("No machine selected.", { error: true });
+    return;
+  }
+  if (!cwd) {
+    setStartAgentStatus("Enter a directory path.", { error: true });
+    els.startAgentPath?.focus();
+    return;
+  }
+
+  const generation = ++state.startAgent.generation;
+  state.startAgent.cwd = cwd;
+  state.startAgent.loadingDirs = true;
+  state.startAgent.directories = {
+    cwd,
+    parent: "",
+    entries: [],
+    error: "",
+  };
+  setStartAgentStatus(`Loading ${abbrevHome(cwd)}...`);
+  renderStartAgentSheet();
+  try {
+    const data = await api(`/api/directories?path=${encodeURIComponent(cwd)}`, {
+      machineId,
+    });
+    if (generation !== state.startAgent.generation) return;
+    state.startAgent.cwd = data.cwd || cwd;
+    state.startAgent.directories = {
+      cwd: data.cwd || cwd,
+      parent: data.parent || "",
+      entries: Array.isArray(data.entries) ? data.entries : [],
+      error: "",
+    };
+    setStartAgentStatus("");
+  } catch (error) {
+    if (generation !== state.startAgent.generation) return;
+    state.startAgent.directories = {
+      cwd: "",
+      parent: "",
+      entries: [],
+      error: error.message || "Directory unavailable",
+    };
+    setStartAgentStatus(error.message || "Directory unavailable", { error: true });
+  } finally {
+    if (generation === state.startAgent.generation) {
+      state.startAgent.loadingDirs = false;
+      renderStartAgentSheet();
+    }
+  }
+}
+
+function openStartAgent(preferredMachineId = "") {
+  const selectedAgent = selectedAgentFrom();
+  const fallbackMachineId = selectedAgent ? agentMachineKey(selectedAgent) : "";
+  const onlyFilteredMachine =
+    state.filterMachines.size === 1 ? [...state.filterMachines][0] : "";
+  const machineId = preferredMachineId || fallbackMachineId || onlyFilteredMachine;
+  if (machineId && machineByKey(machineId)) {
+    state.startAgent.machineId = machineId;
+  } else if (!machineByKey(state.startAgent.machineId)) {
+    state.startAgent.machineId = state.machines[0] ? machineKey(state.machines[0]) : "";
+  }
+  const machine = selectedStartAgentMachine();
+  state.startAgent.cwd = defaultStartAgentDirectory(machine);
+  state.startAgent.directories = {
+    cwd: state.startAgent.cwd,
+    parent: "",
+    entries: [],
+    error: "",
+  };
+  state.startAgent.loadingDirs = false;
+  state.startAgent.starting = false;
+  setStartAgentStatus(machine ? "" : "No machines online.", { error: !machine });
+  if (els.startAgentSessionName) els.startAgentSessionName.value = "";
+  if (els.startAgentSheet) els.startAgentSheet.hidden = false;
+  renderStartAgentSheet();
+  if (machine) {
+    loadStartAgentDirectories({ path: state.startAgent.cwd }).catch((error) => {
+      setStartAgentStatus(error.message || "Directory unavailable", { error: true });
+    });
+  }
+}
+
+function closeStartAgent() {
+  if (els.startAgentSheet) els.startAgentSheet.hidden = true;
+  state.startAgent.starting = false;
+  state.startAgent.loadingDirs = false;
+  syncStartAgentControls();
+}
+
+function handleStartAgentMachineChange() {
+  state.startAgent.machineId = els.startAgentMachine?.value || "";
+  const machine = selectedStartAgentMachine();
+  state.startAgent.cwd = defaultStartAgentDirectory(machine);
+  if (els.startAgentPath) els.startAgentPath.value = state.startAgent.cwd;
+  loadStartAgentDirectories({ path: state.startAgent.cwd }).catch((error) => {
+    setStartAgentStatus(error.message || "Directory unavailable", { error: true });
+  });
+}
+
+async function submitStartAgent() {
+  if (state.startAgent.starting) return;
+  const machineId = state.startAgent.machineId;
+  const machine = selectedStartAgentMachine();
+  const cwd = String(els.startAgentPath?.value || state.startAgent.cwd || "").trim();
+  if (!machineId || !machine) {
+    setStartAgentStatus("Select a machine.", { error: true });
+    return;
+  }
+  if (!cwd) {
+    setStartAgentStatus("Enter a directory path.", { error: true });
+    els.startAgentPath?.focus();
+    return;
+  }
+  state.startAgent.starting = true;
+  syncStartAgentControls();
+  setStartAgentStatus(`Starting ${state.startAgent.kind} in ${abbrevHome(cwd)}...`);
+  try {
+    const result = await api("/api/agent-sessions", {
+      method: "POST",
+      machineId,
+      body: JSON.stringify({
+        kind: state.startAgent.kind,
+        cwd,
+        sessionName: els.startAgentSessionName?.value || "",
+      }),
+    });
+    closeStartAgent();
+    const sessionName = result.session?.name || "new tmux session";
+    setStatus(
+      `Started ${result.kind} on ${machineLabel(machine)} in ${abbrevHome(cwd)} (${sessionName}).`,
+    );
+    window.setTimeout(() => loadAgents(), 900);
+  } catch (error) {
+    setStartAgentStatus(error.message || "Could not start agent.", { error: true });
+  } finally {
+    state.startAgent.starting = false;
+    syncStartAgentControls();
+  }
+}
+
 function readKeyForAgent(agent) {
-  return `${agentMachineKey(agent)}::${agent.paneId || agent.windowId || ""}`;
+  return `${agentMachineKey(agent)}::${agent.windowId || agent.paneId || agent.agentSessionId || ""}`;
 }
 
 function selectedAgentFrom(agents = filterAndSort(state.agents)) {
@@ -1306,7 +1597,25 @@ function cardElements() {
   return [...els.list.querySelectorAll(".cc-card[data-card-key]")];
 }
 
-function updateSelectedCard(key, { scroll = false } = {}) {
+function cardElementByKey(key) {
+  if (!key) return null;
+  return cardElements().find((card) => card.dataset.cardKey === key) || null;
+}
+
+function focusedCardKey() {
+  const active = document.activeElement instanceof Element ? document.activeElement : null;
+  const card = active?.closest(".cc-card[data-card-key]");
+  return card?.dataset.cardKey || "";
+}
+
+function restoreFocusedCard(key) {
+  const card = cardElementByKey(key);
+  if (!card) return;
+  card.focus({ preventScroll: true });
+  card.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+function updateSelectedCard(key, { scroll = false, focus = false } = {}) {
   if (!key) return;
   state.selectedCardKey = key;
   for (const card of cardElements()) {
@@ -1314,6 +1623,9 @@ function updateSelectedCard(key, { scroll = false } = {}) {
     card.classList.toggle("is-selected", selected);
     card.setAttribute("aria-selected", String(selected));
     card.tabIndex = selected ? 0 : -1;
+    if (selected && focus) {
+      card.focus({ preventScroll: true });
+    }
     if (selected && scroll) {
       card.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
@@ -1348,7 +1660,7 @@ function moveSelectedCard(direction) {
     0,
     Math.min(cards.length - 1, index + (deltas[direction] || 0)),
   );
-  updateSelectedCard(cards[nextIndex].dataset.cardKey, { scroll: true });
+  updateSelectedCard(cards[nextIndex].dataset.cardKey, { scroll: true, focus: true });
 }
 
 function openSelectedAgent({ newTab = false } = {}) {
@@ -1381,6 +1693,7 @@ function handleCardShortcuts(event) {
     event.altKey ||
     shortcutTargetIsEditable(event.target) ||
     !els.interactSheet?.hidden ||
+    !els.startAgentSheet?.hidden ||
     !els.deleteDialog?.hidden ||
     els.moreMenu?.open
   ) {
@@ -1620,6 +1933,7 @@ function renderCard(agent) {
 }
 
 function renderAgents() {
+  const priorFocusedCardKey = focusedCardKey();
   if (state.machines.length === 0 && state.agents.length === 0) {
     state.selectedCardKey = "";
     const loads = machineLoadCounts();
@@ -1635,6 +1949,12 @@ function renderAgents() {
     return;
   }
   const filtered = filterAndSort(state.agents);
+  if (
+    priorFocusedCardKey &&
+    filtered.some((agent) => readKeyForAgent(agent) === priorFocusedCardKey)
+  ) {
+    state.selectedCardKey = priorFocusedCardKey;
+  }
   ensureSelectedCard(filtered);
   els.list.innerHTML = "";
   for (const machine of staleMachines()) {
@@ -1658,6 +1978,7 @@ function renderAgents() {
     els.list.append(renderCard(agent));
   }
   syncSelectedCardDom();
+  if (priorFocusedCardKey) restoreFocusedCard(priorFocusedCardKey);
 }
 
 async function loadAgentsAggregate(generation) {
@@ -1775,7 +2096,10 @@ els.list.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
   const card = target.closest(".cc-card[data-card-key]");
-  if (card) updateSelectedCard(card.dataset.cardKey);
+  const interactive = target.closest(
+    "button, a, select, input, textarea, summary, [contenteditable='true']",
+  );
+  if (card) updateSelectedCard(card.dataset.cardKey, { focus: !interactive });
 
   const updateButton = target.closest("[data-update-machine]");
   if (updateButton) {
@@ -1816,6 +2140,39 @@ els.interactBackdrop?.addEventListener("click", closeInteract);
 els.interactVoiceButton?.addEventListener("click", toggleInteractVoiceRecording);
 els.interactSubmitVoice?.addEventListener("click", submitInteractVoiceRecording);
 els.interactCancelVoice?.addEventListener("click", cancelInteractVoiceRecording);
+els.startAgentOpen?.addEventListener("click", () => openStartAgent());
+els.startAgentBackdrop?.addEventListener("click", closeStartAgent);
+els.startAgentClose?.addEventListener("click", closeStartAgent);
+els.startAgentCancel?.addEventListener("click", closeStartAgent);
+els.startAgentMachine?.addEventListener("change", handleStartAgentMachineChange);
+els.startAgentLoadDir?.addEventListener("click", () =>
+  loadStartAgentDirectories().catch((error) => {
+    setStartAgentStatus(error.message || "Directory unavailable", { error: true });
+  }),
+);
+els.startAgentSubmit?.addEventListener("click", submitStartAgent);
+els.startAgentPath?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) {
+    return;
+  }
+  event.preventDefault();
+  loadStartAgentDirectories().catch((error) => {
+    setStartAgentStatus(error.message || "Directory unavailable", { error: true });
+  });
+});
+for (const button of els.startAgentKindButtons) {
+  button.addEventListener("click", () => setStartAgentKind(button.dataset.startAgentKind));
+}
+els.startAgentDirectoryList?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const button = target?.closest("[data-start-agent-cwd]");
+  if (!button) return;
+  state.startAgent.cwd = button.dataset.startAgentCwd || "";
+  if (els.startAgentPath) els.startAgentPath.value = state.startAgent.cwd;
+  loadStartAgentDirectories({ path: state.startAgent.cwd }).catch((error) => {
+    setStartAgentStatus(error.message || "Directory unavailable", { error: true });
+  });
+});
 els.deleteCancel?.addEventListener("click", closeDeleteWindowDialog);
 els.deleteConfirm?.addEventListener("click", confirmDeleteWindow);
 els.interactInput?.addEventListener("input", () => {
@@ -1875,6 +2232,10 @@ document.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !els.deleteDialog?.hidden) {
     closeDeleteWindowDialog();
+    return;
+  }
+  if (event.key === "Escape" && !els.startAgentSheet?.hidden) {
+    closeStartAgent();
     return;
   }
   if (event.key === "Escape" && !els.interactSheet?.hidden) closeInteract();
