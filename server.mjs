@@ -2199,6 +2199,7 @@ async function localCommandCenterMachine(agentCount = 0) {
     agentRevision: APP_REVISION,
     connectorVersion: CONNECTOR_VERSION,
     agentCwd: __dirname,
+    homeDir: os.homedir(),
     nodePath: process.execPath,
     expectedRevision: APP_REVISION,
     expectedConnectorVersion: CONNECTOR_VERSION,

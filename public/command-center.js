@@ -361,6 +361,23 @@ function machineLabel(machine) {
   return String(machine?.hostname || machine?.machineId || machine?.id || "local");
 }
 
+function inferHomeDirectory(value) {
+  const dir = String(value || "").trim().replace(/\/+$/, "");
+  if (!dir) return "";
+  const unixHome = dir.match(/^(\/(?:Users|home)\/[^/]+)(?:\/|$)/);
+  if (unixHome) return unixHome[1];
+  if (dir === "/root" || dir.startsWith("/root/")) return "/root";
+  return "";
+}
+
+function machineHomeDirectory(machine) {
+  return (
+    String(machine?.homeDir || "").trim() ||
+    inferHomeDirectory(machine?.agentCwd) ||
+    inferHomeDirectory(machine?.cwd)
+  );
+}
+
 function startAgentMachines() {
   const machines = [];
   const seen = new Set();
@@ -1556,7 +1573,7 @@ async function updateConnector(machine) {
 }
 
 function defaultStartAgentDirectory(machine) {
-  return String(machine?.agentCwd || "").trim() || "/";
+  return machineHomeDirectory(machine) || "/";
 }
 
 function setStartAgentStatus(text, { error = false } = {}) {

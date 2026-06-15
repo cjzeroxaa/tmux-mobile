@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
@@ -435,6 +435,11 @@ try {
 
   const aliceAgentOne = startAgent(baseUrl, ALICE, aliceOne, tmpDir);
   let aliceMachines = await waitForMachines(baseUrl, aliceCookie, [aliceOne]);
+  assert.equal(
+    aliceMachines.find((machine) => machine.machineId === aliceOne)?.homeDir,
+    homedir(),
+    "agent advertises home directory for start-agent defaults",
+  );
   await waitForMachines(baseUrl, bobCookie, [aliceOne]);
   assert.deepEqual(await requestJson(baseUrl, "/api/machines", { cookie: consumerCookie }), []);
   assertAlive("alice-agent-one", aliceAgentOne);
@@ -470,6 +475,11 @@ try {
   });
   assert.equal(bobCommandCenter.machines.length, 1, "per-machine command-center machine count");
   assert.equal(bobCommandCenter.machines[0].id, bobOneRoute, "per-machine command-center route id");
+  assert.equal(
+    bobCommandCenter.machines[0].homeDir,
+    homedir(),
+    "command-center machine metadata includes home directory",
+  );
   assert.ok(
     bobCommandCenter.agents.every((agent) => agent.machineId === bobOneRoute),
     "per-machine command-center only returns requested machine agents",
