@@ -497,10 +497,9 @@
 }
 
 .cc-card.is-selected {
-  outline: 2px solid rgba(35, 131, 226, 0.56);
-  outline-offset: 2px;
+  border-color: rgba(35, 131, 226, 0.6);
   box-shadow:
-    0 0 0 1px rgba(35, 131, 226, 0.14),
+    0 0 0 2px rgba(35, 131, 226, 0.38),
     var(--shadow);
 }
 
