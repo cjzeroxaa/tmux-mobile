@@ -366,23 +366,6 @@ function machineLabel(machine) {
   return String(machine?.hostname || machine?.machineId || machine?.id || "local");
 }
 
-function machineByKey(key) {
-  const machine = state.machines.find((item) => machineKey(item) === key);
-  if (machine) return machine;
-  const agent = state.agents.find((item) => agentMachineKey(item) === key);
-  if (!agent) return null;
-  return {
-    id: key,
-    machineId: key,
-    hostname: agent.machineHostname || key,
-    agentCwd: agent.cwd || "",
-  };
-}
-
-function startAgentMachineIds() {
-  return startAgentMachines().map(machineKey).filter(Boolean);
-}
-
 function startAgentMachines() {
   const machines = [];
   const seen = new Set();
@@ -410,26 +393,13 @@ function startAgentMachines() {
 }
 
 function startAgentMachineChoices() {
-  if (state.filterMachines.size > 1) return [];
+  const machines = startAgentMachines();
   if (state.filterMachines.size === 1) {
-    const machine = machineByKey([...state.filterMachines][0]);
-    return machine ? [machine] : [];
+    const selectedId = [...state.filterMachines][0];
+    const selected = machines.find((machine) => machineKey(machine) === selectedId);
+    return selected ? [selected, ...machines.filter((machine) => machineKey(machine) !== selectedId)] : machines;
   }
-  return startAgentMachines();
-}
-
-function exactlySelectedMachineId() {
-  if (state.filterMachines.size === 0) {
-    const ids = startAgentMachineIds();
-    return ids.length === 1 ? ids[0] : "";
-  }
-  if (state.filterMachines.size !== 1) return "";
-  return [...state.filterMachines][0] || "";
-}
-
-function exactlySelectedMachine() {
-  const machineId = exactlySelectedMachineId();
-  return machineId ? machineByKey(machineId) : null;
+  return machines;
 }
 
 async function api(path, options = {}) {
@@ -1071,8 +1041,6 @@ function renderFilterRow() {
     const sep = document.createElement("span");
     sep.className = "cc-filter-sep";
     row.append(sep);
-    const selectedMachineId = exactlySelectedMachineId();
-    let insertedStartAgentOpen = false;
     for (const [id, hostname] of machines) {
       const active = state.filterMachines.has(id);
       row.append(chipButton({
@@ -1081,14 +1049,7 @@ function renderFilterRow() {
         kind: "machine",
         onTap: () => toggleFilter("filterMachines", id),
       }));
-      if (active && id === selectedMachineId && els.startAgentOpen) {
-        row.append(els.startAgentOpen);
-        insertedStartAgentOpen = true;
-      }
     }
-    if (els.startAgentOpen && !insertedStartAgentOpen) row.append(els.startAgentOpen);
-  } else if (els.startAgentOpen) {
-    row.append(els.startAgentOpen);
   }
   syncStartAgentOpenVisibility();
   if (!els.startAgentSheet?.hidden) renderStartAgentMachineOptions();
@@ -1448,15 +1409,15 @@ function defaultStartAgentDirectory(machine) {
 }
 
 function canOpenStartAgent() {
-  return startAgentMachineChoices().length > 0;
+  return startAgentMachines().length > 0;
 }
 
 function syncStartAgentOpenVisibility() {
   if (!els.startAgentOpen) return;
-  const visible = canOpenStartAgent();
-  els.startAgentOpen.hidden = !visible;
-  els.startAgentOpen.disabled = !visible;
-  if (!visible && !els.startAgentSheet?.hidden) {
+  const enabled = canOpenStartAgent();
+  els.startAgentOpen.hidden = false;
+  els.startAgentOpen.disabled = !enabled;
+  if (!enabled && !els.startAgentSheet?.hidden) {
     closeStartAgent();
   }
 }

@@ -1144,6 +1144,7 @@ function renderWindows() {
 
 function renderTargetLabels() {
   renderMachinePicker();
+  updateDocumentTitle();
   const win = selectedWindow();
   if (!win) {
     if (state.targetLoadingMessage) {
@@ -2019,6 +2020,19 @@ function isNonComposerEditableTarget(target) {
   return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
 }
 
+function isEditableShortcutTarget(target) {
+  return target instanceof Element
+    && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
+function handleComposerFocusShortcut(event) {
+  if (event.defaultPrevented || event.isComposing) return;
+  if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (isEditableShortcutTarget(event.target)) return;
+  event.preventDefault();
+  composerFocus();
+}
+
 function handleComposerVoiceShortcut(event) {
   if (event.defaultPrevented || event.isComposing) return;
   const plainEnter =
@@ -2878,9 +2892,19 @@ async function loadWindowSummaries({ force = false } = {}) {
 
 // The original document title, captured once so the badge can be added/removed
 // without losing it.
-const BASE_DOCUMENT_TITLE = document.title;
+const DEFAULT_DOCUMENT_TITLE = document.title;
 let badgedFaviconUrl = null; // cached data: URL for the badged favicon
 let originalFaviconHref = null;
+
+function appDocumentTitleBase() {
+  const name = String(selectedWindow()?.name || readUrlTarget().windowName || "").trim();
+  return name || DEFAULT_DOCUMENT_TITLE;
+}
+
+function updateDocumentTitle(count = windowsNeedingAttention().length) {
+  const base = appDocumentTitleBase();
+  document.title = count > 0 ? `(${count}) ${base}` : base;
+}
 
 function faviconLink() {
   return document.querySelector('link[rel="icon"][type="image/png"]')
@@ -2970,7 +2994,7 @@ function updateAttentionIndicators() {
   const confirmedCount = count - unverifiedCount;
 
   // Tab title + favicon badge.
-  document.title = count > 0 ? `(${count}) ${BASE_DOCUMENT_TITLE}` : BASE_DOCUMENT_TITLE;
+  updateDocumentTitle(count);
   setFaviconBadged(count > 0);
 
   // Topbar pill.
@@ -4965,6 +4989,7 @@ els.textInput.addEventListener("beforeinput", (event) => {
   submitTextComposer();
 });
 document.addEventListener("keydown", handleComposerVoiceShortcut, true);
+document.addEventListener("keydown", handleComposerFocusShortcut);
 els.submitVoice.addEventListener("click", submitVoiceRecording);
 els.cancelVoice.addEventListener("click", cancelVoiceRecording);
 els.retryVoice.addEventListener("click", retryVoiceRecording);
