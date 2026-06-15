@@ -424,6 +424,9 @@
 .cc-start-agent-open {
   flex: 0 0 auto;
   min-height: 32px;
+  border-color: rgba(35, 131, 226, 0.44);
+  background: rgba(35, 131, 226, 0.12);
+  color: var(--accent-dark);
   white-space: nowrap;
 }
 

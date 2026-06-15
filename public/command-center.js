@@ -1020,6 +1020,7 @@ function renderFilterRow() {
       }));
     }
   }
+  if (els.startAgentOpen) row.append(els.startAgentOpen);
   syncStartAgentOpenVisibility();
   if (!els.startAgentSheet?.hidden) renderStartAgentMachineOptions();
 }
