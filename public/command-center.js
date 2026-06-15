@@ -394,12 +394,10 @@ function startAgentMachines() {
 
 function startAgentMachineChoices() {
   const machines = startAgentMachines();
-  if (state.filterMachines.size === 1) {
-    const selectedId = [...state.filterMachines][0];
-    const selected = machines.find((machine) => machineKey(machine) === selectedId);
-    return selected ? [selected, ...machines.filter((machine) => machineKey(machine) !== selectedId)] : machines;
-  }
-  return machines;
+  if (state.filterMachines.size !== 1) return [];
+  const selectedId = [...state.filterMachines][0];
+  const selected = machines.find((machine) => machineKey(machine) === selectedId);
+  return selected ? [selected] : [];
 }
 
 async function api(path, options = {}) {
@@ -1409,15 +1407,15 @@ function defaultStartAgentDirectory(machine) {
 }
 
 function canOpenStartAgent() {
-  return startAgentMachines().length > 0;
+  return startAgentMachineChoices().length === 1;
 }
 
 function syncStartAgentOpenVisibility() {
   if (!els.startAgentOpen) return;
-  const enabled = canOpenStartAgent();
-  els.startAgentOpen.hidden = false;
-  els.startAgentOpen.disabled = !enabled;
-  if (!enabled && !els.startAgentSheet?.hidden) {
+  const visible = canOpenStartAgent();
+  els.startAgentOpen.hidden = !visible;
+  els.startAgentOpen.disabled = !visible;
+  if (!visible && !els.startAgentSheet?.hidden) {
     closeStartAgent();
   }
 }
@@ -1457,14 +1455,14 @@ function renderStartAgentMachineOptions() {
     }),
   );
   els.startAgentMachine.value = state.startAgent.machineId;
-  els.startAgentMachine.disabled = state.startAgent.starting || machines.length <= 1;
+  els.startAgentMachine.disabled = true;
 }
 
 function syncStartAgentControls() {
   const busy = state.startAgent.starting;
   const hasMachine = Boolean(state.startAgent.machineId);
   if (els.startAgentMachine) {
-    els.startAgentMachine.disabled = busy || startAgentMachineChoices().length <= 1;
+    els.startAgentMachine.disabled = true;
   }
   if (els.startAgentSessionName) els.startAgentSessionName.disabled = busy || !hasMachine;
   if (els.startAgentPath) els.startAgentPath.disabled = busy || !hasMachine;
