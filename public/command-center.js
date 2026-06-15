@@ -1356,8 +1356,7 @@ function openSelectedAgent({ newTab = false } = {}) {
   if (!agent) return;
   const href = buildAgentAppUrl(agent);
   if (newTab) {
-    const opened = window.open(href, "_blank", "noopener");
-    if (!opened) window.location.href = href;
+    window.open(href, "_blank", "noopener");
     return;
   }
   const selectedLink = els.list.querySelector(".cc-card.is-selected .cc-open-button");
