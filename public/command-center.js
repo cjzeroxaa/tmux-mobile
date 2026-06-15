@@ -209,6 +209,7 @@ const state = {
   agents: [],
   loading: false,
   loadGeneration: 0,
+  serverRevision: "",
   machineLoads: new Map(),
   // Track which (windowId, section) cards the user expanded so a refresh
   // doesn't collapse what they were reading.
@@ -358,7 +359,16 @@ function machineLabel(machine) {
 }
 
 function machineByKey(key) {
-  return state.machines.find((machine) => machineKey(machine) === key) || null;
+  const machine = state.machines.find((item) => machineKey(item) === key);
+  if (machine) return machine;
+  const agent = state.agents.find((item) => agentMachineKey(item) === key);
+  if (!agent) return null;
+  return {
+    id: key,
+    machineId: key,
+    hostname: agent.machineHostname || key,
+    agentCwd: agent.cwd || "",
+  };
 }
 
 function exactlySelectedMachineId() {
@@ -1010,6 +1020,8 @@ function renderFilterRow() {
     const sep = document.createElement("span");
     sep.className = "cc-filter-sep";
     row.append(sep);
+    const selectedMachineId = exactlySelectedMachineId();
+    let insertedStartAgentOpen = false;
     for (const [id, hostname] of machines) {
       const active = state.filterMachines.has(id);
       row.append(chipButton({
@@ -1018,9 +1030,15 @@ function renderFilterRow() {
         kind: "machine",
         onTap: () => toggleFilter("filterMachines", id),
       }));
+      if (active && id === selectedMachineId && els.startAgentOpen) {
+        row.append(els.startAgentOpen);
+        insertedStartAgentOpen = true;
+      }
     }
+    if (els.startAgentOpen && !insertedStartAgentOpen) row.append(els.startAgentOpen);
+  } else if (els.startAgentOpen) {
+    row.append(els.startAgentOpen);
   }
-  if (els.startAgentOpen) row.append(els.startAgentOpen);
   syncStartAgentOpenVisibility();
   if (!els.startAgentSheet?.hidden) renderStartAgentMachineOptions();
 }
@@ -2082,6 +2100,7 @@ async function loadAgents() {
   const generation = ++state.loadGeneration;
   if (state.machines.length === 0 && state.agents.length === 0) setStatus("Loading machines…");
   try {
+    await checkServerRevision();
     let machines;
     try {
       machines = await api("/api/machines");
@@ -2098,6 +2117,7 @@ async function loadAgents() {
     }
     await loadAgentsByMachine(machines, generation);
   } catch (error) {
+    if (error.silent) return;
     if (generation !== state.loadGeneration) return;
     state.lastError = error.message || String(error);
     setStatus(`Refresh failed at ${nowLabel()}`);
@@ -2108,6 +2128,18 @@ async function loadAgents() {
       if (!state.lastError) updateCommandCenterStatus();
     }
   }
+}
+
+async function checkServerRevision() {
+  const runtime = await api("/api/runtime");
+  const revision = runtime?.revision || "";
+  if (revision && state.serverRevision && revision !== state.serverRevision) {
+    window.location.reload();
+    const error = new Error("Reloading after server update");
+    error.silent = true;
+    throw error;
+  }
+  state.serverRevision = revision || state.serverRevision;
 }
 
 function startPolling() {
