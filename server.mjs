@@ -3178,15 +3178,29 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/agent-sessions") {
     const body = await readJsonBody(req);
-    sendJson(
-      res,
-      200,
-      await startAgentSession({
-        kind: body.kind,
-        cwd: body.cwd,
-        sessionName: body.sessionName,
-      }),
-    );
+    const requestedMachineId =
+      req.headers["x-machine-id"] || url.searchParams.get("machineId") || "";
+    logServerEvent("start_agent_session_requested", {
+      machineId: requestedMachineId,
+      kind: String(body.kind || ""),
+      cwd: String(body.cwd || ""),
+      sessionName: String(body.sessionName || ""),
+    });
+    const result = await startAgentSession({
+      kind: body.kind,
+      cwd: body.cwd,
+      sessionName: body.sessionName,
+    });
+    logServerEvent("start_agent_session_started", {
+      machineId: requestedMachineId,
+      kind: result.kind,
+      cwd: result.cwd,
+      sessionName: result.session?.name || "",
+      sessionId: result.session?.id || "",
+      windowId: result.windowId || "",
+      paneId: result.paneId || "",
+    });
+    sendJson(res, 200, result);
     return;
   }
 

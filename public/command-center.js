@@ -408,6 +408,22 @@ function startAgentMachineChoices() {
   return startAgentMachines();
 }
 
+function findStartAgentMachine(machineId, machines = startAgentMachineChoices()) {
+  const key = String(machineId || "");
+  if (!key) return null;
+  return machines.find((machine) => machineKey(machine) === key) || null;
+}
+
+function contextStartAgentMachine(machines = startAgentMachineChoices()) {
+  if (state.filterMachines.size === 1) {
+    const [machineId] = [...state.filterMachines];
+    const filteredMachine = findStartAgentMachine(machineId, machines);
+    if (filteredMachine) return filteredMachine;
+  }
+  const selectedAgent = selectedAgentFrom(filterAndSort(state.agents));
+  return findStartAgentMachine(agentMachineKey(selectedAgent), machines);
+}
+
 async function api(path, options = {}) {
   const { machineId, headers: inputHeaders, ...requestOptions } = options;
   const headers = { accept: "application/json", ...(inputHeaders || {}) };
@@ -1590,12 +1606,16 @@ function setStartAgentKind(kind) {
   }
 }
 
-function selectedStartAgentMachine() {
+function selectedStartAgentMachine({ preferContext = false } = {}) {
   const machines = startAgentMachineChoices();
   if (machines.length === 0) return null;
+  if (preferContext) {
+    const contextMachine = contextStartAgentMachine(machines);
+    if (contextMachine) return contextMachine;
+  }
   const selectedId = els.startAgentMachine?.value || state.startAgent.machineId;
   const current = machines.find((machine) => machineKey(machine) === selectedId);
-  return current || machines[0];
+  return current || contextStartAgentMachine(machines) || machines[0];
 }
 
 function renderStartAgentMachineOptions() {
@@ -1746,7 +1766,7 @@ async function loadStartAgentDirectories({ path: targetPath } = {}) {
 
 function openStartAgent() {
   closeMoreMenu();
-  const machine = selectedStartAgentMachine();
+  const machine = selectedStartAgentMachine({ preferContext: true });
   state.startAgent.machineId = machine ? machineKey(machine) : "";
   state.startAgent.cwd = machine ? defaultStartAgentDirectory(machine) : "";
   state.startAgent.directories = {
@@ -1772,6 +1792,13 @@ function closeStartAgent() {
   state.startAgent.starting = false;
   state.startAgent.loadingDirs = false;
   syncStartAgentControls();
+}
+
+function ensureStartedMachineVisible(machineId) {
+  const key = String(machineId || "");
+  if (!key || state.filterMachines.size === 0 || state.filterMachines.has(key)) return;
+  state.filterMachines.add(key);
+  renderFilterRow();
 }
 
 function handleStartAgentMachineChange() {
@@ -1828,6 +1855,7 @@ async function submitStartAgent() {
     });
     closeStartAgent();
     const sessionName = result.session?.name || "new tmux session";
+    ensureStartedMachineVisible(machineId);
     setStatus(
       `Started ${result.kind} on ${machineLabel(machine)} in ${abbrevHome(cwd)} (${sessionName}).`,
     );
