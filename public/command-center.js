@@ -1381,6 +1381,23 @@ function normalizeMachines(machines, agents) {
   }));
 }
 
+function mergeMachineState(machines) {
+  const previous = new Map(
+    state.machines
+      .map((machine) => [machineKey(machine), machine])
+      .filter(([key]) => Boolean(key)),
+  );
+  const seen = new Set();
+  const merged = [];
+  for (const machine of machines) {
+    const key = machineKey(machine);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push({ ...(previous.get(key) || {}), ...machine });
+  }
+  return merged;
+}
+
 function replaceMachine(nextMachine) {
   const key = machineKey(nextMachine);
   if (!key) return;
@@ -2257,14 +2274,17 @@ async function loadMachineAgents(machine, generation) {
     state.machineLoads.set(key, { status: "loaded", error: "" });
   } catch (error) {
     if (generation !== state.loadGeneration) return;
+    replaceAgentsForMachine(key, []);
     if (holdCommandCenterSnapshot([key])) {
       state.machineLoads.set(key, {
         status: "reconnecting",
         error: error.message || String(error),
       });
     } else {
-      removeMachine(key);
-      state.machineLoads.delete(key);
+      state.machineLoads.set(key, {
+        status: "error",
+        error: error.message || String(error),
+      });
     }
   }
   updateCommandCenterStatus();
@@ -2292,7 +2312,7 @@ async function loadAgentsByMachine(machines, generation) {
   }
   clearCommandCenterReconnect([...nextKeys]);
   const machineKeys = new Set(normalizedMachines.map(machineKey).filter(Boolean));
-  state.machines = state.machines.filter((machine) => machineKeys.has(machineKey(machine)));
+  state.machines = mergeMachineState(normalizedMachines);
   state.agents = state.agents.filter((agent) => machineKeys.has(agentMachineKey(agent)));
   state.machineLoads = new Map(
     normalizeMachines(machines, state.agents)
