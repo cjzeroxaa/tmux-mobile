@@ -450,7 +450,9 @@ function runTmux(args, options = {}) {
 }
 
 function isNoServerError(error) {
-  return /no server running|failed to connect to server/i.test(error.message);
+  return /no server running|failed to connect to server|error connecting to .*\/tmux-/i.test(
+    error.message,
+  );
 }
 
 function rows(stdout) {
