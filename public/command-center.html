@@ -38,6 +38,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
           </summary>
           <div class="cc-more-panel" role="menu">
+            <button id="ccStartAgentOpen" class="cc-more-item" type="button" role="menuitem">Start agent</button>
             <button id="ccWelcomeShow" class="cc-more-item" type="button" role="menuitem">Help</button>
             <div class="cc-more-control" role="group" aria-label="Theme">
               <span class="cc-more-control-label">Theme</span>
@@ -89,7 +90,6 @@ node server.mjs --register https://eng.impo.ai --login</code></pre>
            command-center.js once the first payload lands; sort is a plain
            native <select> so the iOS picker UX comes for free. -->
       <section class="cc-controls">
-        <button id="ccStartAgentOpen" class="small-button cc-start-agent-open" type="button">Start agent</button>
         <div id="ccFilterRow" class="cc-filter-row" role="toolbar" aria-label="Filter agents"></div>
         <label class="cc-sort">
           <span>Sort</span>

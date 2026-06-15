@@ -376,11 +376,7 @@ function startAgentMachines() {
 }
 
 function startAgentMachineChoices() {
-  const machines = startAgentMachines();
-  if (state.filterMachines.size !== 1) return [];
-  const selectedId = [...state.filterMachines][0];
-  const selected = machines.find((machine) => machineKey(machine) === selectedId);
-  return selected ? [selected] : [];
+  return startAgentMachines();
 }
 
 async function api(path, options = {}) {
@@ -1017,7 +1013,6 @@ function renderFilterRow() {
       }));
     }
   }
-  syncStartAgentOpenVisibility();
   if (!els.startAgentSheet?.hidden) renderStartAgentMachineOptions();
 }
 
@@ -1365,20 +1360,6 @@ function defaultStartAgentDirectory(machine) {
   return String(machine?.agentCwd || "").trim() || "/";
 }
 
-function canOpenStartAgent() {
-  return startAgentMachineChoices().length === 1;
-}
-
-function syncStartAgentOpenVisibility() {
-  if (!els.startAgentOpen) return;
-  const visible = canOpenStartAgent();
-  els.startAgentOpen.hidden = !visible;
-  els.startAgentOpen.disabled = !visible;
-  if (!visible && !els.startAgentSheet?.hidden) {
-    closeStartAgent();
-  }
-}
-
 function setStartAgentStatus(text, { error = false } = {}) {
   if (!els.startAgentStatus) return;
   els.startAgentStatus.textContent = text || "";
@@ -1396,7 +1377,8 @@ function setStartAgentKind(kind) {
 function selectedStartAgentMachine() {
   const machines = startAgentMachineChoices();
   if (machines.length === 0) return null;
-  const current = machines.find((machine) => machineKey(machine) === state.startAgent.machineId);
+  const selectedId = els.startAgentMachine?.value || state.startAgent.machineId;
+  const current = machines.find((machine) => machineKey(machine) === selectedId);
   return current || machines[0];
 }
 
@@ -1414,14 +1396,13 @@ function renderStartAgentMachineOptions() {
     }),
   );
   els.startAgentMachine.value = state.startAgent.machineId;
-  els.startAgentMachine.disabled = true;
 }
 
 function syncStartAgentControls() {
   const busy = state.startAgent.starting;
   const hasMachine = Boolean(state.startAgent.machineId);
   if (els.startAgentMachine) {
-    els.startAgentMachine.disabled = true;
+    els.startAgentMachine.disabled = busy || startAgentMachineChoices().length === 0;
   }
   if (els.startAgentSessionName) els.startAgentSessionName.disabled = busy || !hasMachine;
   if (els.startAgentPath) els.startAgentPath.disabled = busy || !hasMachine;
@@ -1548,26 +1529,23 @@ async function loadStartAgentDirectories({ path: targetPath } = {}) {
 }
 
 function openStartAgent() {
+  closeMoreMenu();
   const machine = selectedStartAgentMachine();
-  if (!machine) {
-    setStatus("Select a machine before starting an agent.");
-    syncStartAgentOpenVisibility();
-    return;
-  }
-  state.startAgent.machineId = machineKey(machine);
-  state.startAgent.cwd = defaultStartAgentDirectory(machine);
+  state.startAgent.machineId = machine ? machineKey(machine) : "";
+  state.startAgent.cwd = machine ? defaultStartAgentDirectory(machine) : "";
   state.startAgent.directories = {
     cwd: state.startAgent.cwd,
     parent: "",
     entries: [],
-    error: "",
+    error: machine ? "" : "No machines online.",
   };
   state.startAgent.loadingDirs = false;
   state.startAgent.starting = false;
-  setStartAgentStatus("");
+  setStartAgentStatus(machine ? "" : "No machines online.", { error: !machine });
   if (els.startAgentSessionName) els.startAgentSessionName.value = "";
   if (els.startAgentSheet) els.startAgentSheet.hidden = false;
   renderStartAgentSheet();
+  if (!machine) return;
   loadStartAgentDirectories({ path: state.startAgent.cwd }).catch((error) => {
     setStartAgentStatus(error.message || "Directory unavailable", { error: true });
   });
@@ -1584,8 +1562,16 @@ function handleStartAgentMachineChange() {
   state.startAgent.machineId = els.startAgentMachine?.value || "";
   const machine = selectedStartAgentMachine();
   if (!machine) {
-    closeStartAgent();
-    setStatus("Select a machine before starting an agent.");
+    state.startAgent.machineId = "";
+    state.startAgent.cwd = "";
+    state.startAgent.directories = {
+      cwd: "",
+      parent: "",
+      entries: [],
+      error: "No machines online.",
+    };
+    setStartAgentStatus("No machines online.", { error: true });
+    renderStartAgentSheet();
     return;
   }
   state.startAgent.machineId = machineKey(machine);
