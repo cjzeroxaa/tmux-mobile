@@ -116,6 +116,9 @@ node server.mjs --register https://eng.impo.ai --login</code></pre>
         <div class="composer cc-interact-composer">
           <div id="ccInteractSnippetBar" class="snippet-bar" aria-label="Snippets">
             <div id="ccInteractSnippetChips" class="snippet-chips"></div>
+            <button id="ccInteractManageSnippets" class="icon-button snippet-manage" type="button" title="Snippets & recent" aria-label="Snippets and recent">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            </button>
           </div>
           <div id="ccInteractInputArea" class="input-area">
             <div id="ccInteractInput" class="lexical-editor empty" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Text input" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" aria-autocomplete="none" data-1p-ignore data-lpignore="true" data-form-type="other" data-protonpass-ignore="true" inputmode="text" data-placeholder="Message…"></div>
@@ -147,6 +150,25 @@ node server.mjs --register https://eng.impo.ai --login</code></pre>
             <button type="button" data-interact-key="Down" class="direct-key" title="Down" aria-label="Down">↓</button>
           </div>
         </div>
+      </section>
+    </div>
+
+    <div id="ccSnippetSheet" class="settings-sheet" hidden>
+      <button id="ccSnippetBackdrop" class="settings-backdrop" type="button" aria-label="Close insert picker"></button>
+      <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="ccSnippetTitle">
+        <div class="settings-panel-header">
+          <h2 id="ccSnippetTitle">Insert</h2>
+          <button id="ccSnippetClose" class="icon-button" type="button" title="Close" aria-label="Close">X</button>
+        </div>
+        <p class="settings-hint">Tap any item to insert it into the message box; review, then Send. Snippets are curated; Recent is collected from what you've sent.</p>
+        <h3 class="insert-section-title">Snippets</h3>
+        <div id="ccSnippetList" class="snippet-list"></div>
+        <div class="snippet-add">
+          <input id="ccSnippetNewText" type="text" autocomplete="off" placeholder="New snippet text" />
+          <button id="ccSnippetAdd" class="small-button submit" type="button">Add</button>
+        </div>
+        <h3 class="insert-section-title">Recent</h3>
+        <div id="ccHistoryList" class="history-list"></div>
       </section>
     </div>
 

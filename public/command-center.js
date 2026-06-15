@@ -17,6 +17,8 @@ const POLL_MS = 4000;
 const INTERACT_WAVEFORM_SAMPLES = 40;
 const INTERACT_WAVEFORM_SAMPLE_INTERVAL_MS = 200;
 const SNIPPETS_KEY = "tmux-mobile-snippets";
+const COMPOSER_HISTORY_KEY = "tmux-mobile-composer-history";
+const COMPOSER_HISTORY_MAX = 100;
 const THEME_KEY = "tmux-mobile-theme";
 const THEME_OPTIONS = ["kami", "dark", "auto"];
 const CC_FONT_KEY = "tmux-mobile-cc-font-size";
@@ -72,6 +74,14 @@ const els = {
   interactSend: document.querySelector("#ccInteractSend"),
   interactStatus: document.querySelector("#ccInteractStatus"),
   interactSnippetChips: document.querySelector("#ccInteractSnippetChips"),
+  interactManageSnippets: document.querySelector("#ccInteractManageSnippets"),
+  snippetSheet: document.querySelector("#ccSnippetSheet"),
+  snippetBackdrop: document.querySelector("#ccSnippetBackdrop"),
+  snippetClose: document.querySelector("#ccSnippetClose"),
+  snippetList: document.querySelector("#ccSnippetList"),
+  snippetNewText: document.querySelector("#ccSnippetNewText"),
+  snippetAdd: document.querySelector("#ccSnippetAdd"),
+  historyList: document.querySelector("#ccHistoryList"),
   interactKeys: document.querySelector("#ccInteractKeys"),
   interactVoiceButton: document.querySelector("#ccInteractVoiceButton"),
   interactVoiceWaveform: document.querySelector("#ccInteractVoiceWaveform"),
@@ -451,6 +461,39 @@ function loadSnippets() {
   }
 }
 
+function saveSnippets(items) {
+  try {
+    localStorage.setItem(SNIPPETS_KEY, JSON.stringify({ items }));
+  } catch {}
+}
+
+function loadComposerHistory() {
+  try {
+    const raw = localStorage.getItem(COMPOSER_HISTORY_KEY);
+    const data = raw ? JSON.parse(raw) : null;
+    return Array.isArray(data?.items) ? data.items.map((item) => String(item || "")).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveComposerHistory(items) {
+  try {
+    localStorage.setItem(COMPOSER_HISTORY_KEY, JSON.stringify({ items }));
+  } catch {}
+}
+
+function pushComposerHistory(text) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return;
+  const items = loadComposerHistory().filter((item) => item !== trimmed);
+  items.push(trimmed);
+  if (items.length > COMPOSER_HISTORY_MAX) {
+    items.splice(0, items.length - COMPOSER_HISTORY_MAX);
+  }
+  saveComposerHistory(items);
+}
+
 function interactGetText() {
   return els.interactInput?.innerText || "";
 }
@@ -485,18 +528,145 @@ function renderInteractSnippets() {
   if (snippets.length === 0) {
     const empty = document.createElement("span");
     empty.className = "snippet-empty";
-    empty.textContent = "No snippets";
+    empty.textContent = "No snippets - tap list to add";
     els.interactSnippetChips.append(empty);
     return;
   }
-  for (const item of snippets) {
+  snippets.forEach((item, index) => {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "snippet-chip";
+    chip.dataset.snippetIndex = String(index);
+    chip.title = `Insert "${item.text}"`;
     chip.textContent = item.text;
-    chip.addEventListener("click", () => interactAppendText(item.text));
     els.interactSnippetChips.append(chip);
+  });
+}
+
+function insertInteractSnippet(index) {
+  const item = loadSnippets()[index];
+  if (!item) return;
+  interactAppendText(item.text);
+}
+
+function renderSnippetList() {
+  if (!els.snippetList) return;
+  const snippets = loadSnippets();
+  els.snippetList.replaceChildren();
+  snippets.forEach((item, index) => {
+    const row = document.createElement("div");
+    row.className = "snippet-row";
+
+    const insert = document.createElement("button");
+    insert.type = "button";
+    insert.className = "small-button submit snippet-row-insert";
+    insert.textContent = "Insert";
+    insert.title = `Insert "${item.text}" into the message box`;
+    insert.addEventListener("click", () => {
+      closeSnippetManager();
+      interactAppendText(item.text);
+    });
+
+    const text = document.createElement("input");
+    text.type = "text";
+    text.name = "snippetText";
+    text.className = "snippet-row-text";
+    text.value = item.text;
+    text.setAttribute("aria-label", "Snippet text");
+    text.addEventListener("change", () => updateSnippet(index, { text: text.value }));
+
+    const up = document.createElement("button");
+    up.type = "button";
+    up.className = "small-button snippet-row-move";
+    up.textContent = "Up";
+    up.title = "Move up";
+    up.disabled = index === 0;
+    up.addEventListener("click", () => moveSnippet(index, -1));
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "small-button cancel snippet-row-del";
+    del.textContent = "Delete";
+    del.addEventListener("click", () => removeSnippet(index));
+
+    row.append(insert, text, up, del);
+    els.snippetList.append(row);
+  });
+}
+
+function updateSnippet(index, patch) {
+  const snippets = loadSnippets();
+  if (!snippets[index]) return;
+  snippets[index] = { ...snippets[index], ...patch };
+  saveSnippets(snippets.filter((item) => String(item.text || "").trim()));
+  renderInteractSnippets();
+}
+
+function removeSnippet(index) {
+  const snippets = loadSnippets();
+  snippets.splice(index, 1);
+  saveSnippets(snippets);
+  renderSnippetList();
+  renderInteractSnippets();
+}
+
+function moveSnippet(index, delta) {
+  const snippets = loadSnippets();
+  const target = index + delta;
+  if (target < 0 || target >= snippets.length) return;
+  [snippets[index], snippets[target]] = [snippets[target], snippets[index]];
+  saveSnippets(snippets);
+  renderSnippetList();
+  renderInteractSnippets();
+}
+
+function addSnippet() {
+  const text = String(els.snippetNewText?.value || "").trim();
+  if (!text) {
+    els.snippetNewText?.focus();
+    return;
   }
+  saveSnippets([...loadSnippets(), { text }]);
+  if (els.snippetNewText) els.snippetNewText.value = "";
+  renderSnippetList();
+  renderInteractSnippets();
+  els.snippetNewText?.focus();
+}
+
+function renderHistoryList() {
+  if (!els.historyList) return;
+  els.historyList.replaceChildren();
+  const items = loadComposerHistory().slice().reverse();
+  if (items.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "history-empty";
+    empty.textContent = "No recent messages yet.";
+    els.historyList.append(empty);
+    return;
+  }
+  for (const text of items) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "history-item";
+    button.textContent = text;
+    button.title = text;
+    button.addEventListener("click", () => {
+      closeSnippetManager();
+      interactAppendText(text);
+    });
+    els.historyList.append(button);
+  }
+}
+
+function openSnippetManager() {
+  renderSnippetList();
+  renderHistoryList();
+  if (els.snippetSheet) els.snippetSheet.hidden = false;
+}
+
+function closeSnippetManager() {
+  if (els.snippetSheet) els.snippetSheet.hidden = true;
+  if (!els.interactSheet?.hidden) interactFocus();
 }
 
 function setInteractStatus(text) {
@@ -528,6 +698,7 @@ function closeInteract() {
   if (state.interactSending || state.interactVoice.status === "transcribing") return;
   resetInteractVoice();
   state.interactAgent = null;
+  if (els.snippetSheet) els.snippetSheet.hidden = true;
   els.interactSheet.hidden = true;
   setInteractStatus("");
   interactClear();
@@ -552,6 +723,7 @@ async function sendInteractText({ keepFocus = true } = {}) {
   interactClear();
   if (keepFocus) interactFocus();
   else els.interactInput?.blur();
+  pushComposerHistory(text);
   try {
     await sendTextToAgent(agent, text);
     setInteractStatus("Sent");
@@ -2238,6 +2410,21 @@ els.interactKeys?.addEventListener("click", (event) => {
   if (!button) return;
   sendInteractKey(button.dataset.interactKey);
 });
+els.interactSnippetChips?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const chip = target?.closest("[data-snippet-index]");
+  if (!chip) return;
+  insertInteractSnippet(Number(chip.dataset.snippetIndex));
+});
+els.interactManageSnippets?.addEventListener("click", openSnippetManager);
+els.snippetClose?.addEventListener("click", closeSnippetManager);
+els.snippetBackdrop?.addEventListener("click", closeSnippetManager);
+els.snippetAdd?.addEventListener("click", addSnippet);
+els.snippetNewText?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  addSnippet();
+});
 els.interactClose?.addEventListener("click", closeInteract);
 els.interactBackdrop?.addEventListener("click", closeInteract);
 els.interactVoiceButton?.addEventListener("click", toggleInteractVoiceRecording);
@@ -2339,6 +2526,10 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape" && !els.startAgentSheet?.hidden) {
     closeStartAgent();
+    return;
+  }
+  if (event.key === "Escape" && !els.snippetSheet?.hidden) {
+    closeSnippetManager();
     return;
   }
   if (event.key === "Escape" && !els.interactSheet?.hidden) closeInteract();
