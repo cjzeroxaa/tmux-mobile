@@ -6,6 +6,7 @@ import { parseGitRemote } from "../lib/backend.mjs";
 import {
   detectAgentType,
   detectAgentFromCommandLine,
+  detectCommandCenterAgentType,
   isInterpreter,
   computeWindowMetadata,
   createMetadataCache,
@@ -47,6 +48,17 @@ assert.equal(detectAgentFromCommandLine("node /usr/bin/claude"), "claude");
 assert.equal(detectAgentFromCommandLine("/usr/bin/gemini chat"), "gemini");
 assert.equal(detectAgentFromCommandLine("node server.mjs --foo"), null);
 assert.equal(detectAgentFromCommandLine("vim --codex-notes"), null); // flag, not a basename
+assert.equal(
+  detectCommandCenterAgentType(["bash", "/home/homo/.local/bin/codex --dangerously-bypass-approvals-and-sandbox"]),
+  "codex",
+  "command center recognizes a newly started codex process before transcript exists",
+);
+assert.equal(
+  detectCommandCenterAgentType(["zsh", "claude --dangerously-skip-permissions"]),
+  "claude",
+  "command center recognizes a newly started claude process before transcript exists",
+);
+assert.equal(detectCommandCenterAgentType(["/usr/bin/gemini chat"]), null, "command center is codex/claude only");
 
 // computeWindowMetadata uses backend.paneCommand to resolve interpreter windows,
 // only for interpreter foreground commands, cached per tty.

@@ -16,6 +16,7 @@ import { CONNECTOR_COMPAT_VERSION, OP } from "./lib/protocol.mjs";
 import {
   computeWindowMetadata,
   createMetadataCache,
+  detectCommandCenterAgentType,
 } from "./lib/window-metadata.mjs";
 import { detectTurn } from "./lib/turn-detection.mjs";
 import { detectAgentMode, AGENT_MODES } from "./lib/agent-mode.mjs";
@@ -2024,6 +2025,22 @@ async function safeAgentTranscript(pane) {
   }
 }
 
+async function detectCommandCenterAgent(pane) {
+  const direct = detectCommandCenterAgentType([
+    pane?.command || "",
+    pane?.title || "",
+  ]);
+  if (direct) return direct;
+  if (!pane?.pid || typeof currentBackend().processTree !== "function") return "";
+  try {
+    const processes = await currentBackend().processTree(pane.pid);
+    const commands = processes.map((processInfo) => processInfo.command || "");
+    return detectCommandCenterAgentType(commands) || "";
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Walk every session + window on the host, pick the active pane in each
  * window, and ask agentTranscript whether it's running a Codex or Claude
@@ -2075,8 +2092,18 @@ async function listAgentSessions() {
       const pane = panes.find((p) => p.active) || panes[0];
       if (!pane?.pid) return null;
 
-      const info = await safeAgentTranscript(pane);
-      if (!info?.kind) return null;
+      let info = await safeAgentTranscript(pane);
+      if (!info?.kind) {
+        const kind = await detectCommandCenterAgent(pane);
+        if (!kind) return null;
+        info = {
+          kind,
+          sessionId: "",
+          transcriptPath: "",
+          turns: [],
+          turnsTotal: 0,
+        };
+      }
 
       const turns = Array.isArray(info.turns) ? info.turns : [];
       const lastTurn = turns[turns.length - 1] || null;
