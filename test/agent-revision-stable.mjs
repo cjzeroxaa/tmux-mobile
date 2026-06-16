@@ -23,7 +23,7 @@ const backend = {
   branch: async () => ({ branch: "", worktree: false }),
 };
 
-let stable = false;
+let healthMode = "flap";
 let healthSeq = 0;
 let wsConnectionCount = 0;
 let resolveReconnect;
@@ -33,11 +33,14 @@ const reconnected = new Promise((resolve) => {
 
 const server = http.createServer((req, res) => {
   if (req.url && req.url.startsWith("/api/health")) {
-    const revision = stable
-      ? "rev-B"
-      : healthSeq++ % 2 === 0
+    const revision =
+      healthMode === "stable-new"
         ? "rev-B"
-        : "rev-A";
+        : healthMode === "old-again"
+          ? "rev-A"
+          : healthSeq++ % 2 === 0
+            ? "rev-B"
+            : "rev-A";
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: true, revision }));
     return;
@@ -71,7 +74,7 @@ try {
     "agent should not reconnect while health revisions are flapping",
   );
 
-  stable = true;
+  healthMode = "stable-new";
   const which = await Promise.race([
     reconnected,
     new Promise((_, reject) =>
@@ -79,6 +82,15 @@ try {
     ),
   ]);
   assert.ok(which >= 2, "expected a second connection after stable revision");
+
+  healthMode = "old-again";
+  const afterReconnectCount = wsConnectionCount;
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.equal(
+    wsConnectionCount,
+    afterReconnectCount,
+    "agent should not reconnect back to a previously seen old revision",
+  );
 
   console.log("agent revision-stable e2e passed");
 } finally {
