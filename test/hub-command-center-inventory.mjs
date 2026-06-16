@@ -10,6 +10,10 @@ const viewer = { userId: OWNER, email: OWNER, hd: "" };
 const server = http.createServer();
 const hub = createHub(server, {
   authenticateAgent: () => viewer,
+  livenessIntervalMs: 25,
+  inventoryStaleMs: 75,
+  inventoryDisconnectMs: 175,
+  transportStaleMs: 5_000,
 });
 
 function waitFor(label, predicate, timeoutMs = 3_000) {
@@ -110,9 +114,45 @@ try {
     const snapshot = hub.commandCenterInventory(viewer, machine.id);
     return snapshot?.machine?.inventoryStatus === "failed" ? snapshot : null;
   });
-  assert.equal(failed.machine.agentCount, 1, "failed inventory preserves last agents");
-  assert.equal(failed.agents.length, 1, "failed inventory keeps last snapshot");
+  assert.equal(failed.machine.agentCount, 0, "failed inventory does not count old agents");
+  assert.equal(failed.agents.length, 0, "failed inventory does not expose old agents");
   assert.match(failed.machine.inventoryError, /scan exploded/);
+
+  ws.send(
+    JSON.stringify(
+      inventoryFrame({
+        ok: true,
+        observedAt: Date.now(),
+        durationMs: 9,
+        agents: [
+          {
+            sessionId: "$1",
+            sessionName: "work",
+            windowId: "@1",
+            windowIndex: 0,
+            windowName: "codex",
+            paneId: "%1",
+            cwd: "/tmp",
+            kind: "codex",
+            status: "idle",
+            turnCount: 3,
+          },
+        ],
+      }),
+    ),
+  );
+
+  const stale = await waitFor("stale inventory", () => {
+    const snapshot = hub.commandCenterInventory(viewer, machine.id);
+    return snapshot?.machine?.inventoryStatus === "stale" ? snapshot : null;
+  });
+  assert.equal(stale.machine.agentCount, 0, "stale inventory does not count old agents");
+  assert.equal(stale.agents.length, 0, "stale inventory does not expose old agents");
+
+  const removed = await waitFor("stale connector removal", () => {
+    return hub.listMachines(viewer).length === 0 ? true : null;
+  });
+  assert.equal(removed, true, "stale inventory disconnects the connector");
 
   console.log("hub command-center inventory tests passed");
 } finally {
