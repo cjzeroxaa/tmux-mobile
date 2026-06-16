@@ -560,12 +560,31 @@
 }
 
 .cc-card-window-name {
-  min-width: 0;
+  flex: 0 1 auto;
+  min-width: 2ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: calc(var(--cc-card-title-size) + 0.5px);
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.cc-card-session-name {
+  flex: 1 1 auto;
+  min-width: 4ch;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: calc(var(--cc-card-title-size) + 1.5px);
   font-weight: 900;
   letter-spacing: 0;
+}
+
+.cc-card-title-separator {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: var(--cc-card-title-size);
+  font-weight: 800;
+  opacity: 0.78;
 }
 
 .cc-card-window-index {

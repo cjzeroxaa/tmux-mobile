@@ -2302,14 +2302,14 @@ function renderCard(agent) {
   const ownerChip = agent.machineOwnerId
     ? `<span class="cc-owner-chip" title="${escapeHtml(agent.machineOwnerId)}">${escapeHtml(ownerLocal)}</span>`
     : "";
-  const session = agent.sessionName
-    ? `<span class="cc-card-session">· ${escapeHtml(agent.sessionName || "")}</span>`
+  const sessionTitle = agent.sessionName
+    ? `<span class="cc-card-session-name">${escapeHtml(agent.sessionName || "")}</span><span class="cc-card-title-separator"> · </span>`
     : "";
   header.innerHTML = `
     <span class="cc-card-title">
+      ${sessionTitle}
       <span class="cc-card-window-name">${escapeHtml(agent.windowName || "(unnamed)")}</span>
       <span class="cc-card-window-index">#${escapeHtml(agent.windowIndex)}</span>
-      ${session}
     </span>
     ${machineChip}
     ${ownerChip}
