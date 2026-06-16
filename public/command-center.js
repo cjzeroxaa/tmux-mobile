@@ -1684,7 +1684,7 @@ function updateCommandCenterStatus() {
   if (commandCenterGraceActive(state.reconnectGrace)) {
     setStatus(`${base} · reconnecting`);
   } else if (loads.loading > 0) {
-    setStatus(`${base} · loading ${loads.loading}`);
+    setStatus(`${base} · loading`);
   } else {
     setStatus(`${base} · refreshed ${nowLabel()}`);
   }
