@@ -2130,6 +2130,18 @@ function openSelectedAgent({ newTab = false } = {}) {
   window.location.href = href;
 }
 
+function openSelectedResponseFullscreen() {
+  const agent = selectedAgentFrom();
+  if (!agent?.lastAssistantText) return false;
+  openResponseFullscreen({
+    label: "Last response",
+    text: agent.lastAssistantText,
+    timestamp: agent.lastAssistantAt,
+    format: "markdown",
+  });
+  return true;
+}
+
 function shortcutTargetIsEditable(target) {
   if (!(target instanceof Element)) return false;
   return Boolean(target.closest("input, textarea, select, button, a, summary, [contenteditable='true']"));
@@ -2146,6 +2158,7 @@ function handleCardShortcuts(event) {
     !els.interactSheet?.hidden ||
     !els.startAgentSheet?.hidden ||
     !els.deleteDialog?.hidden ||
+    !els.responseFullscreen?.hidden ||
     els.moreMenu?.open
   ) {
     return;
@@ -2189,6 +2202,10 @@ function handleCardShortcuts(event) {
   } else if (key === "o") {
     event.preventDefault();
     openSelectedAgent({ newTab: true });
+  } else if (key === "f") {
+    if (openSelectedResponseFullscreen()) {
+      event.preventDefault();
+    }
   }
 }
 
