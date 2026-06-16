@@ -314,6 +314,7 @@ function nowLabel() {
 }
 
 function parseDateMs(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   const ms = Date.parse(value || "");
   return Number.isFinite(ms) ? ms : 0;
 }
@@ -377,6 +378,23 @@ function agentMachineKey(agent) {
 
 function machineLabel(machine) {
   return String(machine?.hostname || machine?.machineId || machine?.id || "local");
+}
+
+function machineInventoryStatus(machine) {
+  return String(machine?.inventoryStatus || "");
+}
+
+function shouldPreserveEmptyInventory(machine) {
+  const status = machineInventoryStatus(machine);
+  return status === "pending" || status === "failed" || status === "stale";
+}
+
+function loadStatusForMachine(machine) {
+  const status = machineInventoryStatus(machine);
+  if (status === "pending") return "loading";
+  if (status === "failed") return "error";
+  if (status === "stale") return "reconnecting";
+  return "loaded";
 }
 
 function compareMachineLabel(aLabel, aKey, bLabel, bKey) {
@@ -1670,10 +1688,11 @@ function clearCommandCenterReconnect(machineKeys = null) {
 }
 
 function machineLoadCounts() {
-  const counts = { loading: 0, reconnecting: 0 };
+  const counts = { loading: 0, reconnecting: 0, error: 0 };
   for (const load of state.machineLoads.values()) {
     if (load?.status === "loading") counts.loading += 1;
     if (load?.status === "reconnecting") counts.reconnecting += 1;
+    if (load?.status === "error") counts.error += 1;
   }
   return counts;
 }
@@ -1685,6 +1704,8 @@ function updateCommandCenterStatus() {
     setStatus(`${base} · reconnecting`);
   } else if (loads.loading > 0) {
     setStatus(`${base} · loading`);
+  } else if (loads.error > 0) {
+    setStatus(`${base} · ${loads.error} inventory error${loads.error === 1 ? "" : "s"}`);
   } else {
     setStatus(`${base} · refreshed ${nowLabel()}`);
   }
@@ -1692,6 +1713,12 @@ function updateCommandCenterStatus() {
 
 function staleMachines() {
   return state.machines.filter((machine) => machine.stale);
+}
+
+function inventoryProblemMachines() {
+  return state.machines.filter((machine) =>
+    ["failed", "stale"].includes(machineInventoryStatus(machine)),
+  );
 }
 
 function renderStaleMachine(machine) {
@@ -1724,6 +1751,28 @@ function renderStaleMachine(machine) {
   return wrap;
 }
 
+function renderInventoryMachine(machine) {
+  const wrap = document.createElement("div");
+  wrap.className = "cc-machine-alert cc-machine-alert-inventory";
+  const host = machineLabel(machine);
+  const status = machineInventoryStatus(machine);
+  const observed = relativeTimeLabel(machine.inventoryObservedAt);
+  const source = machine.inventorySource || "inventory";
+  const detail = status === "failed"
+    ? machine.inventoryError || "last inventory scan failed"
+    : observed
+      ? `last inventory ${observed}`
+      : "waiting for first inventory snapshot";
+  wrap.innerHTML = `
+    <div class="cc-machine-alert-main">
+      <strong>${escapeHtml(host)} inventory ${escapeHtml(status)}</strong>
+      <span>${escapeHtml(detail)}</span>
+      <code>${escapeHtml(source)}</code>
+    </div>
+  `;
+  return wrap;
+}
+
 async function updateConnector(machine) {
   const key = machineKey(machine);
   if (!key || state.updatingMachines.has(key)) return;
@@ -1737,6 +1786,8 @@ async function updateConnector(machine) {
       body: JSON.stringify({
         repoDir: machine.agentCwd || "~/src/tmux-mobile",
         expectedRevision: machine.expectedRevision || "",
+        targetRef: machine.updateRef || "",
+        updateScriptUrl: machine.updateScriptUrl || "",
         nodePath: machine.nodePath || "node",
         agentMachine: machine.machineAlias || machine.hostname || machine.machineId || "",
         machineLabel: machineLabel(machine),
@@ -2609,12 +2660,23 @@ function renderAgents() {
   for (const machine of staleMachines()) {
     els.list.append(renderStaleMachine(machine));
   }
+  for (const machine of inventoryProblemMachines()) {
+    els.list.append(renderInventoryMachine(machine));
+  }
   if (filtered.length === 0) {
     const note = document.createElement("div");
     note.className = "cc-empty";
     const loads = machineLoadCounts();
     if (state.agents.length === 0 && state.machines.length > 0 && loads.loading > 0) {
       note.textContent = `Loading agents from ${loads.loading} machine${loads.loading === 1 ? "" : "s"}…`;
+    } else if (
+      state.agents.length === 0 &&
+      state.machines.length > 0 &&
+      loads.reconnecting > 0
+    ) {
+      note.textContent = `Reconnecting to agents from ${loads.reconnecting} machine${loads.reconnecting === 1 ? "" : "s"}…`;
+    } else if (state.agents.length === 0 && state.machines.length > 0 && loads.error > 0) {
+      note.textContent = `Couldn't load agents from ${loads.error} machine${loads.error === 1 ? "" : "s"}.`;
     } else {
       note.textContent = state.agents.length === 0 && state.machines.length > 0
         ? `${state.machines.length} machine${state.machines.length === 1 ? "" : "s"} online, no Codex or Claude Code agents running right now.`
@@ -2666,21 +2728,31 @@ async function loadMachineAgents(machine, generation) {
     const returnedMachine = machines[0];
     if (returnedMachine) replaceMachine(returnedMachine);
     const agents = Array.isArray(data.agents) ? data.agents : [];
-    replaceAgentsForMachine(key, agents);
+    const preserveAgents =
+      agents.length === 0 &&
+      returnedMachine &&
+      shouldPreserveEmptyInventory(returnedMachine) &&
+      state.agents.some((agent) => agentMachineKey(agent) === key);
+    if (preserveAgents) updateMachineAgentCounts();
+    else replaceAgentsForMachine(key, agents);
     clearCommandCenterReconnect([key]);
-    state.machineLoads.set(key, { status: "loaded", error: "" });
+    state.machineLoads.set(key, {
+      status: returnedMachine ? loadStatusForMachine(returnedMachine) : "loaded",
+      error: returnedMachine?.inventoryError || "",
+    });
   } catch (error) {
     if (generation !== state.loadGeneration) return;
-    replaceAgentsForMachine(key, []);
+    const message = error.message || String(error);
     if (holdCommandCenterSnapshot([key])) {
       state.machineLoads.set(key, {
         status: "reconnecting",
-        error: error.message || String(error),
+        error: message,
       });
     } else {
+      replaceAgentsForMachine(key, []);
       state.machineLoads.set(key, {
         status: "error",
-        error: error.message || String(error),
+        error: message,
       });
     }
   }

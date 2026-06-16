@@ -5,6 +5,7 @@
 
 import assert from "node:assert/strict";
 import {
+  AGENT_FEATURES,
   AGENT_OPS,
   CONNECTOR_COMPAT_VERSION,
   LEGACY_AGENT_OPS,
@@ -19,6 +20,8 @@ assert.ok(Array.isArray(hello.ops), "1 ops present");
 assert.ok(hello.ops.includes(OP.READFILE), "1 advertises readfile");
 assert.deepEqual(hello.ops, AGENT_OPS, "1 ops === AGENT_OPS");
 assert.equal(hello.connectorVersion, CONNECTOR_COMPAT_VERSION, "1 connector version present");
+assert.deepEqual(hello.features, AGENT_FEATURES, "1 connector features present");
+assert.equal(hello.features.commandCenterInventory, true, "1 advertises inventory snapshots");
 
 // 1b. helloFrame also advertises writefile (the upload op).
 assert.ok(hello.ops.includes(OP.WRITEFILE), "1b advertises writefile");

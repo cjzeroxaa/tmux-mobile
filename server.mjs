@@ -271,9 +271,15 @@ const CONNECTOR_CLONE_URL =
 const DEFAULT_CONTROLLER_URL =
   process.env.TMUX_MOBILE_CONTROLLER_URL || "https://eng.impo.ai";
 const CONNECTOR_UPDATE_SCRIPT_PATH = "scripts/update-connector.mjs";
+const CONNECTOR_UPDATE_REF =
+  safeUpdateToken(process.env.TMUX_MOBILE_UPDATE_REF) || "main";
+const CONNECTOR_EXPECTED_REVISION =
+  safeUpdateToken(process.env.TMUX_MOBILE_EXPECTED_REVISION) ||
+  safeUpdateToken(APP_REVISION) ||
+  "";
 const CONNECTOR_UPDATE_SCRIPT_URL =
   process.env.TMUX_MOBILE_UPDATE_SCRIPT_URL ||
-  defaultConnectorUpdateScriptUrl(CONNECTOR_CLONE_URL, APP_REVISION);
+  defaultConnectorUpdateScriptUrl(CONNECTOR_CLONE_URL, CONNECTOR_UPDATE_REF);
 const WINDOW_BRIEFING_MODEL =
   process.env.OPENAI_WINDOW_BRIEFING_MODEL || "gpt-5.4-mini";
 const AGENT_RESPONSE_EXTRACT_MODEL =
@@ -379,6 +385,17 @@ function githubRepoPath(cloneUrl) {
 function safeUpdateToken(value) {
   const text = String(value || "").trim();
   return /^[A-Za-z0-9._/-]{1,120}$/.test(text) ? text : "";
+}
+
+function safeUpdateUrl(value) {
+  const text = String(value || "").trim();
+  if (!text || text.length > 512 || /[\0\r\n]/.test(text)) return "";
+  try {
+    const parsed = new URL(text);
+    return /^https?:$/.test(parsed.protocol) ? parsed.toString() : "";
+  } catch {
+    return "";
+  }
 }
 
 function loadLocalEnv(filePath) {
@@ -974,15 +991,15 @@ async function startConnectorUpdate(options = {}) {
   const cloneUrl = safeUpdateValue(options.cloneUrl, 512) || CONNECTOR_CLONE_URL;
   const expectedRevision =
     safeUpdateToken(options.expectedRevision) ||
-    safeUpdateToken(APP_REVISION) ||
+    CONNECTOR_EXPECTED_REVISION ||
     "";
-  const targetRef = safeUpdateToken(options.targetRef) || "main";
+  const targetRef = safeUpdateToken(options.targetRef) || CONNECTOR_UPDATE_REF;
   const nodePath = safeUpdateValue(options.nodePath, 512) || "node";
   const agentMachine = safeUpdateValue(options.agentMachine, 120);
   const machineLabel = safeUpdateValue(options.machineLabel, 120);
   const sessionName = `tmux-mobile-update-${Date.now().toString(36)}`;
   const windowName = "connector-update";
-  const scriptUrl = CONNECTOR_UPDATE_SCRIPT_URL;
+  const scriptUrl = safeUpdateUrl(options.updateScriptUrl) || CONNECTOR_UPDATE_SCRIPT_URL;
   const heredoc = `TMUX_MOBILE_UPDATE_${Date.now().toString(36).toUpperCase()}`;
   const inner = [
     "set -euo pipefail",
@@ -1026,6 +1043,7 @@ async function startConnectorUpdate(options = {}) {
     repoDir,
     controllerUrl,
     expectedRevision,
+    targetRef,
     scriptUrl,
   };
 }
@@ -2196,10 +2214,18 @@ async function localCommandCenterMachine(agentCount = 0) {
     agentCwd: __dirname,
     homeDir: os.homedir(),
     nodePath: process.execPath,
-    expectedRevision: APP_REVISION,
+    expectedRevision: CONNECTOR_EXPECTED_REVISION,
+    updateRef: CONNECTOR_UPDATE_REF,
+    updateScriptUrl: CONNECTOR_UPDATE_SCRIPT_URL,
     expectedConnectorVersion: CONNECTOR_VERSION,
     online: true,
     lastSeen: Date.now(),
+    inventoryStatus: "fresh",
+    inventorySource: "local",
+    inventoryObservedAt: Date.now(),
+    inventoryAgeMs: 0,
+    inventoryDurationMs: null,
+    inventoryError: "",
     stale: false,
     missingOps: [],
     connectorStatus: "current",
@@ -2232,6 +2258,72 @@ function tagCommandCenterAgents(result, machine) {
     machineOwnerHd: machine.ownerHd || "",
     ...agent,
   }));
+}
+
+function commandCenterResultFromInventory(inventory) {
+  const machine = inventory?.machine;
+  if (!machine) return null;
+  const agents = tagCommandCenterAgents({ agents: inventory.agents || [] }, machine);
+  return {
+    machines: [{ ...machine, agentCount: agents.length }],
+    agents,
+  };
+}
+
+function shouldUseCommandCenterInventory(inventory) {
+  return Boolean(inventory && (inventory.hasInventory || inventory.supportsInventory));
+}
+
+async function liveCommandCenterResult(hub, viewer, machine) {
+  try {
+    const result = await withBackend(
+      hub.backendFor(viewer, machine.id),
+      () => listAgentSessions(),
+    );
+    const agents = tagCommandCenterAgents(result, machine);
+    return {
+      machines: [
+        {
+          ...machine,
+          inventoryStatus: "fresh",
+          inventorySource: "live-rpc",
+          inventoryObservedAt: Date.now(),
+          inventoryAgeMs: 0,
+          inventoryDurationMs: null,
+          inventoryError: "",
+          agentCount: agents.length,
+        },
+      ],
+      agents,
+    };
+  } catch (error) {
+    return {
+      machines: [
+        {
+          ...machine,
+          inventoryStatus: "failed",
+          inventorySource: "live-rpc",
+          inventoryObservedAt: Date.now(),
+          inventoryAgeMs: 0,
+          inventoryDurationMs: null,
+          inventoryError: error.message || String(error),
+          agentCount: 0,
+        },
+      ],
+      agents: [],
+    };
+  }
+}
+
+async function commandCenterResultForMachine(hub, viewer, machine) {
+  const inventory =
+    typeof hub.commandCenterInventory === "function"
+      ? hub.commandCenterInventory(viewer, machine.id)
+      : null;
+  if (shouldUseCommandCenterInventory(inventory)) {
+    return commandCenterResultFromInventory(inventory);
+  }
+  return liveCommandCenterResult(hub, viewer, machine);
 }
 
 function observeCommandCenterAgentsForNtfy(machines, agents) {
@@ -3208,8 +3300,9 @@ async function handleApi(req, res, url) {
         repoDir: body.repoDir,
         controllerUrl: body.controllerUrl || requestOrigin(req),
         cloneUrl: body.cloneUrl || CONNECTOR_CLONE_URL,
-        expectedRevision: body.expectedRevision || APP_REVISION,
-        targetRef: body.targetRef || "main",
+        expectedRevision: body.expectedRevision || CONNECTOR_EXPECTED_REVISION,
+        targetRef: body.targetRef || CONNECTOR_UPDATE_REF,
+        updateScriptUrl: body.updateScriptUrl,
         nodePath: body.nodePath || "node",
         agentMachine: body.agentMachine,
         machineLabel: body.machineLabel,
@@ -4084,7 +4177,10 @@ if (MODE.kind === "register") {
       message: "Agent login is ready; connecting to the controller.",
     });
   }
-  runAgent(MODE.hubUrl, localBackend, { logEvent: logServerEvent });
+  runAgent(MODE.hubUrl, localBackend, {
+    logEvent: logServerEvent,
+    inventoryProvider: listAgentSessions,
+  });
 } else {
   let hub = null;
   let stopAgentRoundWatcher = () => {};
@@ -4131,6 +4227,9 @@ if (MODE.kind === "register") {
           // Connector repo, shown in the "no machine connected" UI so a user
           // knows what to clone. Overridable via env for forks/mirrors.
           cloneUrl: CONNECTOR_CLONE_URL,
+          connectorUpdateRef: CONNECTOR_UPDATE_REF,
+          connectorExpectedRevision: CONNECTOR_EXPECTED_REVISION,
+          connectorUpdateScriptUrl: CONNECTOR_UPDATE_SCRIPT_URL,
         });
         return;
       }
@@ -4229,9 +4328,11 @@ if (MODE.kind === "register") {
             return;
           }
           // Command Center spans every online machine this user can access.
-          // Tag each agent with its machine and ownerId for UI labels.
-          // Per-machine failures get swallowed so one hiccupping agent doesn't
-          // poison the whole feed.
+          // New connectors publish cached inventory over their WebSocket, so a
+          // browser refresh reads controller state instead of fanning out tmux
+          // scans. Older connectors fall back to the old live RPC path, but
+          // failures are returned as machine inventory errors rather than
+          // pretending that "failed to observe" means "zero agents".
           if (req.method === "GET" && url.pathname === "/api/command-center") {
             const online = hub.listMachines(viewer);
             const requestedMachineId =
@@ -4244,44 +4345,18 @@ if (MODE.kind === "register") {
                 sendJson(res, 503, { error: `Machine ${requestedMachineId} is offline` });
                 return;
               }
-              const result = await withBackend(
-                hub.backendFor(viewer, requestedMachineId),
-                () => listAgentSessions(),
-              );
-              const agents = tagCommandCenterAgents(result, machine);
-              const machines = [{ ...machine, agentCount: agents.length }];
-              observeCommandCenterAgentsForNtfy(machines, agents);
-              sendJson(res, 200, {
-                machines,
-                agents,
-              });
+              const result = await commandCenterResultForMachine(hub, viewer, machine);
+              observeCommandCenterAgentsForNtfy(result.machines, result.agents);
+              sendJson(res, 200, result);
               return;
             }
-            const agentCounts = new Map(online.map((machine) => [machine.id, 0]));
-            const all = [];
-            await Promise.all(
-              online.map(async (machine) => {
-                try {
-                  const result = await withBackend(
-                    hub.backendFor(viewer, machine.id),
-                    () => listAgentSessions(),
-                  );
-                  const agents = tagCommandCenterAgents(result, machine);
-                  for (const a of agents) {
-                    agentCounts.set(machine.id, (agentCounts.get(machine.id) || 0) + 1);
-                    all.push(a);
-                  }
-                } catch {
-                  // per-machine failure — keep the machine row, just omit agents
-                }
-              }),
+            const results = await Promise.all(
+              online.map((machine) => commandCenterResultForMachine(hub, viewer, machine)),
             );
-            const machines = online.map((machine) => ({
-              ...machine,
-              agentCount: agentCounts.get(machine.id) || 0,
-            }));
-            observeCommandCenterAgentsForNtfy(machines, all);
-            sendJson(res, 200, { machines, agents: all });
+            const machines = results.flatMap((result) => result.machines);
+            const agents = results.flatMap((result) => result.agents);
+            observeCommandCenterAgentsForNtfy(machines, agents);
+            sendJson(res, 200, { machines, agents });
             return;
           }
           const machineId =
@@ -4330,6 +4405,9 @@ if (MODE.kind === "register") {
         : () => String(process.env.TMUX_MOBILE_USER || "default"),
       superAdminEmails: splitCsv(process.env.SUPER_ADMIN_EMAILS),
       currentRevision: APP_REVISION,
+      expectedRevision: CONNECTOR_EXPECTED_REVISION,
+      updateRef: CONNECTOR_UPDATE_REF,
+      updateScriptUrl: CONNECTOR_UPDATE_SCRIPT_URL,
       requiredConnectorVersion: CONNECTOR_VERSION,
       machineAliases: MACHINE_ALIASES,
     });

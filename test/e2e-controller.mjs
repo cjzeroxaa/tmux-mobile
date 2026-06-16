@@ -426,6 +426,8 @@ try {
     SESSION_SECRET: `session-secret-${process.pid}`,
     ALLOW_ALL_GOOGLE_USERS: "1",
     SUPER_ADMIN_EMAILS: ADMIN,
+    TMUX_MOBILE_EXPECTED_REVISION: "test-revision",
+    TMUX_MOBILE_UPDATE_REF: "test-release",
   });
 
   await waitFor("controller health", async () => {
@@ -515,6 +517,14 @@ try {
 
   const runtime = await requestJson(baseUrl, "/api/runtime", { cookie: aliceCookie });
   assert.equal(runtime.mode, "hub");
+  assert.equal(runtime.connectorExpectedRevision, "test-revision");
+  assert.equal(runtime.connectorUpdateRef, "test-release");
+  assert.match(
+    runtime.connectorUpdateScriptUrl,
+    /\/test-release\/scripts\/update-connector\.mjs$/,
+  );
+  assert.equal(bobCommandCenter.machines[0].expectedRevision, "test-revision");
+  assert.equal(bobCommandCenter.machines[0].updateRef, "test-release");
 
   await exerciseTmux(baseUrl, aliceCookie, ALICE, aliceOneRoute);
   await exerciseTmux(baseUrl, bobCookie, BOB, bobOneRoute);
