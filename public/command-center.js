@@ -1279,6 +1279,62 @@ function renderSectionContent(text, format) {
   return linkifyEscaped(escapeHtml(text));
 }
 
+function scrollableSectionChildren(section) {
+  if (!section) return [];
+  return [...section.querySelectorAll("*")].filter(
+    (node) =>
+      node.scrollTop > 0 ||
+      node.scrollLeft > 0 ||
+      node.scrollHeight > node.clientHeight ||
+      node.scrollWidth > node.clientWidth,
+  );
+}
+
+function captureCommandCenterScroll() {
+  const sections = new Map();
+  for (const section of els.list.querySelectorAll(".cc-section-text[data-section-scroll-key]")) {
+    const key = section.dataset.sectionScrollKey || "";
+    if (!key) continue;
+    sections.set(key, {
+      top: section.scrollTop,
+      left: section.scrollLeft,
+      children: scrollableSectionChildren(section).map((node) => ({
+        top: node.scrollTop,
+        left: node.scrollLeft,
+      })),
+    });
+  }
+  return {
+    listTop: els.list.scrollTop,
+    listLeft: els.list.scrollLeft,
+    sections,
+  };
+}
+
+function restoreCommandCenterScroll(snapshot) {
+  if (!snapshot) return;
+  els.list.scrollTop = snapshot.listTop || 0;
+  els.list.scrollLeft = snapshot.listLeft || 0;
+  for (const section of els.list.querySelectorAll(".cc-section-text[data-section-scroll-key]")) {
+    const saved = snapshot.sections.get(section.dataset.sectionScrollKey || "");
+    if (!saved) continue;
+    section.scrollTop = saved.top || 0;
+    section.scrollLeft = saved.left || 0;
+    const children = scrollableSectionChildren(section);
+    for (const [index, node] of children.entries()) {
+      const child = saved.children[index];
+      if (!child) continue;
+      node.scrollTop = child.top || 0;
+      node.scrollLeft = child.left || 0;
+    }
+  }
+}
+
+function restoreCommandCenterScrollSoon(snapshot) {
+  restoreCommandCenterScroll(snapshot);
+  requestAnimationFrame(() => restoreCommandCenterScroll(snapshot));
+}
+
 function renderSection({ className, label, text, timestamp, expandedKey, format = "plain" }) {
   const wrap = document.createElement("div");
   wrap.className = `cc-section ${className}`;
@@ -1341,6 +1397,7 @@ function renderSection({ className, label, text, timestamp, expandedKey, format 
 
   const body = document.createElement("div");
   body.className = "cc-section-text";
+  body.dataset.sectionScrollKey = expandedKey;
   if (format === "markdown") body.classList.add("is-markdown");
   if (!text) {
     body.classList.add("is-empty");
@@ -2234,6 +2291,7 @@ function renderCard(agent) {
 
 function renderAgents() {
   const priorFocusedCardKey = focusedCardKey();
+  const scrollSnapshot = captureCommandCenterScroll();
   if (state.machines.length === 0 && state.agents.length === 0) {
     state.selectedCardKey = "";
     const loads = machineLoadCounts();
@@ -2243,6 +2301,7 @@ function renderAgents() {
       note.className = "cc-empty";
       note.textContent = `Loading agents from ${loads.loading} machine${loads.loading === 1 ? "" : "s"}…`;
       els.list.append(note);
+      restoreCommandCenterScrollSoon(scrollSnapshot);
       return;
     }
     renderEmpty();
@@ -2272,6 +2331,7 @@ function renderAgents() {
         : "No agents match the current filters.";
     }
     els.list.append(note);
+    restoreCommandCenterScrollSoon(scrollSnapshot);
     return;
   }
   for (const agent of filtered) {
@@ -2279,6 +2339,7 @@ function renderAgents() {
   }
   syncSelectedCardDom();
   if (priorFocusedCardKey) restoreFocusedCard(priorFocusedCardKey);
+  restoreCommandCenterScrollSoon(scrollSnapshot);
 }
 
 async function loadAgentsAggregate(generation) {
