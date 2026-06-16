@@ -569,6 +569,12 @@
   letter-spacing: 0;
 }
 
+.cc-card-window-name.is-logo {
+  flex: 0 0 auto;
+  min-width: 0;
+  overflow: visible;
+}
+
 .cc-card-session-name {
   flex: 1 1 auto;
   min-width: 4ch;
@@ -608,8 +614,12 @@
 }
 
 .cc-kind-chip {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
+  min-width: 28px;
+  min-height: 20px;
   padding: 1px 7px;
   border-radius: 999px;
   border: 1px solid var(--line);
@@ -621,6 +631,57 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   opacity: 0.82;
+}
+
+.cc-kind-chip-logo {
+  width: 34px;
+  padding: 0;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.cc-kind-chip-codex {
+  color: #2f5bb7;
+  background: #e3e9f5;
+}
+
+.cc-kind-chip-claude {
+  color: #b5530f;
+  background: #f3e7df;
+}
+
+.cc-agent-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: currentColor;
+  line-height: 1;
+}
+
+.cc-agent-logo svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.cc-agent-logo-title {
+  width: 22px;
+  height: 22px;
+}
+
+.cc-agent-logo-title svg {
+  width: 17px;
+  height: 17px;
+}
+
+.cc-agent-logo-title.cc-agent-logo-codex {
+  color: #2f5bb7;
+}
+
+.cc-agent-logo-title.cc-agent-logo-claude {
+  color: #b5530f;
 }
 
 /* Per-machine chip on each card (controller mode only). Kept visible, but

@@ -54,6 +54,16 @@ const ICONS = {
   delete:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
 };
+const AGENT_ICONS = {
+  claude:
+    '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 2l1.5 6L18 4.8l-2.3 4.4 6.3-.7-5.7 2.7 5.7 2.7-6.3-.7L18 19.2 13.5 16 12 22l-1.5-6L6 19.2l2.3-4.4-6.3.7L7.7 12 2 9.3l6.3.7L6 4.8 10.5 8 12 2z"/></svg>',
+  codex:
+    '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5.2a3.4 3.4 0 0 1 5.9 1.9 3.4 3.4 0 0 1 0 5.8 3.4 3.4 0 0 1-5.9 5.9 3.4 3.4 0 0 1-5.9-1.9 3.4 3.4 0 0 1 0-5.8A3.4 3.4 0 0 1 12 5.2z"/><path d="M12 8.4v7.2M8.9 10.2l6.2 3.6M15.1 10.2l-6.2 3.6"/></svg>',
+};
+const AGENT_LABELS = {
+  claude: "Claude Code",
+  codex: "Codex",
+};
 
 const els = {
   list: document.querySelector("#ccList"),
@@ -378,6 +388,49 @@ function agentMachineKey(agent) {
 
 function machineLabel(machine) {
   return String(machine?.hostname || machine?.machineId || machine?.id || "local");
+}
+
+function normalizedAgentKind(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (text === "codex") return "codex";
+  if (text === "claude" || text === "claude-code" || text === "claude code" || text === "cc") {
+    return "claude";
+  }
+  return "";
+}
+
+function agentKindLabel(kind) {
+  return AGENT_LABELS[kind] || kind || "Agent";
+}
+
+function agentLogo(kind, className = "") {
+  const normalized = normalizedAgentKind(kind);
+  const icon = AGENT_ICONS[normalized];
+  if (!icon) return "";
+  const label = agentKindLabel(normalized);
+  const classes = `cc-agent-logo cc-agent-logo-${normalized}${className ? ` ${className}` : ""}`;
+  return `<span class="${classes}" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${icon}</span>`;
+}
+
+function agentKindChip(kind) {
+  const normalized = normalizedAgentKind(kind);
+  if (!normalized) return kind ? `<span class="cc-kind-chip">${escapeHtml(kind)}</span>` : "";
+  return `<span class="cc-kind-chip cc-kind-chip-logo cc-kind-chip-${escapeHtml(normalized)}">${agentLogo(normalized)}</span>`;
+}
+
+function agentWindowName(agent) {
+  const name = String(agent?.windowName || "(unnamed)");
+  const normalized = normalizedAgentKind(name);
+  if (!normalized) {
+    return {
+      html: escapeHtml(name),
+      logo: false,
+    };
+  }
+  return {
+    html: agentLogo(normalized, "cc-agent-logo-title"),
+    logo: true,
+  };
 }
 
 function machineInventoryStatus(machine) {
@@ -2542,18 +2595,20 @@ function renderCard(agent) {
   const ownerChip = agent.machineOwnerId
     ? `<span class="cc-owner-chip" title="${escapeHtml(agent.machineOwnerId)}">${escapeHtml(ownerLocal)}</span>`
     : "";
+  const windowName = agentWindowName(agent);
+  const windowNameClass = `cc-card-window-name${windowName.logo ? " is-logo" : ""}`;
   const sessionTitle = agent.sessionName
     ? `<span class="cc-card-session-name">${escapeHtml(agent.sessionName || "")}</span><span class="cc-card-title-separator"> · </span>`
     : "";
   header.innerHTML = `
     <span class="cc-card-title">
       ${sessionTitle}
-      <span class="cc-card-window-name">${escapeHtml(agent.windowName || "(unnamed)")}</span>
+      <span class="${windowNameClass}">${windowName.html}</span>
       <span class="cc-card-window-index">#${escapeHtml(agent.windowIndex)}</span>
     </span>
     ${machineChip}
     ${ownerChip}
-    <span class="cc-kind-chip">${escapeHtml(agent.kind)}</span>
+    ${agentKindChip(agent.kind)}
     <span class="cc-status-pill${statusClass(agent.status)}">
       ${escapeHtml(statusLabel(agent.status))}
     </span>
