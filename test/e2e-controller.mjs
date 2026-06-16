@@ -383,6 +383,23 @@ async function exerciseTmux(baseUrl, cookie, email, machineId) {
     );
     assert.match(capture.text, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   });
+
+  const finalWindows = await requestJson(
+    baseUrl,
+    `/api/windows?sessionId=${encodeURIComponent(session.id)}`,
+    { cookie, machineId },
+  );
+  assert.equal(finalWindows.length, 1, "one window remains before deleting the session");
+  const deletedLast = await requestJson(baseUrl, "/api/windows", {
+    cookie,
+    machineId,
+    method: "DELETE",
+    body: { windowId: finalWindows[0].id },
+  });
+  assert.equal(deletedLast.killedSession, true, "deleting the last window kills the session");
+  const sessionsAfterDelete = await requestJson(baseUrl, "/api/sessions", { cookie, machineId });
+  assert.ok(!sessionsAfterDelete.some((item) => item.name === sessionName), "session removed after deleting last window");
+  sessionsToClean.delete(sessionName);
 }
 
 let fakeGoogle;

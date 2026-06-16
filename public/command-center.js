@@ -73,6 +73,8 @@ const els = {
   interactTarget: document.querySelector("#ccInteractTarget"),
   interactInputArea: document.querySelector("#ccInteractInputArea"),
   interactInput: document.querySelector("#ccInteractInput"),
+  interactAttachButton: document.querySelector("#ccInteractAttachButton"),
+  interactFileInput: document.querySelector("#ccInteractFileInput"),
   interactSend: document.querySelector("#ccInteractSend"),
   interactStatus: document.querySelector("#ccInteractStatus"),
   interactSnippetChips: document.querySelector("#ccInteractSnippetChips"),
@@ -554,6 +556,39 @@ function interactAppendText(text) {
   const sep = current && !/\s$/.test(current) ? " " : "";
   interactSetText(current + sep + add);
   interactFocus();
+}
+
+async function uploadInteractFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  const agent = state.interactAgent;
+  if (!agent?.paneId) {
+    setInteractStatus("No target");
+    return;
+  }
+
+  if (els.interactAttachButton) els.interactAttachButton.disabled = true;
+  setInteractStatus(files.length === 1 ? "Uploading..." : `Uploading ${files.length} files...`);
+  try {
+    for (const file of files) {
+      const params = new URLSearchParams({
+        paneId: agent.paneId,
+        name: file.name || "upload",
+      });
+      const data = await api(`/api/upload?${params}`, {
+        method: "POST",
+        machineId: agentMachineKey(agent),
+        headers: { "content-type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      if (data.path) interactAppendText(data.path);
+    }
+    setInteractStatus(files.length === 1 ? "File uploaded" : `${files.length} files uploaded`);
+  } catch (error) {
+    setInteractStatus(error.message || "Upload failed");
+  } finally {
+    if (els.interactAttachButton) els.interactAttachButton.disabled = false;
+  }
 }
 
 function renderInteractSnippets() {
@@ -2546,6 +2581,14 @@ els.list.addEventListener("click", (event) => {
 els.interactSend?.addEventListener("click", () =>
   sendInteractText({ keepFocus: false }),
 );
+if (els.interactAttachButton && els.interactFileInput) {
+  els.interactAttachButton.addEventListener("click", () => els.interactFileInput.click());
+  els.interactFileInput.addEventListener("change", async () => {
+    const files = Array.from(els.interactFileInput.files || []);
+    els.interactFileInput.value = "";
+    await uploadInteractFiles(files);
+  });
+}
 els.interactKeys?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   const button = target?.closest("[data-interact-key]");

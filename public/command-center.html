@@ -124,6 +124,10 @@ node server.mjs --register https://eng.impo.ai --login</code></pre>
             <div id="ccInteractInput" class="lexical-editor empty" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Text input" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" aria-autocomplete="none" data-1p-ignore data-lpignore="true" data-form-type="other" data-protonpass-ignore="true" inputmode="text" data-placeholder="Message…"></div>
             <div id="ccInteractVoiceWaveform" class="voice-waveform" aria-hidden="true"></div>
             <div class="input-actions">
+              <button id="ccInteractAttachButton" class="attach-button" type="button" title="Attach a file" aria-label="Attach a file">
+                <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              </button>
+              <input id="ccInteractFileInput" type="file" multiple hidden aria-hidden="true" />
               <span id="ccInteractStatus" class="settings-status cc-interact-status" role="status" aria-live="polite"></span>
               <div class="input-actions-right">
                 <button id="ccInteractVoiceButton" class="voice-button" type="button" title="Dictate" aria-label="Dictate into the message box">
