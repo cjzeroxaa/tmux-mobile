@@ -1178,15 +1178,10 @@ async function killWindow(windowId) {
   requireId(windowId, "window");
   const windowInfo = await getWindowInfo(windowId);
   const windows = await listWindows(windowInfo.sessionId);
-  if (windows.length <= 1) {
-    await runTmux(["kill-session", "-t", windowInfo.sessionId]);
-    clearSessionSummaryCache(windowInfo.sessionId);
-    return { ok: true, killed: windowInfo, killedSession: true };
-  }
-
+  const killedSession = windows.length <= 1;
   await runTmux(["kill-window", "-t", windowId]);
   clearSessionSummaryCache(windowInfo.sessionId);
-  return { ok: true, killed: windowInfo, killedSession: false };
+  return { ok: true, killed: windowInfo, killedSession };
 }
 
 async function listPanes(windowId) {
