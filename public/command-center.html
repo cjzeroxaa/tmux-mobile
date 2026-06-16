@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>Command Center · __APP_TITLE__</title>
+    <title>CJMUX · __APP_TITLE__</title>
     <script>
       try {
         var t = JSON.parse(localStorage.getItem("tmux-mobile-theme") || "{}").theme;
@@ -27,7 +27,7 @@
     <main class="cc-shell">
       <header class="cc-topbar">
         <div class="cc-title-block">
-          <h1 class="cc-title">Command Center</h1>
+          <h1 class="cc-title">CJMUX</h1>
           <span id="ccStatus" class="cc-status" aria-live="polite">Loading…</span>
         </div>
         <button id="ccRefresh" class="cc-icon-button" type="button" title="Refresh" aria-label="Refresh agents">
@@ -240,6 +240,20 @@ node server.mjs --register https://eng.impo.ai --login</code></pre>
           <button id="ccDeleteCancel" class="small-button" type="button">Cancel</button>
           <button id="ccDeleteConfirm" class="small-button danger" type="button">Delete window</button>
         </div>
+      </section>
+    </div>
+
+    <div id="ccResponseFullscreen" class="cc-response-fullscreen" hidden>
+      <button id="ccResponseFullscreenBackdrop" class="cc-response-fullscreen-backdrop" type="button" aria-label="Close response"></button>
+      <section class="cc-response-fullscreen-panel" role="dialog" aria-modal="true" aria-labelledby="ccResponseFullscreenTitle">
+        <header class="cc-response-fullscreen-header">
+          <div class="cc-response-fullscreen-title-block">
+            <h2 id="ccResponseFullscreenTitle">Last response</h2>
+            <span id="ccResponseFullscreenMeta"></span>
+          </div>
+          <button id="ccResponseFullscreenClose" class="cc-card-action" type="button" title="Close" aria-label="Close">X</button>
+        </header>
+        <div id="ccResponseFullscreenBody" class="cc-section-text cc-response-fullscreen-body"></div>
       </section>
     </div>
 

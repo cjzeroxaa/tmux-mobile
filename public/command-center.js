@@ -45,6 +45,8 @@ const ICONS = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
   open:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>',
+  fullscreen:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>',
   copy:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>',
   check:
@@ -112,6 +114,12 @@ const els = {
   deleteStatus: document.querySelector("#ccDeleteStatus"),
   deleteCancel: document.querySelector("#ccDeleteCancel"),
   deleteConfirm: document.querySelector("#ccDeleteConfirm"),
+  responseFullscreen: document.querySelector("#ccResponseFullscreen"),
+  responseFullscreenBackdrop: document.querySelector("#ccResponseFullscreenBackdrop"),
+  responseFullscreenClose: document.querySelector("#ccResponseFullscreenClose"),
+  responseFullscreenTitle: document.querySelector("#ccResponseFullscreenTitle"),
+  responseFullscreenMeta: document.querySelector("#ccResponseFullscreenMeta"),
+  responseFullscreenBody: document.querySelector("#ccResponseFullscreenBody"),
 };
 
 try {
@@ -363,6 +371,22 @@ function machineLabel(machine) {
   return String(machine?.hostname || machine?.machineId || machine?.id || "local");
 }
 
+function compareMachineLabel(aLabel, aKey, bLabel, bKey) {
+  const labelOrder = String(aLabel || "").localeCompare(String(bLabel || ""), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+  if (labelOrder !== 0) return labelOrder;
+  return String(aKey || "").localeCompare(String(bKey || ""), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function compareMachines(a, b) {
+  return compareMachineLabel(machineLabel(a), machineKey(a), machineLabel(b), machineKey(b));
+}
+
 function inferHomeDirectory(value) {
   const dir = String(value || "").trim().replace(/\/+$/, "");
   if (!dir) return "";
@@ -407,7 +431,7 @@ function startAgentMachines() {
 }
 
 function startAgentMachineChoices() {
-  return startAgentMachines();
+  return startAgentMachines().slice().sort(compareMachines);
 }
 
 function findStartAgentMachine(machineId, machines = startAgentMachineChoices()) {
@@ -1245,7 +1269,10 @@ function renderFilterRow() {
     const sep = document.createElement("span");
     sep.className = "cc-filter-sep";
     row.append(sep);
-    for (const [id, hostname] of machines) {
+    const sortedMachines = [...machines].sort(([aId, aLabel], [bId, bLabel]) =>
+      compareMachineLabel(aLabel, aId, bLabel, bId),
+    );
+    for (const [id, hostname] of sortedMachines) {
       const active = state.filterMachines.has(id);
       row.append(chipButton({
         label: hostname,
@@ -1370,7 +1397,27 @@ function restoreCommandCenterScrollSoon(snapshot) {
   requestAnimationFrame(() => restoreCommandCenterScroll(snapshot));
 }
 
-function renderSection({ className, label, text, timestamp, expandedKey, format = "plain" }) {
+function openResponseFullscreen({ label, text, timestamp, format }) {
+  if (!text || !els.responseFullscreen || !els.responseFullscreenBody) return;
+  if (els.responseFullscreenTitle) els.responseFullscreenTitle.textContent = label;
+  if (els.responseFullscreenMeta) {
+    els.responseFullscreenMeta.textContent =
+      exactTimeLabel(timestamp) || relativeTimeLabel(timestamp) || "";
+  }
+  els.responseFullscreenBody.className = "cc-section-text cc-response-fullscreen-body";
+  if (format === "markdown") els.responseFullscreenBody.classList.add("is-markdown");
+  els.responseFullscreenBody.innerHTML = renderSectionContent(text, format);
+  els.responseFullscreen.hidden = false;
+  requestAnimationFrame(() => els.responseFullscreenClose?.focus());
+}
+
+function closeResponseFullscreen() {
+  if (!els.responseFullscreen) return;
+  els.responseFullscreen.hidden = true;
+  els.responseFullscreenBody?.replaceChildren();
+}
+
+function renderSection({ className, label, text, timestamp, expandedKey, format = "plain", fullscreen = false }) {
   const wrap = document.createElement("div");
   wrap.className = `cc-section ${className}`;
   if (state.expanded.has(expandedKey)) wrap.classList.add("is-expanded");
@@ -1395,6 +1442,23 @@ function renderSection({ className, label, text, timestamp, expandedKey, format 
     title.append(labelEl, timeEl);
   } else {
     title.append(labelEl);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "cc-section-actions";
+
+  if (fullscreen) {
+    const fullscreenButton = document.createElement("button");
+    fullscreenButton.className = "cc-section-copy cc-section-fullscreen";
+    fullscreenButton.type = "button";
+    fullscreenButton.title = `Open ${label.toLowerCase()} fullscreen`;
+    fullscreenButton.setAttribute("aria-label", `Open ${label.toLowerCase()} fullscreen`);
+    fullscreenButton.innerHTML = ICONS.fullscreen;
+    fullscreenButton.disabled = !text;
+    fullscreenButton.addEventListener("click", () => {
+      openResponseFullscreen({ label, text, timestamp, format });
+    });
+    actions.append(fullscreenButton);
   }
 
   const copyButton = document.createElement("button");
@@ -1428,7 +1492,8 @@ function renderSection({ className, label, text, timestamp, expandedKey, format 
       }, 1200);
     }
   });
-  heading.append(title, copyButton);
+  actions.append(copyButton);
+  heading.append(title, actions);
 
   const body = document.createElement("div");
   body.className = "cc-section-text";
@@ -2278,6 +2343,7 @@ function renderCard(agent) {
       timestamp: agent.lastAssistantAt,
       expandedKey: `${agentMachineKey(agent)}::${agent.windowId}::assistant`,
       format: "markdown",
+      fullscreen: true,
     }),
   );
 
@@ -2650,6 +2716,8 @@ els.startAgentDirectoryList?.addEventListener("click", (event) => {
 });
 els.deleteCancel?.addEventListener("click", closeDeleteWindowDialog);
 els.deleteConfirm?.addEventListener("click", confirmDeleteWindow);
+els.responseFullscreenBackdrop?.addEventListener("click", closeResponseFullscreen);
+els.responseFullscreenClose?.addEventListener("click", closeResponseFullscreen);
 els.interactInput?.addEventListener("input", () => {
   els.interactInput.classList.toggle("empty", interactGetText().trim().length === 0);
 });
@@ -2705,6 +2773,10 @@ document.addEventListener("click", (event) => {
   closeMoreMenu();
 });
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !els.responseFullscreen?.hidden) {
+    closeResponseFullscreen();
+    return;
+  }
   if (event.key === "Escape" && !els.deleteDialog?.hidden) {
     closeDeleteWindowDialog();
     return;
