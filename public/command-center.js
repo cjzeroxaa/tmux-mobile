@@ -65,6 +65,7 @@ const els = {
   welcomeClose: document.querySelector("#ccWelcomeClose"),
   welcomeShow: document.querySelector("#ccWelcomeShow"),
   moreMenu: document.querySelector("#ccMoreMenu"),
+  cardSearchOpen: document.querySelector("#ccCardSearchOpen"),
   themeButtons: [...document.querySelectorAll("[data-cc-theme]")],
   fontDecrease: document.querySelector("#ccFontDecrease"),
   fontIncrease: document.querySelector("#ccFontIncrease"),
@@ -120,6 +121,11 @@ const els = {
   responseFullscreenTitle: document.querySelector("#ccResponseFullscreenTitle"),
   responseFullscreenMeta: document.querySelector("#ccResponseFullscreenMeta"),
   responseFullscreenBody: document.querySelector("#ccResponseFullscreenBody"),
+  cardSearchSheet: document.querySelector("#ccCardSearchSheet"),
+  cardSearchBackdrop: document.querySelector("#ccCardSearchBackdrop"),
+  cardSearchClose: document.querySelector("#ccCardSearchClose"),
+  cardSearchInput: document.querySelector("#ccCardSearchInput"),
+  cardSearchResults: document.querySelector("#ccCardSearchResults"),
 };
 
 try {
@@ -237,6 +243,8 @@ const state = {
   // Machine filter is in-memory only. Empty = "show all".
   sortBy: "recent",
   filterMachines: new Set(),
+  cardSearchQuery: "",
+  cardSearchIndex: 0,
   interactAgent: null,
   interactSending: false,
   deleteAgent: null,
@@ -2142,6 +2150,169 @@ function openSelectedResponseFullscreen() {
   return true;
 }
 
+function machineForAgent(agent) {
+  const key = agentMachineKey(agent);
+  return state.machines.find((machine) => machineKey(machine) === key) || null;
+}
+
+function cardSearchTitle(agent) {
+  return agent.sessionName || agent.windowName || "(unnamed)";
+}
+
+function cardSearchMeta(agent) {
+  const machine = machineForAgent(agent);
+  const machineText = agent.machineHostname || (machine ? machineLabel(machine) : "") || agentMachineKey(agent);
+  const windowText = `${agent.windowName || "(unnamed)"} #${agent.windowIndex}`;
+  const kind = agent.kind || agent.agentType || "";
+  return [machineText, windowText, kind].filter(Boolean).join(" · ");
+}
+
+function cardSearchTerms(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function cardSearchHaystack(agent) {
+  const machine = machineForAgent(agent);
+  return [
+    agent.machineHostname,
+    agent.machineId,
+    agent.machineRawId,
+    machine?.hostname,
+    machine?.machineId,
+    machine?.id,
+    agent.sessionName,
+    agent.windowName,
+    agent.windowId,
+    agent.paneId,
+    agent.windowIndex,
+    agent.kind,
+    agent.agentType,
+  ]
+    .filter((item) => item !== undefined && item !== null)
+    .join(" ")
+    .toLowerCase();
+}
+
+function cardSearchMatches(agent, terms) {
+  if (terms.length === 0) return true;
+  const haystack = cardSearchHaystack(agent);
+  return terms.every((term) => haystack.includes(term));
+}
+
+function cardSearchAgents() {
+  const terms = cardSearchTerms(state.cardSearchQuery);
+  return filterAndSort(state.agents).filter((agent) => cardSearchMatches(agent, terms));
+}
+
+function renderCardSearchResults() {
+  if (!els.cardSearchResults) return;
+  const agents = cardSearchAgents();
+  state.cardSearchIndex = Math.max(
+    0,
+    Math.min(state.cardSearchIndex, Math.max(0, agents.length - 1)),
+  );
+  els.cardSearchResults.replaceChildren();
+  if (agents.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "cc-card-search-empty";
+    empty.textContent = "No matching cards.";
+    els.cardSearchResults.append(empty);
+    return;
+  }
+  for (const [index, agent] of agents.entries()) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `cc-card-search-result${index === state.cardSearchIndex ? " is-active" : ""}`;
+    button.dataset.cardSearchKey = readKeyForAgent(agent);
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-selected", String(index === state.cardSearchIndex));
+
+    const title = document.createElement("span");
+    title.className = "cc-card-search-result-title";
+    title.textContent = cardSearchTitle(agent);
+
+    const meta = document.createElement("span");
+    meta.className = "cc-card-search-result-meta";
+    meta.textContent = cardSearchMeta(agent);
+
+    button.append(title, meta);
+    button.addEventListener("click", () => selectCardSearchAgent(agent));
+    els.cardSearchResults.append(button);
+  }
+  els.cardSearchResults
+    .querySelector(".cc-card-search-result.is-active")
+    ?.scrollIntoView({ block: "nearest" });
+}
+
+function openCardSearch() {
+  if (!els.cardSearchSheet || !els.cardSearchInput) return;
+  closeMoreMenu();
+  state.cardSearchQuery = "";
+  const agents = cardSearchAgents();
+  const selectedIndex = agents.findIndex((agent) => readKeyForAgent(agent) === state.selectedCardKey);
+  state.cardSearchIndex = selectedIndex >= 0 ? selectedIndex : 0;
+  els.cardSearchInput.value = "";
+  renderCardSearchResults();
+  els.cardSearchSheet.hidden = false;
+  requestAnimationFrame(() => {
+    els.cardSearchInput?.focus();
+    els.cardSearchInput?.select();
+  });
+}
+
+function closeCardSearch() {
+  if (!els.cardSearchSheet) return;
+  els.cardSearchSheet.hidden = true;
+  state.cardSearchQuery = "";
+  state.cardSearchIndex = 0;
+  if (els.cardSearchInput) els.cardSearchInput.value = "";
+}
+
+function selectCardSearchAgent(agent) {
+  if (!agent) return;
+  const key = readKeyForAgent(agent);
+  closeCardSearch();
+  requestAnimationFrame(() => updateSelectedCard(key, { scroll: true, focus: true }));
+}
+
+function selectCardSearchIndex(delta) {
+  const agents = cardSearchAgents();
+  if (agents.length === 0) return;
+  state.cardSearchIndex = Math.max(
+    0,
+    Math.min(agents.length - 1, state.cardSearchIndex + delta),
+  );
+  renderCardSearchResults();
+}
+
+function submitCardSearch() {
+  const agent = cardSearchAgents()[state.cardSearchIndex];
+  if (agent) selectCardSearchAgent(agent);
+}
+
+function handleCardSearchShortcut(event) {
+  if (
+    event.defaultPrevented ||
+    event.isComposing ||
+    event.altKey ||
+    event.shiftKey ||
+    !(event.metaKey || event.ctrlKey) ||
+    event.key.toLowerCase() !== "k" ||
+    !els.interactSheet?.hidden ||
+    !els.startAgentSheet?.hidden ||
+    !els.deleteDialog?.hidden ||
+    !els.responseFullscreen?.hidden
+  ) {
+    return;
+  }
+  event.preventDefault();
+  openCardSearch();
+}
+
 function shortcutTargetIsEditable(target) {
   if (!(target instanceof Element)) return false;
   return Boolean(target.closest("input, textarea, select, button, a, summary, [contenteditable='true']"));
@@ -2159,6 +2330,7 @@ function handleCardShortcuts(event) {
     !els.startAgentSheet?.hidden ||
     !els.deleteDialog?.hidden ||
     !els.responseFullscreen?.hidden ||
+    !els.cardSearchSheet?.hidden ||
     els.moreMenu?.open
   ) {
     return;
@@ -2457,6 +2629,7 @@ function renderAgents() {
   }
   syncSelectedCardDom();
   if (priorFocusedCardKey) restoreFocusedCard(priorFocusedCardKey);
+  if (!els.cardSearchSheet?.hidden) renderCardSearchResults();
   restoreCommandCenterScrollSoon(scrollSnapshot);
 }
 
@@ -2735,6 +2908,30 @@ els.deleteCancel?.addEventListener("click", closeDeleteWindowDialog);
 els.deleteConfirm?.addEventListener("click", confirmDeleteWindow);
 els.responseFullscreenBackdrop?.addEventListener("click", closeResponseFullscreen);
 els.responseFullscreenClose?.addEventListener("click", closeResponseFullscreen);
+els.cardSearchOpen?.addEventListener("click", openCardSearch);
+els.cardSearchBackdrop?.addEventListener("click", closeCardSearch);
+els.cardSearchClose?.addEventListener("click", closeCardSearch);
+els.cardSearchInput?.addEventListener("input", () => {
+  state.cardSearchQuery = els.cardSearchInput.value || "";
+  state.cardSearchIndex = 0;
+  renderCardSearchResults();
+});
+els.cardSearchInput?.addEventListener("keydown", (event) => {
+  if (event.isComposing) return;
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    selectCardSearchIndex(1);
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    selectCardSearchIndex(-1);
+  } else if (event.key === "Enter") {
+    event.preventDefault();
+    submitCardSearch();
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    closeCardSearch();
+  }
+});
 els.interactInput?.addEventListener("input", () => {
   els.interactInput.classList.toggle("empty", interactGetText().trim().length === 0);
 });
@@ -2761,6 +2958,7 @@ els.interactInput?.addEventListener("beforeinput", (event) => {
   sendInteractText();
 });
 document.addEventListener("keydown", handleInteractVoiceShortcut, true);
+document.addEventListener("keydown", handleCardSearchShortcut, true);
 
 // Welcome block: hidden if the user dismissed it previously, recoverable
 // via the "?" topbar button. Stored as a plain string flag in localStorage
@@ -2792,6 +2990,10 @@ document.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !els.responseFullscreen?.hidden) {
     closeResponseFullscreen();
+    return;
+  }
+  if (event.key === "Escape" && !els.cardSearchSheet?.hidden) {
+    closeCardSearch();
     return;
   }
   if (event.key === "Escape" && !els.deleteDialog?.hidden) {
