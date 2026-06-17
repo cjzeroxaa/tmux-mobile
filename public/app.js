@@ -385,6 +385,11 @@ const state = {
   reconnectUntil: 0, // ms epoch deadline; 0 = not in grace
   reconnectMachineId: "", // the machine we're waiting to come back
   reconnectTimer: null, // fast-retry timer during grace
+  // route id -> last-known hostname. The route id (machine.id, "m:base64:base64")
+  // is what state.machineId holds, but it's an INTERNAL key — never show it. When
+  // a machine drops it leaves state.machines, so we remember its friendly name
+  // here to label the "Waiting for <host>" message instead of leaking the id.
+  knownHostnames: {},
   lines: readPersistedLines(),
   autoRefreshTimer: null,
   chat: [],
@@ -831,6 +836,12 @@ async function loadRuntimeAndMachines() {
   }
 
   state.machines = await api("/api/machines");
+  // Remember each machine's friendly name keyed by its route id, so we can label
+  // it after it drops (and leaves state.machines).
+  for (const m of state.machines) {
+    const label = m.hostname || m.machineId;
+    if (m.id && label) state.knownHostnames[m.id] = label;
+  }
   if (state.machineId) {
     state.machineId = resolveMachineRouteId(state.machineId);
   }
@@ -901,7 +912,7 @@ function renderMachinePicker() {
     option.value = state.machineId && !selectedOnline ? state.machineId : "";
     option.textContent =
       state.machineId && !selectedOnline
-        ? `Waiting for ${state.machineId}`
+        ? `Waiting for ${machineLabelFor(state.machineId)}`
         : state.machines.length === 0
           ? "No machines online"
           : "Select a machine";
@@ -936,6 +947,17 @@ function renderConnectorHelp() {
 function machineLabel(machine) {
   // Just the machine name — the os/arch (e.g. "linux/x64") is noise in the picker.
   return machine.hostname || machine.id;
+}
+
+// Friendly label for a machine by its route id (state.machineId is a route id,
+// "m:base64:base64" — an internal key we must never show the user). Prefers the
+// live machine's hostname, then the last-known hostname (for a dropped machine),
+// and only falls back to the raw id if we've genuinely never seen a name.
+function machineLabelFor(routeId) {
+  if (!routeId) return "";
+  const live = state.machines.find((m) => m.id === routeId);
+  if (live) return live.hostname || live.machineId || routeId;
+  return state.knownHostnames[routeId] || routeId;
 }
 
 // `target` optionally names a specific window to land on after the switch
@@ -2759,7 +2781,7 @@ function setReconnectingBanner(show, machineId = "") {
   if (!els.reconnectBanner) return;
   if (show && els.reconnectBannerText) {
     els.reconnectBannerText.textContent = machineId
-      ? `Reconnecting to ${machineId}…`
+      ? `Reconnecting to ${machineLabelFor(machineId)}…`
       : "Reconnecting…";
   }
   els.reconnectBanner.hidden = !show;
@@ -2845,7 +2867,7 @@ async function refreshTree({
         ? state.machines.length === 0
           ? "No machines online."
           : "Select a machine."
-        : `Waiting for ${state.machineId} to reconnect.`;
+        : `Waiting for ${machineLabelFor(state.machineId)} to reconnect.`;
       resetTmuxState(
         message,
       );
