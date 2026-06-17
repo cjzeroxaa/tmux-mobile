@@ -377,6 +377,7 @@
 .cc-filter-chip {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface-soft);
@@ -389,6 +390,10 @@
   cursor: pointer;
 }
 
+.cc-filter-chip-label {
+  min-width: 0;
+}
+
 .cc-filter-chip.is-active {
   border-color: var(--accent-dark);
   background: rgba(53, 89, 122, 0.16);
@@ -397,6 +402,37 @@
 
 .cc-filter-chip-machine {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.cc-filter-chip-status {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 999px;
+}
+
+.cc-filter-chip-status.is-running {
+  background: #2f75d6;
+  box-shadow: 0 0 0 2px rgba(47, 117, 214, 0.14);
+  animation: cc-chip-flash 1.15s ease-in-out infinite;
+}
+
+.cc-filter-chip-status.is-waiting {
+  background: #d39b18;
+  box-shadow: 0 0 0 2px rgba(211, 155, 24, 0.18);
+}
+
+.cc-filter-chip-machine.is-running {
+  border-color: rgba(47, 117, 214, 0.28);
+}
+
+.cc-filter-chip-machine.is-waiting {
+  border-color: rgba(211, 155, 24, 0.34);
+}
+
+@keyframes cc-chip-flash {
+  0%, 100% { opacity: 0.35; transform: scale(0.82); }
+  50%      { opacity: 1;    transform: scale(1.08); }
 }
 
 .cc-sort {
@@ -796,6 +832,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .cc-card.is-running::before,
+  .cc-filter-chip-status.is-running,
   .cc-status-pill.is-running::before {
     animation: none;
   }

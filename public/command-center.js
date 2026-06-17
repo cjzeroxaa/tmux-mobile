@@ -1044,6 +1044,23 @@ function statusClass(status) {
   return normalized !== "idle" ? ` is-${normalized}` : "";
 }
 
+function machineChipStatus(machineId) {
+  const key = String(machineId || "");
+  let hasRunning = false;
+  for (const agent of state.agents) {
+    if (agentMachineKey(agent) !== key) continue;
+    if (agent.status === "waiting") return "waiting";
+    if (agent.status === "running") hasRunning = true;
+  }
+  return hasRunning ? "running" : "";
+}
+
+function machineChipStatusLabel(status) {
+  if (status === "waiting") return STATUS_LABELS.waiting;
+  if (status === "running") return STATUS_LABELS.running;
+  return "";
+}
+
 function renderInteractVoiceWaveform() {
   if (!els.interactVoiceWaveform) return;
   if (els.interactVoiceWaveform.children.length !== INTERACT_WAVEFORM_SAMPLES) {
@@ -1357,6 +1374,7 @@ function renderFilterRow() {
         label: hostname,
         active,
         kind: "machine",
+        status: machineChipStatus(id),
         onTap: () => toggleFilter("filterMachines", id),
       }));
     }
@@ -1364,11 +1382,28 @@ function renderFilterRow() {
   if (!els.startAgentSheet?.hidden) renderStartAgentMachineOptions();
 }
 
-function chipButton({ label, active, kind, onTap }) {
+function chipButton({ label, active, kind, status = "", onTap }) {
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.className = `cc-filter-chip cc-filter-chip-${kind}${active ? " is-active" : ""}`;
-  btn.textContent = label;
+  const statusLabel_ = machineChipStatusLabel(status);
+  btn.className = [
+    "cc-filter-chip",
+    `cc-filter-chip-${kind}`,
+    active ? "is-active" : "",
+    status ? `is-${status}` : "",
+  ].filter(Boolean).join(" ");
+  btn.title = statusLabel_ ? `${label} · ${statusLabel_}` : label;
+  btn.setAttribute("aria-label", btn.title);
+  if (status) {
+    const statusIcon = document.createElement("span");
+    statusIcon.className = `cc-filter-chip-status is-${status}`;
+    statusIcon.setAttribute("aria-hidden", "true");
+    btn.append(statusIcon);
+  }
+  const text = document.createElement("span");
+  text.className = "cc-filter-chip-label";
+  text.textContent = label;
+  btn.append(text);
   btn.addEventListener("click", onTap);
   return btn;
 }
