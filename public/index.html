@@ -43,6 +43,18 @@
         <button id="openTargetPicker" class="target-pill" type="button">
           <strong id="mobileTargetLabel">No window selected</strong>
         </button>
+        <!-- Quick-switch to a recently-visited window across ANY machine. Sits
+             right of the copy button; opens the global-recents popup below it.
+             Items are formatted exactly like the window title (the descriptor). -->
+        <div class="recents-menu">
+          <button id="globalRecentsToggle" class="icon-button" type="button" title="Recent windows" aria-label="Recent windows" aria-haspopup="true" aria-expanded="false">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+          </button>
+          <div id="globalRecentsMenu" class="recents-menu-popup" hidden role="menu" aria-label="Recent windows"></div>
+        </div>
+        <!-- "Needs you" pill: shown when one or more other windows' agents have
+             finished (unread) or are waiting on a question. Tap to jump. -->
+        <button id="needsAttention" class="needs-attention" type="button" hidden aria-live="polite"></button>
         <!-- Global action: Read the current window aloud (TTS). Promoted to the
              topbar from the composer. -->
         <button id="speakWindow" type="button" class="topbar-read" title="Read current window" aria-label="Read current window">
@@ -60,6 +72,13 @@
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
               <span>Answer question</span>
             </button>
+            <!-- Copy the current window's full descriptor (stable id + context)
+                 for bug reports / switching back later. Moved here from the
+                 topbar to save space. The label flips to "Copied" briefly. -->
+            <button id="copyWindowId" class="more-actions-item" type="button" role="menuitem">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="13" height="13" x="9" y="9" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span data-copy-label>Copy window id</span>
+            </button>
             <button id="renameWindow" class="more-actions-item" type="button" role="menuitem">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
               <span>Rename window</span>
@@ -71,6 +90,12 @@
             <button id="duplicateWindow" class="more-actions-item" type="button" role="menuitem">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               <span>Duplicate window</span>
+            </button>
+            <!-- Shown only when the current window is a bare-repo-backed git
+                 worktree (gated by app.js via meta.git.bare). -->
+            <button id="newBranchWindow" class="more-actions-item" type="button" role="menuitem" hidden>
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+              <span>New branch</span>
             </button>
             <button id="forkAgent" class="more-actions-item" type="button" role="menuitem" data-agent-fork>
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="9" r="3"/><path d="M18 12a9 9 0 0 1-9 9"/><path d="M6 9v6"/></svg>
@@ -136,6 +161,9 @@
               <option value="1000">1000</option>
             </select>
           </label>
+          <!-- The current window's note, right after the Lines picker. Click to
+               edit; same server-backed annotation shown in the window list. -->
+          <button id="snapshotNote" class="snapshot-note" type="button" hidden></button>
           <button id="refreshSnapshot" class="small-button">Refresh</button>
           <label class="toggle">
             <input id="autoRefresh" type="checkbox" checked />
@@ -511,6 +539,33 @@
         <div class="settings-actions">
           <span id="duplicateStatus" class="settings-status" role="status" aria-live="polite"></span>
           <button id="confirmDuplicate" class="small-button submit" type="button">Create</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- "New branch" sheet (More -> New branch). Shown only when the current
+         window is a bare-repo-backed git worktree. Creates a new worktree+branch
+         (sibling dir named after the branch) and opens a window in it, with the
+         start command prefilled from the current window like Duplicate. -->
+    <div id="newBranchSheet" class="settings-sheet" hidden>
+      <button id="newBranchBackdrop" class="settings-backdrop" type="button" aria-label="Cancel new branch"></button>
+      <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="newBranchTitle">
+        <div class="settings-panel-header">
+          <h2 id="newBranchTitle">New branch</h2>
+          <button id="closeNewBranch" class="icon-button" type="button" title="Cancel">X</button>
+        </div>
+        <p class="settings-hint">Creates a git worktree for a new branch (a sibling directory off <span id="newBranchFrom" class="duplicate-cwd"></span>) and opens a window in it. The start command is prefilled from this window — leave it empty for a plain shell.</p>
+        <label class="settings-field">
+          <span>New branch name</span>
+          <input id="newBranchName" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. feature-x" />
+        </label>
+        <label class="settings-field">
+          <span>Start command</span>
+          <input id="newBranchCommand" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="(none — plain shell)" />
+        </label>
+        <div class="settings-actions">
+          <span id="newBranchStatus" class="settings-status" role="status" aria-live="polite"></span>
+          <button id="confirmNewBranch" class="small-button submit" type="button">Create</button>
         </div>
       </section>
     </div>
