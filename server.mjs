@@ -81,7 +81,6 @@ const MAX_CAPTURE_LINES = 5000;
 // Voice models (transcription / realtime / TTS) are now runtime-configurable
 // via lib/voice-config.mjs and the web app's Settings panel; read them at call
 // time with getVoiceConfig() rather than freezing them at module load.
-const SUMMARY_MODEL = process.env.OPENAI_SUMMARY_MODEL || "gpt-5.4-mini";
 // Max bytes the smart content viewer will read from a pane-referenced file.
 const FILE_VIEWER_MAX_BYTES = 5 * 1024 * 1024;
 // Larger cap for media/html opened in an external tab (video especially).
@@ -282,12 +281,6 @@ const CONNECTOR_UPDATE_SCRIPT_URL =
   defaultConnectorUpdateScriptUrl(CONNECTOR_CLONE_URL, CONNECTOR_UPDATE_REF);
 const WINDOW_BRIEFING_MODEL =
   process.env.OPENAI_WINDOW_BRIEFING_MODEL || "gpt-5.4-mini";
-const AGENT_RESPONSE_EXTRACT_MODEL =
-  process.env.OPENAI_AGENT_RESPONSE_EXTRACT_MODEL || "gpt-5.4-mini";
-const AGENT_RESPONSE_EXTRACT_MAX_OUTPUT_TOKENS = parsePositiveInteger(
-  process.env.OPENAI_AGENT_RESPONSE_EXTRACT_MAX_OUTPUT_TOKENS,
-  4096,
-);
 const configuredSubmitNudgeDelayMs = Number(
   process.env.TMUX_SUBMIT_NUDGE_DELAY_MS,
 );
@@ -315,8 +308,6 @@ const ASK_KEY_DELAY_MS = parsePositiveInteger(
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-const SUMMARY_CACHE_MS = 60_000;
-const SUMMARY_LINES_DEFAULT = 20;
 const WINDOW_BRIEFING_LINES = 60;
 const REALTIME_WINDOW_BRIEFING_MAX_CAPTURE_LINES = 500;
 const REALTIME_WINDOW_BRIEFING_CHUNK_LINES = parsePositiveInteger(
@@ -339,16 +330,12 @@ const REALTIME_CLIENT_SECRET_TTL_SECONDS = Math.min(
 );
 const WINDOW_BRIEFING_INSTRUCTIONS =
   "You are turning the last visible terminal output into something useful to listen to. The input is the last lines captured from the active pane of a tmux window where a coding agent, shell, editor, or test/build process may be running. Your job is to summarize and restate the actual content in those lines, not to describe the fact that an agent is speaking, explaining, coding, or summarizing. If the output contains an explanation, explain the substance of that explanation. If it contains a plan, report the plan. If it contains code-review findings, report the findings. If it contains command output, report the meaningful results, errors, files, commands, and blockers. Avoid meta phrases such as \"the agent is explaining\", \"the output discusses\", \"it mentions\", or \"the terminal shows\" unless there is no substantive content to report. Ignore ANSI escape sequences, control characters, redraw artifacts, repeated progress-only lines, prompts with no meaningful state, and other terminal noise. Be faithful to the visible output and do not invent missing context. Write a natural spoken summary of 3-7 sentences, no Markdown, no bullets, no code fences. Use Chinese if the terminal output or user task is primarily Chinese; otherwise use English.";
-const AGENT_RESPONSE_EXTRACT_INSTRUCTIONS =
-  "The text below is the bottom of a tmux pane. Multiple older agent responses may be visible above the newest one — IGNORE them completely. Only consider the response that appears closest to the bottom of the input, after the most recent user prompt or command. Turn just that latest response into 3-6 short bullets capturing the core takeaways — what was reported, decided, found, broken, or proposed — keeping specific file paths, commands, identifiers, and numbers when they carry the substance. Drop terminal chrome, prompts, tool-call logs, progress spinners, and decorative separators. Each bullet is one short sentence: specific, not one word, not a paragraph. Use Chinese if the input is primarily Chinese, otherwise English. Return only the bullets, one per line starting with '- '. If the latest response is empty or only contains noise, return one bullet describing the most recent meaningful line near the bottom.";
 const REALTIME_WINDOW_BRIEFING_INSTRUCTIONS =
   "Read the provided bullets aloud as a brisk, natural spoken summary at a quick but clear pace — faster than a default newsreader. Skip the leading '- '. Connect the bullets into flowing sentences rather than reading them staccato. Do not preface, do not add framing, do not translate. Use the input's language. If the input is one chunk of a longer summary, continue naturally without announcing chunk numbers.";
 const REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS =
   parseRealtimeOutputTokenLimit(
     process.env.OPENAI_REALTIME_WINDOW_BRIEFING_MAX_OUTPUT_TOKENS,
   );
-
-const summaryCache = new Map();
 
 function parseRealtimeOutputTokenLimit(value) {
   const normalized = String(value || "inf").trim().toLowerCase();
@@ -551,11 +538,6 @@ function textExcerpt(text, max = 5000) {
   return `${text.slice(0, max)}\n\n[truncated ${text.length - max} chars]`;
 }
 
-function tailTextExcerpt(text, max = 5000) {
-  if (text.length <= max) return text;
-  return `[truncated ${text.length - max} earlier chars]\n\n${text.slice(-max)}`;
-}
-
 function escapeHtmlAttribute(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -642,12 +624,6 @@ function cleanTerminalTextKeepAnsi(text) {
     lastWasBlank = blank;
   }
   return kept.join("\n").trimEnd();
-}
-
-function stripMarkdownFence(text) {
-  const trimmed = String(text || "").trim();
-  const match = /^```(?:[a-z0-9_-]+)?\n([\s\S]*?)\n```$/i.exec(trimmed);
-  return match ? match[1].trim() : trimmed;
 }
 
 function splitRealtimeBriefingOutput(text) {
@@ -791,14 +767,6 @@ function windowFromRow(fields) {
   };
 }
 
-function clearSessionSummaryCache(sessionId) {
-  for (const key of summaryCache.keys()) {
-    if (key.startsWith(`${sessionId}:`)) {
-      summaryCache.delete(key);
-    }
-  }
-}
-
 async function createSession(name) {
   const sessionName = requireSessionName(name);
   const stdout = await runTmux([
@@ -883,7 +851,6 @@ async function startAgentSession(options = {}) {
   const windowId = requireId(row[5], "window");
   const paneId = requireId(row[6], "pane");
   await sendTextToPane(paneId, spec.command, { enter: true });
-  clearSessionSummaryCache(session.id);
   return {
     ok: true,
     kind,
@@ -899,7 +866,6 @@ async function renameSession(sessionId, name) {
   requireId(sessionId, "session");
   const sessionName = requireSessionName(name);
   await runTmux(["rename-session", "-t", sessionId, sessionName]);
-  clearSessionSummaryCache(sessionId);
   return readSessionRow(sessionId, "renamed");
 }
 
@@ -975,7 +941,6 @@ async function createWindow(sessionId) {
     "-t",
     sessionId,
   ]);
-  clearSessionSummaryCache(sessionId);
   const [row] = rows(stdout);
   if (!row) {
     const error = new Error("tmux did not return the new window");
@@ -1156,7 +1121,6 @@ async function duplicateWindow(windowId, overrides = {}) {
   if (name) args.push("-n", name);
   if (command) args.push(command); // shell-command run in the new window
   const created = await runTmux(args);
-  clearSessionSummaryCache(defaults.sessionId);
   const [row] = rows(created);
   if (!row) {
     const error = new Error("tmux did not return the duplicated window");
@@ -1198,7 +1162,6 @@ async function killWindow(windowId) {
   const windows = await listWindows(windowInfo.sessionId);
   const killedSession = windows.length <= 1;
   await runTmux(["kill-window", "-t", windowId]);
-  clearSessionSummaryCache(windowInfo.sessionId);
   return { ok: true, killed: windowInfo, killedSession };
 }
 
@@ -1570,58 +1533,11 @@ function responseOutputText(data) {
   return chunks.join("\n").trim();
 }
 
-async function createJsonModelResponse({ instructions, input, schema, maxOutputTokens }) {
-  if (!process.env.OPENAI_API_KEY) {
-    const error = new Error("OPENAI_API_KEY is not set");
-    error.status = 500;
-    throw error;
-  }
-
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: SUMMARY_MODEL,
-      instructions,
-      input,
-      max_output_tokens: maxOutputTokens,
-      text: {
-        format: {
-          type: "json_schema",
-          name: "tmux_window_summaries",
-          strict: true,
-          schema,
-        },
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    const error = new Error(textExcerpt(text || response.statusText, 1200));
-    error.status = 502;
-    throw error;
-  }
-
-  const data = await response.json();
-  const outputText = responseOutputText(data);
-  if (!outputText) {
-    const error = new Error("Model returned no summary text");
-    error.status = 502;
-    throw error;
-  }
-
-  return JSON.parse(outputText);
-}
-
 async function createTextModelResponse({
   instructions,
   input,
   maxOutputTokens,
-  model = SUMMARY_MODEL,
+  model = WINDOW_BRIEFING_MODEL,
 }) {
   if (!process.env.OPENAI_API_KEY) {
     const error = new Error("OPENAI_API_KEY is not set");
@@ -1658,74 +1574,6 @@ async function createTextModelResponse({
     throw error;
   }
   return outputText;
-}
-
-async function summarizeWindows(sessionId, lineCount, { force = false } = {}) {
-  requireId(sessionId, "session");
-  const lines = Math.min(parseLines(lineCount || SUMMARY_LINES_DEFAULT), 50);
-  const cacheKey = `${sessionId}:${lines}`;
-  const cached = summaryCache.get(cacheKey);
-  if (!force && cached && Date.now() - cached.createdAt < SUMMARY_CACHE_MS) {
-    return cached.value;
-  }
-
-  const windows = await listWindows(sessionId);
-  const samples = await Promise.all(
-    windows.map(async (win) => {
-      const panes = await listPanes(win.id);
-      const pane = panes.find((item) => item.active) || panes[0];
-      const text = pane ? await capturePane(pane.id, "tail", lines) : "";
-      return {
-        windowId: win.id,
-        windowIndex: win.index,
-        windowName: win.name,
-        command: pane?.command || win.activeCommand || "",
-        cwd: pane?.cwd || "",
-        output: textExcerpt(text.trimEnd(), 2200),
-      };
-    }),
-  );
-
-  const schema = {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      summaries: {
-        type: "array",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            windowId: { type: "string" },
-            summary: { type: "string" },
-          },
-          required: ["windowId", "summary"],
-        },
-      },
-    },
-    required: ["summaries"],
-  };
-
-  const value = await createJsonModelResponse({
-    instructions:
-      "You summarize tmux window state for a mobile dashboard. For each window, write 2 short present-tense sentences, under 200 characters total. Mention errors, running tests, idle prompts, build progress, current files or commands, and the obvious current task. Do not invent details. If output is empty or only a prompt, say it is idle.",
-    input: JSON.stringify({ lines, windows: samples }),
-    schema,
-    maxOutputTokens: Math.max(500, windows.length * 80),
-  });
-
-  const validWindowIds = new Set(windows.map((win) => win.id));
-  const summaries = (value.summaries || [])
-    .filter((item) => validWindowIds.has(item.windowId))
-    .map((item) => ({
-      windowId: item.windowId,
-      summary: String(item.summary || "").replace(/\s+/g, " ").trim().slice(0, 260),
-    }))
-    .filter((item) => item.summary);
-
-  const result = { model: SUMMARY_MODEL, lines, summaries };
-  summaryCache.set(cacheKey, { createdAt: Date.now(), value: result });
-  return result;
 }
 
 async function getWindowInfo(windowId) {
@@ -1855,7 +1703,6 @@ async function forkAgentWindow(paneId) {
     formats.windows,
     forkSpec.command,
   ]);
-  clearSessionSummaryCache(windowInfo.sessionId);
   const [row] = rows(stdout);
   if (!row) {
     const error = new Error("tmux did not return the fork window");
@@ -1869,29 +1716,6 @@ async function forkAgentWindow(paneId) {
     source: windowInfo,
     window: windowFromRow(row),
   };
-}
-
-async function extractLatestAgentResponse({ windowInfo, pane, lines, output }) {
-  if (!output.trim()) return "";
-
-  const extracted = await createTextModelResponse({
-    instructions: AGENT_RESPONSE_EXTRACT_INSTRUCTIONS,
-    input: JSON.stringify({
-      source: "tmux pane tail from a coding-agent workflow",
-      lines,
-      window: {
-        ...windowInfo,
-        paneIndex: pane?.index ?? null,
-        command: pane?.command || "",
-        cwd: pane?.cwd || "",
-      },
-      output: tailTextExcerpt(output, 14000),
-    }),
-    maxOutputTokens: AGENT_RESPONSE_EXTRACT_MAX_OUTPUT_TOKENS,
-    model: AGENT_RESPONSE_EXTRACT_MODEL,
-  });
-
-  return stripMarkdownFence(extracted);
 }
 
 async function buildBriefingInputForPane({ windowInfo, pane, lineCount }) {
@@ -3507,14 +3331,6 @@ async function handleApi(req, res, url) {
       const paneId = requireId(url.searchParams.get("paneId"), "pane");
       sendJson(res, 200, await listPaneDirectories(paneId));
     }
-    return;
-  }
-
-  if (req.method === "GET" && url.pathname === "/api/window-summaries") {
-    const sessionId = requireId(url.searchParams.get("sessionId"), "session");
-    const lines = url.searchParams.get("lines") || SUMMARY_LINES_DEFAULT;
-    const force = url.searchParams.get("refresh") === "1";
-    sendJson(res, 200, await summarizeWindows(sessionId, lines, { force }));
     return;
   }
 

@@ -314,7 +314,6 @@ const state = {
   machineId: initialUrlTarget.machineId || "",
   sessions: [],
   windows: [],
-  windowSummaries: {},
   windowActivity: {},
   windowMetadata: {}, // { [windowId]: { agentType, repo, git: {branch, worktree} } }
   attention: [], // cross-machine: [{ machineId, sessionName, windowIndex, windowName, agentType, turn, waitingForInput, contentHash }]
@@ -323,7 +322,6 @@ const state = {
   autoRefreshInFlight: false, // back-pressure flag for setAutoRefresh — skip the
                               // next tick if the previous one's network hasn't
                               // returned yet (see setAutoRefresh).
-  summariesLoading: false,
   panes: [],
   sessionId: "",
   windowId: "",
@@ -725,7 +723,6 @@ function resetTmuxState(message = "Select a window.") {
   state.targetLoadingMessage = "";
   state.sessions = [];
   state.windows = [];
-  state.windowSummaries = {};
   state.windowActivity = {};
   state.windowMetadata = {};
   state.panes = [];
@@ -1001,7 +998,6 @@ function recentWindowButton(win) {
   const session = state.sessions.find((s) => s.id === win.sessionId);
   const sessionName = session?.name ?? "";
   const live = Boolean(state.windowActivity[win.id]);
-  const summary = state.windowSummaries[win.id];
   return itemButton({
     active: win.id === state.windowId,
     title: `${win.index}: ${win.name}`,
@@ -1009,7 +1005,6 @@ function recentWindowButton(win) {
     badge: live ? "live" : "",
     badgeGreen: live,
     onClick: () => selectWindow(win.id),
-    metaClassName: summary ? "summary" : "",
   });
 }
 
@@ -1102,7 +1097,6 @@ function renderWindows() {
     els.mobileWindows.append(header);
 
     for (const win of wins) {
-      const summary = state.windowSummaries[win.id];
       const live = Boolean(state.windowActivity[win.id]);
       const meta = state.windowMetadata[win.id] || {};
       const branch = meta.git?.branch || "";
@@ -1122,11 +1116,10 @@ function renderWindows() {
         itemButton({
           active: win.id === state.windowId,
           title: `${win.index}: ${win.name}`,
-          meta: summary || (state.summariesLoading ? "Summarizing..." : win.activeCommand || win.id),
+          meta: win.activeCommand || win.id,
           badge: live ? "live" : "",
           badgeGreen: live,
           onClick: () => selectWindow(win.id),
-          metaClassName: summary ? "summary" : "",
           cwd: cwdLabel,
           branch,
           worktree,
@@ -1237,7 +1230,6 @@ function clearTargetViewForUrlNavigation(urlTarget, message = "Loading window...
   state.targetLoadingMessage = message;
   state.sessions = [];
   state.windows = [];
-  state.windowSummaries = {};
   state.windowActivity = {};
   state.windowMetadata = {};
   state.sessionId = "";
@@ -1313,7 +1305,6 @@ function openTargetPicker() {
   showTargetPicker();
   refreshTree().then(() => {
     startActivityPolling();
-    loadWindowSummaries({ force: false });
     loadWindowMetadata();
   });
 }
@@ -2607,20 +2598,6 @@ async function sendPaneKey(key) {
   schedulePaneSnapshotRefresh();
 }
 
-function resetWindowSummaryState() {
-  state.windowSummaries = {};
-  state.summariesLoading = false;
-}
-
-function pruneWindowSummaries() {
-  const windowIds = new Set(state.windows.map((win) => win.id));
-  state.windowSummaries = Object.fromEntries(
-    Object.entries(state.windowSummaries).filter(([windowId]) =>
-      windowIds.has(windowId),
-    ),
-  );
-}
-
 // How long to keep the current window on screen and retry before giving up and
 // showing the "no machine" reset. Covers a clean deploy (~1-2s agent re-register)
 // and most of the crash/revision-poll path (~13-16s).
@@ -2792,9 +2769,6 @@ async function createTmuxSession() {
     els.sessionNameInput.value = "";
     await refreshTree();
     setStatus(`new session: ${session.name}`);
-    if (state.targetPickerOpen) {
-      loadWindowSummaries({ force: true });
-    }
   } catch (error) {
     setStatus(error.message, false);
   } finally {
@@ -2818,13 +2792,10 @@ async function applyTreeAndSelectWindow({
     state.sessionId = "";
     state.windowId = "";
     state.targetLoadingMessage = "";
-    resetWindowSummaryState();
     renderWindows();
     renderTargetLabels();
     return;
   }
-  pruneWindowSummaries();
-
   const currentWindowExists = state.windows.some((item) => item.id === state.windowId);
   if (forceUrlTarget || !currentWindowExists) {
     let target = null;
@@ -2858,34 +2829,6 @@ async function applyTreeAndSelectWindow({
     clearPaneViewForWindowSwitch();
   }
   await loadPanes();
-}
-
-// Summaries for every session, merged by window id.
-async function loadWindowSummaries({ force = false } = {}) {
-  if (state.windows.length === 0) return;
-  state.summariesLoading = true;
-  renderWindows();
-  try {
-    const lists = await Promise.all(
-      state.sessions.map((session) => {
-        const params = new URLSearchParams({ sessionId: session.id, lines: "20" });
-        if (force) params.set("refresh", "1");
-        return api(`/api/window-summaries?${params}`)
-          .then((data) => data.summaries || [])
-          .catch(() => []);
-      }),
-    );
-    const merged = {};
-    for (const summaries of lists) {
-      for (const item of summaries) merged[item.windowId] = item.summary;
-    }
-    state.windowSummaries = merged;
-  } catch (error) {
-    setStatus(`summary: ${error.message}`, false);
-  } finally {
-    state.summariesLoading = false;
-    renderWindows();
-  }
 }
 
 // --- "Needs you" attention indicators (tab title/favicon + topbar pill) ---
@@ -4254,7 +4197,6 @@ function setAutoRefresh(enabled) {
 
 els.mobileRefreshTree.addEventListener("click", async () => {
   await refreshTree();
-  await loadWindowSummaries({ force: true });
 });
 els.mobileRefresh.addEventListener("click", async () => {
   await refreshTree();
