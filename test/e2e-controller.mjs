@@ -503,6 +503,10 @@ try {
     bobCommandCenter.agents.every((agent) => agent.machineId === bobOneRoute),
     "per-machine command-center only returns requested machine agents",
   );
+  assert.ok(
+    bobCommandCenter.agents.every((agent) => agent.machineMux === "tmux"),
+    "per-machine command-center agents include mux metadata",
+  );
 
   const consumerAgent = startAgent(baseUrl, CONSUMER, consumerOne, tmpDir);
   const consumerMachines = await waitForMachines(baseUrl, consumerCookie, [consumerOne]);

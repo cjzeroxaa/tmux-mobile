@@ -55,7 +55,10 @@ try {
         machine: "inventory-test",
         os: "darwin",
         arch: "arm64",
-        tmux: "tmux 3.5",
+        tmux: "rmux 0.6.1",
+        mux: "rmux",
+        muxCommand: "rmux",
+        muxVersion: "rmux 0.6.1",
         revision: "test",
         cwd: "/tmp/tmux-mobile",
         node: process.execPath,
@@ -64,6 +67,8 @@ try {
   );
 
   const machine = await waitFor("machine online", () => hub.listMachines(viewer)[0]);
+  assert.equal(machine.mux, "rmux", "machine exposes mux kind");
+  assert.equal(machine.muxVersion, "rmux 0.6.1", "machine exposes mux version");
   assert.equal(machine.inventoryStatus, "pending", "new connector starts pending");
   assert.equal(machine.agentCount, 0, "pending inventory has no count yet");
 

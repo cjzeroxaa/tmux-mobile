@@ -418,6 +418,19 @@ function agentKindChip(kind) {
   return `<span class="cc-kind-chip cc-kind-chip-logo cc-kind-chip-${escapeHtml(normalized)}">${agentLogo(normalized)}</span>`;
 }
 
+function muxLabel(value) {
+  const mux = String(value || "tmux").trim().toLowerCase();
+  return mux === "rmux" ? "RMUX" : "TMUX";
+}
+
+function agentMuxChip(agent) {
+  const mux = muxLabel(agent.machineMux);
+  const version = agent.machineMuxVersion || "";
+  const command = agent.machineMuxCommand || agent.machineMux || mux.toLowerCase();
+  const title = [command, version].filter(Boolean).join(" · ");
+  return `<span class="cc-mux-chip cc-mux-chip-${escapeHtml(mux.toLowerCase())}" title="${escapeHtml(title)}">${escapeHtml(mux)}</span>`;
+}
+
 function agentWindowName(agent) {
   const name = String(agent?.windowName || "(unnamed)");
   const normalized = normalizedAgentKind(name);
@@ -963,7 +976,7 @@ async function confirmDeleteWindow() {
   if (state.deleteBusy) return;
   const agent = state.deleteAgent;
   if (!agent?.windowId) {
-    setDeleteStatus("No tmux window target", true);
+    setDeleteStatus("No mux window target", true);
     return;
   }
 
@@ -1654,6 +1667,9 @@ function machinesFromAgents(agents) {
         ownerId: agent.machineOwnerId || "",
         ownerEmail: agent.machineOwnerId || "",
         ownerHd: agent.machineOwnerHd || "",
+        mux: agent.machineMux || "tmux",
+        muxCommand: agent.machineMuxCommand || agent.machineMux || "tmux",
+        muxVersion: agent.machineMuxVersion || "",
         online: true,
         stale: false,
         missingOps: [],
@@ -2159,7 +2175,7 @@ async function submitStartAgent() {
       }),
     });
     closeStartAgent();
-    const sessionName = result.session?.name || "new tmux session";
+    const sessionName = result.session?.name || "new mux session";
     ensureStartedMachineVisible(machineId);
     setStatus(
       `Started ${result.kind} on ${machineLabel(machine)} in ${abbrevHome(cwd)} (${sessionName}).`,
@@ -2644,6 +2660,7 @@ function renderCard(agent) {
     </span>
     ${machineChip}
     ${ownerChip}
+    ${agentMuxChip(agent)}
     ${agentKindChip(agent.kind)}
     <span class="cc-status-pill${statusClass(agent.status)}">
       ${escapeHtml(statusLabel(agent.status))}
@@ -2708,7 +2725,7 @@ function renderCard(agent) {
       })}
       ${cardActionButton({
         className: "cc-delete-button",
-        title: "Complete and delete tmux window",
+        title: "Complete and delete mux window",
         dataAttrs: `data-delete-window-key="${escapeHtml(deleteKey)}"`,
         disabled: deletingThis || !agent.windowId,
         busy: deletingThis,

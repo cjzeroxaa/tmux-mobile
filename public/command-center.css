@@ -766,6 +766,36 @@
   opacity: 0.78;
 }
 
+.cc-mux-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--cc-chip-size);
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.cc-mux-chip-rmux {
+  border-color: #8bc4c0;
+  background: #e3f2f1;
+  color: #176965;
+}
+
+.cc-mux-chip-tmux {
+  border-color: #c9ced8;
+  background: #eef1f5;
+  color: #536072;
+}
+
 .cc-status-pill {
   display: inline-flex;
   align-items: center;

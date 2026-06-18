@@ -1810,6 +1810,9 @@ function tagCommandCenterAgents(result, machine) {
     machineHostname: machine.hostname,
     machineOwnerId: machine.ownerId || "",
     machineOwnerHd: machine.ownerHd || "",
+    machineMux: machine.mux || "tmux",
+    machineMuxCommand: machine.muxCommand || machine.mux || "tmux",
+    machineMuxVersion: machine.muxVersion || machine.tmux || "",
     ...agent,
   }));
 }
@@ -3062,19 +3065,12 @@ async function handleApi(req, res, url) {
     return;
   }
 
-  // Command Center feed: one row per agent pane across every tmux session.
+  // Command Center feed: one row per agent pane across every mux session.
   // See listAgentSessions() for the shape.
   if (req.method === "GET" && url.pathname === "/api/command-center") {
     const result = await listAgentSessions();
     const localMachine = await localCommandCenterMachine(result.agents?.length || 0);
-    const agents = (result.agents || []).map((agent) => ({
-      machineId: localMachine.id,
-      machineRawId: localMachine.machineId,
-      machineHostname: localMachine.hostname,
-      machineOwnerId: localMachine.ownerId || "",
-      machineOwnerHd: localMachine.ownerHd || "",
-      ...agent,
-    }));
+    const agents = tagCommandCenterAgents(result, localMachine);
     observeCommandCenterAgentsForNtfy([localMachine], agents);
     sendJson(res, 200, { machines: [localMachine], agents });
     return;
