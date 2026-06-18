@@ -3,6 +3,7 @@
 .env.*
 *.log
 node_modules/
+dist/
 tmp/
 .playwright-mcp/
 

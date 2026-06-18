@@ -51,6 +51,9 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
+const connectorDistDir = path.join(__dirname, "dist");
+const CONNECTOR_BUNDLE_ROUTE = "/connector/tmux-mobile-connector.mjs";
+const CONNECTOR_MANIFEST_ROUTE = "/connector/tmux-mobile-connector.json";
 
 loadLocalEnv(path.join(__dirname, ".env"));
 
@@ -2217,6 +2220,44 @@ function sendJson(res, status, data) {
   res.end(JSON.stringify(data));
 }
 
+async function serveConnectorArtifact(req, res, url) {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  const files = new Map([
+    [
+      CONNECTOR_BUNDLE_ROUTE,
+      {
+        path: path.join(connectorDistDir, "tmux-mobile-connector.mjs"),
+        type: "text/javascript; charset=utf-8",
+      },
+    ],
+    [
+      CONNECTOR_MANIFEST_ROUTE,
+      {
+        path: path.join(connectorDistDir, "tmux-mobile-connector.json"),
+        type: "application/json; charset=utf-8",
+      },
+    ],
+  ]);
+  const item = files.get(url.pathname);
+  if (!item) return false;
+  try {
+    const body = await readFile(item.path);
+    res.writeHead(200, {
+      "content-type": item.type,
+      "cache-control": "no-store",
+    });
+    res.end(req.method === "HEAD" ? undefined : body);
+  } catch (error) {
+    sendJson(res, error.code === "ENOENT" ? 404 : 500, {
+      error:
+        error.code === "ENOENT"
+          ? "Connector bundle has not been built"
+          : error.message || "Could not read connector bundle",
+    });
+  }
+  return true;
+}
+
 function safeEqual(actualValue, expectedValue) {
   const actual = Buffer.from(String(actualValue || ""));
   const expected = Buffer.from(String(expectedValue || ""));
@@ -3731,6 +3772,10 @@ if (MODE.kind === "register") {
         return;
       }
 
+      if (await serveConnectorArtifact(req, res, url)) {
+        return;
+      }
+
       if (
         REQUIRE_BROWSER_AUTH &&
         url.pathname !== "/api/health" &&
@@ -3767,6 +3812,7 @@ if (MODE.kind === "register") {
           connectorUpdateRef: CONNECTOR_UPDATE_REF,
           connectorExpectedRevision: CONNECTOR_EXPECTED_REVISION,
           connectorUpdateScriptUrl: CONNECTOR_UPDATE_SCRIPT_URL,
+          connectorBundleUrl: CONNECTOR_BUNDLE_ROUTE,
         });
         return;
       }

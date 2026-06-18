@@ -2,6 +2,7 @@
 .gitignore
 .gcloudignore
 node_modules
+dist
 .env
 .env.*
 .claude

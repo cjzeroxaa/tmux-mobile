@@ -11,11 +11,14 @@ ENV PORT=3737
 ENV TMUX_MOBILE_REVISION=$TMUX_MOBILE_REVISION
 
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci
 
 COPY server.mjs ./
 COPY lib ./lib
 COPY public ./public
+COPY scripts ./scripts
+
+RUN npm run build:connector && npm prune --omit=dev
 
 # Document the listening port for tooling; ECS/Fargate uses the task def's
 # containerPort regardless, so this is purely informational.
