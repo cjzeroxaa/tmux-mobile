@@ -5,7 +5,6 @@ FROM node:22-slim
 
 WORKDIR /app
 ARG TMUX_MOBILE_REVISION=dev
-ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3737
 ENV TMUX_MOBILE_REVISION=$TMUX_MOBILE_REVISION
@@ -19,6 +18,8 @@ COPY public ./public
 COPY scripts ./scripts
 
 RUN npm run build:connector && npm prune --omit=dev
+
+ENV NODE_ENV=production
 
 # Document the listening port for tooling; ECS/Fargate uses the task def's
 # containerPort regardless, so this is purely informational.
