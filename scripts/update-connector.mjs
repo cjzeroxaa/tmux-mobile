@@ -18,6 +18,7 @@ const cloneUrl = process.env.TMUX_MOBILE_UPDATE_CLONE_URL || DEFAULT_CLONE_URL;
 const expectedRevision = process.env.TMUX_MOBILE_UPDATE_EXPECTED_REVISION || "";
 const targetRef = process.env.TMUX_MOBILE_UPDATE_REF || DEFAULT_TARGET_REF;
 const agentMachine = process.env.TMUX_MOBILE_UPDATE_AGENT_MACHINE || "";
+const targetMux = normalizeMux(process.env.TMUX_MOBILE_UPDATE_MUX || process.env.TMUX_MOBILE_MUX || "");
 const logPath =
   process.env.TMUX_MOBILE_UPDATE_LOG ||
   path.join(os.tmpdir(), "tmux-mobile-connector-update.log");
@@ -28,6 +29,7 @@ async function main() {
   log(`controller=${controllerUrl}`);
   log(`targetRef=${targetRef}`);
   if (agentMachine) log(`agentMachine=${agentMachine}`);
+  if (targetMux) log(`mux=${targetMux}`);
   if (expectedRevision) log(`expectedRevision=${expectedRevision}`);
 
   ensureRepo();
@@ -103,8 +105,8 @@ function restartLaunchd() {
   const plistPath = parseLaunchdPlistPath(printed.stdout) || defaultLaunchdPlistPath();
   const hasPlist = plistPath && existsSync(plistPath);
   if (printed.status !== 0 && !hasPlist) return false;
-  if (agentMachine && plistPath) {
-    writeLaunchdAgentMachine(plistPath);
+  if ((agentMachine || targetMux) && plistPath) {
+    writeLaunchdEnvironment(plistPath);
   }
 
   log(`restart=launchd target=${target}`);
@@ -112,7 +114,7 @@ function restartLaunchd() {
     return bootstrapLaunchd(domain, target, plistPath);
   }
 
-  if (agentMachine && hasPlist) {
+  if ((agentMachine || targetMux) && hasPlist) {
     const bootout = run("launchctl", ["bootout", domain, plistPath], { check: false });
     if (bootout.status !== 0) {
       log("launchd bootout by plist failed; trying service target");
@@ -162,8 +164,8 @@ function bootstrapLaunchd(domain, target, plistPath) {
   return false;
 }
 
-function writeLaunchdAgentMachine(plistPath) {
-  log(`launchd agent machine=${agentMachine} plist=${plistPath}`);
+function writeLaunchdEnvironment(plistPath) {
+  log(`launchd environment plist=${plistPath}`);
   const plistBuddy = "/usr/libexec/PlistBuddy";
   const envExists = run(plistBuddy, ["-c", "Print :EnvironmentVariables", plistPath], {
     check: false,
@@ -171,19 +173,26 @@ function writeLaunchdAgentMachine(plistPath) {
   if (envExists.status !== 0) {
     run(plistBuddy, ["-c", "Add :EnvironmentVariables dict", plistPath]);
   }
+  setLaunchdEnv(plistBuddy, plistPath, "AGENT_MACHINE", agentMachine);
+  setLaunchdEnv(plistBuddy, plistPath, "TMUX_MOBILE_MUX", targetMux);
+  run("plutil", ["-lint", plistPath]);
+}
+
+function setLaunchdEnv(plistBuddy, plistPath, key, value) {
+  if (!value) return;
+  log(`launchd env ${key}=${value}`);
   const set = run(
     plistBuddy,
-    ["-c", `Set :EnvironmentVariables:AGENT_MACHINE ${agentMachine}`, plistPath],
+    ["-c", `Set :EnvironmentVariables:${key} ${value}`, plistPath],
     { check: false },
   );
   if (set.status !== 0) {
     run(plistBuddy, [
       "-c",
-      `Add :EnvironmentVariables:AGENT_MACHINE string ${agentMachine}`,
+      `Add :EnvironmentVariables:${key} string ${value}`,
       plistPath,
     ]);
   }
-  run("plutil", ["-lint", plistPath]);
 }
 
 function restartSystemd() {
@@ -195,22 +204,23 @@ function restartSystemd() {
   if (!known) return false;
 
   log(`restart=systemd unit=${SYSTEMD_UNIT}`);
-  if (agentMachine) writeSystemdAgentMachine();
+  if (agentMachine || targetMux) writeSystemdEnvironment();
   run("systemctl", ["--user", "daemon-reload"], { check: false });
   run("systemctl", ["--user", "restart", SYSTEMD_UNIT]);
   return true;
 }
 
-function writeSystemdAgentMachine() {
+function writeSystemdEnvironment() {
   const dir = path.join(os.homedir(), ".config", "systemd", "user", `${SYSTEMD_UNIT}.d`);
   mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, "override.conf");
   const text = [
     "[Service]",
-    `Environment=${systemdQuoteEnv(`AGENT_MACHINE=${agentMachine}`)}`,
+    ...(agentMachine ? [`Environment=${systemdQuoteEnv(`AGENT_MACHINE=${agentMachine}`)}`] : []),
+    ...(targetMux ? [`Environment=${systemdQuoteEnv(`TMUX_MOBILE_MUX=${targetMux}`)}`] : []),
     "",
   ].join("\n");
-  log(`systemd agent machine=${agentMachine} override=${filePath}`);
+  log(`systemd environment override=${filePath}`);
   writeFileSync(filePath, text, "utf8");
 }
 
@@ -229,6 +239,7 @@ async function restartDetachedProcess(oldPids = connectorPids()) {
     env: {
       ...process.env,
       ...(agentMachine ? { AGENT_MACHINE: agentMachine } : {}),
+      ...(targetMux ? { TMUX_MOBILE_MUX: targetMux } : {}),
     },
   });
   child.unref();
@@ -299,6 +310,11 @@ function run(command, args, { cwd = process.cwd(), check = true } = {}) {
 
 function commandExists(command) {
   return spawnSync(command, ["--version"], { stdio: "ignore" }).status === 0;
+}
+
+function normalizeMux(value) {
+  const mux = String(value || "").trim().toLowerCase();
+  return mux === "tmux" || mux === "rmux" ? mux : "";
 }
 
 function expandHome(value) {

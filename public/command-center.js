@@ -1879,10 +1879,11 @@ async function updateConnector(machine) {
         nodePath: machine.nodePath || "node",
         agentMachine: machine.machineAlias || machine.hostname || machine.machineId || "",
         machineLabel: machineLabel(machine),
+        mux: machine.mux || "",
       }),
     });
     setStatus(
-      `Update started on ${machineLabel(machine)}; the tmux update session closes on success.`,
+      `Update started on ${machineLabel(machine)}; the mux update session closes on success.`,
     );
   } catch (error) {
     setStatus(`Update failed to start on ${machineLabel(machine)}: ${error.message}`);

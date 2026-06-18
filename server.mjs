@@ -19,7 +19,7 @@ import {
   detectCommandCenterAgentType,
 } from "./lib/window-metadata.mjs";
 import {
-  createTmuxWindowRuntime,
+  createWindowRuntime,
   isNoMuxServerError,
   tmuxFormats,
 } from "./lib/window-runtime.mjs";
@@ -452,7 +452,7 @@ function isNoServerError(error) {
 }
 
 function currentWindowRuntime() {
-  return createTmuxWindowRuntime(currentBackend());
+  return createWindowRuntime(currentBackend());
 }
 
 function rows(stdout) {
@@ -817,6 +817,7 @@ async function createWindow(sessionId) {
 }
 
 async function startConnectorUpdate(options = {}) {
+  const runtime = currentWindowRuntime();
   const repoDir = safeUpdateValue(options.repoDir, 512) || "~/src/tmux-mobile";
   const controllerUrl = safeControllerUrl(options.controllerUrl) || DEFAULT_CONTROLLER_URL;
   const cloneUrl = safeUpdateValue(options.cloneUrl, 512) || CONNECTOR_CLONE_URL;
@@ -831,6 +832,8 @@ async function startConnectorUpdate(options = {}) {
   const sessionName = `tmux-mobile-update-${Date.now().toString(36)}`;
   const windowName = "connector-update";
   const scriptUrl = safeUpdateUrl(options.updateScriptUrl) || CONNECTOR_UPDATE_SCRIPT_URL;
+  const muxCommand = safeUpdateValue(runtime.commandName?.() || runtime.kind || "tmux", 512);
+  const updateMux = safeMuxName(options.mux || runtime.kind || "");
   const heredoc = `TMUX_MOBILE_UPDATE_${Date.now().toString(36).toUpperCase()}`;
   const inner = [
     "set -euo pipefail",
@@ -841,6 +844,8 @@ async function startConnectorUpdate(options = {}) {
     `export TMUX_MOBILE_UPDATE_REF=${shellQuote(targetRef)}`,
     `export TMUX_MOBILE_UPDATE_AGENT_MACHINE=${shellQuote(agentMachine)}`,
     `export TMUX_MOBILE_UPDATE_SCRIPT_URL=${shellQuote(scriptUrl)}`,
+    `export TMUX_MOBILE_UPDATE_MUX=${shellQuote(updateMux)}`,
+    `MUX_BIN=${shellQuote(muxCommand || "tmux")}`,
     `NODE_BIN=${shellQuote(nodePath)}`,
     `echo "tmux-mobile connector update${machineLabel ? ` for ${machineLabel}` : ""}"`,
     'echo "script: $TMUX_MOBILE_UPDATE_SCRIPT_URL"',
@@ -849,13 +854,13 @@ async function startConnectorUpdate(options = {}) {
     "else",
     '  "$NODE_BIN" --input-type=module -e \'const r=await fetch(process.env.TMUX_MOBILE_UPDATE_SCRIPT_URL); if(!r.ok) throw new Error(`download failed ${r.status}`); process.stdout.write(await r.text());\' | "$NODE_BIN" --input-type=module',
     "fi",
-    'echo "update command finished; closing this tmux update session"',
-    `if command -v tmux >/dev/null 2>&1; then tmux kill-session -t ${shellQuote(sessionName)} >/dev/null 2>&1 || true; fi`,
+    'echo "update command finished; closing this mux update session"',
+    `if command -v "$MUX_BIN" >/dev/null 2>&1; then "$MUX_BIN" kill-session -t ${shellQuote(sessionName)} >/dev/null 2>&1 || true; fi`,
   ].join("\n");
   const command = `bash <<'${heredoc}'\n${inner}\n${heredoc}`;
 
   const paneId = (
-    await runTmux(
+    await runtime.tmux(
       ["new-session", "-d", "-P", "-F", "#{pane_id}", "-s", sessionName, "-n", windowName],
       { timeout: 5000 },
     )
@@ -876,6 +881,7 @@ async function startConnectorUpdate(options = {}) {
     expectedRevision,
     targetRef,
     scriptUrl,
+    mux: updateMux,
   };
 }
 
@@ -894,6 +900,11 @@ function safeControllerUrl(value) {
   } catch {
     return "";
   }
+}
+
+function safeMuxName(value) {
+  const text = String(value || "").trim().toLowerCase();
+  return text === "tmux" || text === "rmux" ? text : "";
 }
 
 function requestOrigin(req) {
@@ -1723,13 +1734,16 @@ async function listAgentSessions() {
   return { agents: rows_.filter(Boolean) };
 }
 
-let localTmuxVersion = null;
+let localMuxVersion = null;
 async function localCommandCenterMachine(agentCount = 0) {
-  if (localTmuxVersion === null) {
+  const runtime = currentWindowRuntime();
+  const muxKind = runtime.kind || "tmux";
+  const muxCommand = runtime.commandName?.() || muxKind;
+  if (localMuxVersion === null) {
     try {
-      localTmuxVersion = (await runTmux(["-V"])).trim();
+      localMuxVersion = (await runtime.tmux(["-V"])).trim();
     } catch {
-      localTmuxVersion = "";
+      localMuxVersion = "";
     }
   }
   const ownerId = String(process.env.TMUX_MOBILE_USER || "");
@@ -1745,7 +1759,10 @@ async function localCommandCenterMachine(agentCount = 0) {
     ownerHd: "",
     os: process.platform,
     arch: process.arch,
-    tmux: localTmuxVersion,
+    tmux: localMuxVersion,
+    mux: muxKind,
+    muxCommand,
+    muxVersion: localMuxVersion,
     agentRevision: APP_REVISION,
     connectorVersion: CONNECTOR_VERSION,
     agentCwd: __dirname,
@@ -2876,6 +2893,7 @@ async function handleApi(req, res, url) {
         nodePath: body.nodePath || "node",
         agentMachine: body.agentMachine,
         machineLabel: body.machineLabel,
+        mux: body.mux,
       }),
     );
     return;

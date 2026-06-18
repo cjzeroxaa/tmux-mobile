@@ -49,14 +49,15 @@ AskUserQuestion answer flow, quick snippets, and the notification sound is at
 - controller: `node server.mjs --controller`, a public Cloud Run service that
   serves the UI, calls OpenAI, and brokers tmux commands.
 - agent: `node server.mjs --register <controller-url>`, the local process that
-  opens an outbound WebSocket to the controller and executes tmux.
+  opens an outbound WebSocket to the controller and executes tmux-compatible
+  mux commands.
 
 The browser reaches the Cloud Run controller over HTTPS; the controller reaches
 this machine over the outbound WebSocket opened by the agent, so this machine
 does not need an inbound port or Tailscale.
 
 ```
-browser ──HTTPS──► Cloud Run controller ──WebSocket──► agent ──► local tmux
+browser ──HTTPS──► Cloud Run controller ──WebSocket──► agent ──► local tmux/rmux
 ```
 
 Controller mode supports multiple Google users. Browser access uses the web
@@ -145,6 +146,16 @@ Set `AGENT_MACHINE` only if you need to override the machine id shown in the UI;
 otherwise the agent uses the host name. To register multiple machines for the
 same user, run the device login on each machine with the same Google account.
 
+By default the agent controls `tmux`. To make newly-created sessions/windows use
+RMUX instead, install `rmux` and start the connector with:
+
+```bash
+TMUX_MOBILE_MUX=rmux node server.mjs --register https://YOUR-CLOUD-RUN-URL
+```
+
+Existing tmux sessions are not migrated; new app-created agent sessions go to
+the selected mux.
+
 Open the Cloud Run URL in a browser and sign in with an allowed Google account.
 
 ### Local controller test
@@ -174,10 +185,10 @@ captured pane output comes back through the correct user route.
 ### Code layout
 
 - `server.mjs` — entry point and HTTP/API handlers (shared by all modes).
-- `lib/backend.mjs` — the `Backend` seam: every local op (tmux/readdir) goes
+- `lib/backend.mjs` — the `Backend` seam: every local op (mux/readdir) goes
   through it, selected per request via `AsyncLocalStorage`. Local mode uses the
   in-process backend; the hub injects a remote one.
-- `lib/protocol.mjs` — the hub↔agent wire protocol and tmux allowlist.
+- `lib/protocol.mjs` — the hub↔agent wire protocol and mux command allowlist.
 - `lib/hub.mjs` — agent registry, command broker, per-machine remote backend.
 - `lib/agent.mjs` — outbound connection, request serving, reconnect.
 - `lib/ask-question.mjs` / `lib/ask-question-keys.mjs` — parse Claude's

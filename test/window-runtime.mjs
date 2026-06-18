@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { createTmuxWindowRuntime } from "../lib/window-runtime.mjs";
+import {
+  createTmuxWindowRuntime,
+  createWindowRuntime,
+} from "../lib/window-runtime.mjs";
 
 const calls = [];
 const backend = {
@@ -31,6 +34,15 @@ const backend = {
 const runtime = createTmuxWindowRuntime(backend);
 assert.equal(runtime.kind, "tmux");
 assert.equal(runtime.capabilities().model, "window-first");
+
+const rmuxRuntime = createWindowRuntime({
+  ...backend,
+  muxKind: () => "rmux",
+  muxCommand: () => "rmux",
+});
+assert.equal(rmuxRuntime.kind, "rmux");
+assert.equal(rmuxRuntime.commandName(), "rmux");
+assert.equal(rmuxRuntime.capabilities().runtime, "rmux");
 
 const tree = await runtime.listTree();
 assert.deepEqual(tree.sessions, [
@@ -69,4 +81,3 @@ assert.ok(commandNames.includes("paste-buffer"), "pastes the buffer");
 assert.deepEqual(calls.at(-1), ["send-keys", "-t", "%1", "Enter"]);
 
 console.log("window-runtime unit tests passed");
-
