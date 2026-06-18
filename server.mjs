@@ -18,9 +18,13 @@ import {
   createMetadataCache,
   detectCommandCenterAgentType,
 } from "./lib/window-metadata.mjs";
+import {
+  createTmuxWindowRuntime,
+  isNoMuxServerError,
+  tmuxFormats,
+} from "./lib/window-runtime.mjs";
 import { detectTurn } from "./lib/turn-detection.mjs";
 import { detectAgentMode, AGENT_MODES } from "./lib/agent-mode.mjs";
-import { isScrollbackMode } from "./lib/pane-mode.mjs";
 import { renderMarkdown } from "./public/markdown.js";
 import { escapeHtml as escapeHtmlShared } from "./public/linkify.js";
 import { detectAskQuestion, parseAskQuestion } from "./lib/ask-question.mjs";
@@ -417,20 +421,7 @@ function loadLocalEnv(filePath) {
   }
 }
 
-const formats = {
-  sessions:
-    "#{session_id}\t#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created_string}",
-  // The annotation (free-text follow-up note) is the LAST field and may contain
-  // tabs, so windowFromRow takes everything from its index onward.
-  windows:
-    "#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{window_flags}\t#{pane_current_command}\t#{pane_tty}\t#{pane_current_path}\t#{@tm_annotation}",
-  // pane_pid is included for structured agent transcript lookup and fork-agent.
-  // pane_title is the LAST field and may contain tabs, so listPanes rejoins it.
-  panes:
-    "#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_mode}\t#{pane_pid}\t#{pane_title}",
-  paneInfo:
-    "#{session_name}\t#{window_index}\t#{window_name}\t#{pane_index}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_pid}\t#{pane_active}",
-};
+const formats = tmuxFormats;
 
 const allowedKeys = new Set([
   "Enter",
@@ -450,13 +441,15 @@ const allowedKeys = new Set([
 ]);
 
 function runTmux(args, options = {}) {
-  return currentBackend().tmux(args, options);
+  return currentWindowRuntime().tmux(args, options);
 }
 
 function isNoServerError(error) {
-  return /no server running|failed to connect to server|error connecting to .*\/tmux-/i.test(
-    error.message,
-  );
+  return isNoMuxServerError(error);
+}
+
+function currentWindowRuntime() {
+  return createTmuxWindowRuntime(currentBackend());
 }
 
 function rows(stdout) {
@@ -682,52 +675,27 @@ function summarizeOutput(text) {
 }
 
 async function pasteTextToPane(paneId, text) {
-  const bufferName = `tmux-chat-web-${Date.now()}-${Math.random()
-    .toString(16)
-    .slice(2)}`;
-  const cleanText = text.replace(/\r\n?/g, "\n").replace(/\x1b\[(?:200|201)~/g, "");
-  await runTmux(["set-buffer", "-b", bufferName, cleanText]);
-  await runTmux(["paste-buffer", "-dpr", "-b", bufferName, "-t", paneId]);
+  await currentWindowRuntime().pasteTextToSurface({ surfaceId: paneId, text });
 }
 
 async function sendTextToPane(paneId, text, { enter = false } = {}) {
-  // If the pane is parked in copy-mode (scrollback pager), a paste/Enter is
-  // swallowed by the pager and the window looks stuck. Exit it first. Centralized
-  // here so EVERY text-send path is covered (voice-send, /api/send, …), not just
-  // the endpoints that remembered to call it.
-  await exitCopyModeIfNeeded(paneId);
-  await pasteTextToPane(paneId, text);
-  if (enter) {
-    // Wait for the bracketed paste to be fully consumed before the Enter, so the
-    // app sees Enter as a distinct submit keypress (see PASTE_ENTER_DELAY_MS).
-    await delay(PASTE_ENTER_DELAY_MS);
-    await runTmux(["send-keys", "-t", paneId, "Enter"]);
-    return { mode: "paste-buffer", sentEnter: true };
-  }
-  return { mode: "paste-buffer", sentEnter: false };
+  return currentWindowRuntime().sendTextToSurface({
+    surfaceId: paneId,
+    text,
+    enter,
+    pasteEnterDelayMs: PASTE_ENTER_DELAY_MS,
+  });
 }
 
 // Before delivering any input, drop the pane out of the scrollback pager so the
 // keystroke lands on the program. Returns true if it had to exit.
 async function exitCopyModeIfNeeded(paneId) {
-  let mode = "";
-  try {
-    mode = (
-      await runTmux(["display-message", "-p", "-t", paneId, "#{pane_mode}"])
-    ).trim();
-  } catch {
-    return false; // pane vanished / query failed — let the caller proceed
-  }
-  if (!isScrollbackMode(mode)) return false;
-  // `-X cancel` leaves the pager without disturbing the command line (unlike
-  // sending `q`, which the program would receive once we're out of mode).
-  await runTmux(["send-keys", "-t", paneId, "-X", "cancel"]);
-  return true;
+  return currentWindowRuntime().exitSurfaceModeIfNeeded({ surfaceId: paneId });
 }
 
 function sendSubmitNudge(paneId) {
   setTimeout(() => {
-    runTmux(["send-keys", "-t", paneId, "Enter"]).catch((error) => {
+    currentWindowRuntime().sendKeyToSurface({ surfaceId: paneId, key: "Enter" }).catch((error) => {
       console.error(`submit nudge failed: ${error.message}`);
     });
   }, SUBMIT_NUDGE_DELAY_MS);
@@ -746,45 +714,8 @@ function sessionFromRow(row) {
   };
 }
 
-function windowFromRow(fields) {
-  requireTmuxFieldCount(fields, 10, "window");
-  const [id, index, name, active, panes, flags, activeCommand, tty, cwd] = fields;
-  requireId(id, "window");
-  // The annotation is the last format field and is free text (may contain tabs),
-  // so take everything from index 9 onward and rejoin rather than positionally.
-  const annotation = fields.slice(9).join("\t");
-  return {
-    id,
-    index: requireTmuxNumericField(index, "window_index"),
-    name,
-    active: active === "1",
-    panes: requireTmuxNumericField(panes || 0, "window_panes"),
-    flags,
-    activeCommand,
-    tty: tty || "",
-    cwd: cwd || "",
-    annotation: annotation || "",
-  };
-}
-
 async function createSession(name) {
-  const sessionName = requireSessionName(name);
-  const stdout = await runTmux([
-    "new-session",
-    "-d",
-    "-s",
-    sessionName,
-    "-P",
-    "-F",
-    formats.sessions,
-  ]);
-  const [row] = rows(stdout);
-  if (!row) {
-    const error = new Error("tmux did not return the new session");
-    error.status = 500;
-    throw error;
-  }
-  return sessionFromRow(row);
+  return currentWindowRuntime().createSession({ name });
 }
 
 const START_AGENT_COMMANDS = {
@@ -863,91 +794,23 @@ async function startAgentSession(options = {}) {
 }
 
 async function renameSession(sessionId, name) {
-  requireId(sessionId, "session");
-  const sessionName = requireSessionName(name);
-  await runTmux(["rename-session", "-t", sessionId, sessionName]);
-  return readSessionRow(sessionId, "renamed");
-}
-
-async function readSessionRow(sessionId, what) {
-  const stdout = await runTmux(["display-message", "-p", "-t", sessionId, formats.sessions]);
-  const [row] = rows(stdout);
-  if (!row) {
-    const error = new Error(`tmux did not return the ${what} session`);
-    error.status = 500;
-    throw error;
-  }
-  return sessionFromRow(row);
+  return currentWindowRuntime().renameSession({ sessionId, name });
 }
 
 async function listWindows(sessionId) {
-  requireId(sessionId, "session");
-  const stdout = await runTmux([
-    "list-windows",
-    "-t",
-    sessionId,
-    "-F",
-    formats.windows,
-  ]);
-  return rows(stdout).map(windowFromRow);
+  return currentWindowRuntime().listWindows({ sessionId });
 }
 
 // Cold-load batch: one `tmux list-windows -a` returns every window on the
 // machine, with session_* fields prepended so we can rebuild both the
 // sessions[] list and the windows[] list from a single agent round-trip.
 // Replaces /api/sessions + N× /api/windows?sessionId=… on app boot.
-const TREE_SESSION_FIELDS =
-  "#{session_id}\t#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created_string}\t";
 async function listTree() {
-  let windowRows = [];
-  try {
-    const stdout = await runTmux([
-      "list-windows",
-      "-a",
-      "-F",
-      TREE_SESSION_FIELDS + formats.windows,
-    ]);
-    windowRows = rows(stdout);
-  } catch (error) {
-    if (isNoServerError(error)) return { sessions: [], windows: [] };
-    throw error;
-  }
-  // Preserve the original session order (first-time-seen order in list-windows
-  // -a output, which mirrors `list-sessions`). Map keeps insertion order.
-  const sessionsById = new Map();
-  const windows = [];
-  for (const row of windowRows) {
-    const sessionFields = row.slice(0, 5);
-    const windowFields = row.slice(5);
-    const [sessionId] = sessionFields;
-    if (!sessionsById.has(sessionId)) {
-      sessionsById.set(sessionId, sessionFromRow(sessionFields));
-    }
-    windows.push({ ...windowFromRow(windowFields), sessionId });
-  }
-  return {
-    sessions: [...sessionsById.values()],
-    windows,
-  };
+  return currentWindowRuntime().listTree();
 }
 
 async function createWindow(sessionId) {
-  requireId(sessionId, "session");
-  const stdout = await runTmux([
-    "new-window",
-    "-P",
-    "-F",
-    formats.windows,
-    "-t",
-    sessionId,
-  ]);
-  const [row] = rows(stdout);
-  if (!row) {
-    const error = new Error("tmux did not return the new window");
-    error.status = 500;
-    throw error;
-  }
-  return windowFromRow(row);
+  return currentWindowRuntime().createWindow({ sessionId });
 }
 
 async function startConnectorUpdate(options = {}) {
@@ -1048,15 +911,8 @@ function shellQuote(value) {
 }
 
 async function renameWindow(windowId, name) {
-  requireId(windowId, "window");
-  const windowName = requireSessionName(name);
-  await runTmux(["rename-window", "-t", windowId, windowName]);
-  return { ok: true };
+  return currentWindowRuntime().renameWindow({ windowId, name });
 }
-
-// Shells we don't re-run as a "command" when duplicating — a window sitting at a
-// shell prompt should duplicate to a fresh shell, not literally run `bash`.
-const DUP_SHELLS = new Set(["bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh", "csh"]);
 
 // Duplicate a window: open a new window in the same session, same working
 // directory, re-running the command the source window used. cwd comes from the
@@ -1070,64 +926,18 @@ const DUP_SHELLS = new Set(["bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh", 
 // back to the running program name when it's an interactive app (not a bare
 // shell).
 async function getDuplicateDefaults(windowId) {
-  requireId(windowId, "window");
-  const info = await getWindowInfo(windowId);
-  const stdout = await runTmux([
-    "display-message",
-    "-p",
-    "-t",
-    windowId,
-    "#{pane_current_path}\t#{pane_current_command}\t#{pane_start_command}",
-  ]);
-  const [cwd = "", currentCommand = "", rawStartCommand = ""] = stdout
-    .trimEnd()
-    .split("\t");
-
-  // tmux returns pane_start_command wrapped in literal double-quotes
-  // (e.g. `"sleep 300"`); strip them so the shell runs the actual command and
-  // not a program literally named `sleep 300`.
-  let startCommand = rawStartCommand.trim();
-  if (startCommand.length >= 2 && startCommand.startsWith('"') && startCommand.endsWith('"')) {
-    startCommand = startCommand.slice(1, -1);
-  }
-  const command =
-    startCommand ||
-    (currentCommand && !DUP_SHELLS.has(currentCommand) ? currentCommand : "");
-
-  return {
-    sessionId: info.sessionId,
-    name: info.windowName || "",
-    command,
-    cwd,
-  };
+  return currentWindowRuntime().getDuplicateDefaults({ windowId });
 }
 
 // Create a new window in the source window's session, same cwd, using the given
 // name and command (the UI passes the user-confirmed/adjusted values; both fall
 // back to the source defaults when omitted). Empty command -> a plain shell.
 async function duplicateWindow(windowId, overrides = {}) {
-  requireId(windowId, "window");
-  const defaults = await getDuplicateDefaults(windowId);
-  const name =
-    overrides.name !== undefined ? String(overrides.name).trim() : defaults.name;
-  const command =
-    overrides.command !== undefined
-      ? String(overrides.command).trim()
-      : defaults.command;
-
-  // new-window -P -F <fmt> [-c cwd] -t <session> [-n name] [command]
-  const args = ["new-window", "-P", "-F", formats.windows, "-t", defaults.sessionId];
-  if (defaults.cwd) args.push("-c", defaults.cwd);
-  if (name) args.push("-n", name);
-  if (command) args.push(command); // shell-command run in the new window
-  const created = await runTmux(args);
-  const [row] = rows(created);
-  if (!row) {
-    const error = new Error("tmux did not return the duplicated window");
-    error.status = 500;
-    throw error;
-  }
-  return { ...windowFromRow(row), duplicatedFrom: windowId, command: command || "" };
+  return currentWindowRuntime().duplicateWindow({
+    windowId,
+    name: overrides.name,
+    command: overrides.command,
+  });
 }
 
 // "New branch" quick action for a bare-repo-backed worktree: create a new git
@@ -1154,20 +964,14 @@ async function newBranchWindow(windowId, { branch, command, name } = {}) {
       ? String(name).trim()
       : created.branch; // default the window name to the branch
 
-  const args = ["new-window", "-P", "-F", formats.windows, "-t", defaults.sessionId];
-  args.push("-c", created.path); // run IN the new worktree
-  if (finalName) args.push("-n", finalName);
-  if (finalCommand) args.push(finalCommand);
-  const out = await runTmux(args);
-  clearSessionSummaryCache(defaults.sessionId);
-  const [row] = rows(out);
-  if (!row) {
-    const error = new Error("tmux did not return the new-branch window");
-    error.status = 500;
-    throw error;
-  }
+  const window = await currentWindowRuntime().createWindow({
+    sessionId: defaults.sessionId,
+    cwd: created.path,
+    name: finalName,
+    command: finalCommand,
+  });
   return {
-    ...windowFromRow(row),
+    ...window,
     branch: created.branch,
     path: created.path,
     command: finalCommand || "",
@@ -1178,71 +982,23 @@ async function newBranchWindow(windowId, { branch, command, name } = {}) {
 // window-scoped user option (set-option -w). Empty/whitespace clears it. Useful
 // for tracking the follow-up of a long-running task in a specific window.
 async function setWindowAnnotation(windowId, annotation) {
-  requireId(windowId, "window");
-  const text = String(annotation ?? "");
-  if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
-    const error = new Error("Annotation is too large");
-    error.status = 413;
-    throw error;
-  }
-  if (text.trim() === "") {
-    await runTmux(["set-option", "-w", "-t", windowId, "-u", "@tm_annotation"]);
-  } else {
-    await runTmux(["set-option", "-w", "-t", windowId, "@tm_annotation", text]);
-  }
-  const stdout = await runTmux(["display-message", "-p", "-t", windowId, formats.windows]);
-  const [row] = rows(stdout);
-  if (!row) {
-    const error = new Error("tmux did not return the annotated window");
-    error.status = 500;
-    throw error;
-  }
-  return windowFromRow(row);
+  return currentWindowRuntime().setWindowNote({
+    windowId,
+    note: annotation,
+    maxBytes: MAX_TEXT_BYTES,
+  });
 }
 
 async function killWindow(windowId) {
-  requireId(windowId, "window");
-  const windowInfo = await getWindowInfo(windowId);
-  const windows = await listWindows(windowInfo.sessionId);
-  const killedSession = windows.length <= 1;
-  await runTmux(["kill-window", "-t", windowId]);
-  return { ok: true, killed: windowInfo, killedSession };
+  return currentWindowRuntime().closeWindow({ windowId });
 }
 
 async function listPanes(windowId) {
-  requireId(windowId, "window");
-  const stdout = await runTmux([
-    "list-panes",
-    "-t",
-    windowId,
-    "-F",
-    formats.panes,
-  ]);
-  return rows(stdout).map(
-    ([id, index, active, command, cwd, width, height, mode, pid, ...titleParts]) => ({
-      id,
-      index: Number(index),
-      active: active === "1",
-      command,
-      cwd,
-      width: Number(width || 0),
-      height: Number(height || 0),
-      pid: Number(pid || 0) || null,
-      // The scrollback pager (copy-mode OR view-mode — see isScrollbackMode)
-      // swallows input; that's what the "scroll mode" banner warns about.
-      // `pane_mode` is "" when not in a mode.
-      inCopyMode: isScrollbackMode(mode),
-      // pane_title is last and may contain tabs — rejoin any split pieces.
-      title: titleParts.join("\t"),
-    }),
-  );
+  return currentWindowRuntime().listWindowSurfaces({ windowId });
 }
 
 async function getPaneCwd(paneId) {
-  requireId(paneId, "pane");
-  return (
-    await runTmux(["display-message", "-p", "-t", paneId, "#{pane_current_path}"])
-  ).trim();
+  return currentWindowRuntime().getSurfaceCwd({ surfaceId: paneId });
 }
 
 async function listPaneDirectories(paneId) {
@@ -1442,9 +1198,7 @@ async function getSessionWindowMetadata(sessionId) {
 async function collectMachineAttention() {
   let sessions = [];
   try {
-    sessions = rows(await runTmux(["list-sessions", "-F", formats.sessions])).map(
-      sessionFromRow,
-    );
+    sessions = await currentWindowRuntime().listSessions();
   } catch (error) {
     if (isNoServerError(error)) return [];
     throw error;
@@ -1539,27 +1293,18 @@ async function sendAskKeys(paneId, keys) {
     if (k && typeof k === "object" && typeof k.text === "string") {
       await sendTextToPane(paneId, k.text, { enter: false });
     } else {
-      await runTmux(["send-keys", "-t", paneId, k]);
+      await currentWindowRuntime().sendKeyToSurface({ surfaceId: paneId, key: k });
     }
     await delay(ASK_KEY_DELAY_MS);
   }
 }
 
 async function capturePane(paneId, mode, lineCount, { ansi = false } = {}) {
-  requireId(paneId, "pane");
-  const args = ["capture-pane", "-p", "-t", paneId];
-  if (ansi) args.push("-e"); // keep SGR color/style escape sequences
-
-  if (mode === "full") {
-    args.push("-S", "-", "-E", "-");
-  } else if (mode === "screen") {
-    // No range flags: capture only the current visible pane.
-  } else {
-    args.push("-S", `-${lineCount}`, "-E", "-");
-  }
-
-  return runTmux(args, {
-    maxBuffer: mode === "full" ? 16 * 1024 * 1024 : 8 * 1024 * 1024,
+  return currentWindowRuntime().captureSurface({
+    surfaceId: paneId,
+    mode,
+    lines: lineCount,
+    ansi,
   });
 }
 
@@ -1621,75 +1366,11 @@ async function createTextModelResponse({
 }
 
 async function getWindowInfo(windowId) {
-  requireId(windowId, "window");
-  const stdout = await runTmux([
-    "display-message",
-    "-p",
-    "-t",
-    windowId,
-    "#{session_id}\t#{session_name}\t#{window_index}\t#{window_name}",
-  ]);
-  const [sessionId = "", sessionName = "", windowIndex = "", windowName = ""] =
-    stdout.trimEnd().split("\t");
-  return {
-    windowId,
-    sessionId,
-    sessionName,
-    windowIndex: Number(windowIndex),
-    windowName,
-  };
+  return currentWindowRuntime().getWindowInfo({ windowId });
 }
 
 async function getPaneContext(paneId) {
-  requireId(paneId, "pane");
-  const stdout = await runTmux([
-    "display-message",
-    "-p",
-    "-t",
-    paneId,
-    "#{window_id}\t#{session_id}\t#{session_name}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_tty}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{pane_mode}\t#{pane_pid}\t#{pane_title}",
-  ]);
-  const [
-    windowId = "",
-    sessionId = "",
-    sessionName = "",
-    windowIndex = "",
-    windowName = "",
-    resolvedPaneId = "",
-    paneIndex = "",
-    paneActive = "",
-    command = "",
-    tty = "",
-    cwd = "",
-    width = "",
-    height = "",
-    mode = "",
-    pid = "",
-    ...titleParts
-  ] = stdout.trimEnd().split("\t");
-
-  return {
-    windowInfo: {
-      windowId,
-      sessionId,
-      sessionName,
-      windowIndex: Number(windowIndex),
-      windowName,
-    },
-    pane: {
-      id: resolvedPaneId || paneId,
-      index: Number(paneIndex),
-      active: paneActive === "1",
-      command,
-      tty,
-      cwd,
-      width: Number(width || 0),
-      height: Number(height || 0),
-      inCopyMode: isScrollbackMode(mode),
-      pid: Number(pid || 0),
-      title: titleParts.join("\t"),
-    },
-  };
+  return currentWindowRuntime().getSurfaceContext({ surfaceId: paneId });
 }
 
 function commandHasExecutable(command, executable) {
@@ -1733,32 +1414,18 @@ async function forkAgentWindow(paneId) {
     return { ok: true, forked: false, reason: "not-agent" };
   }
 
-  const stdout = await runTmux([
-    "new-window",
-    "-a",
-    "-t",
-    windowInfo.windowId,
-    "-c",
-    pane.cwd || process.env.HOME || "/",
-    "-n",
-    forkSpec.windowName,
-    "-P",
-    "-F",
-    formats.windows,
-    forkSpec.command,
-  ]);
-  const [row] = rows(stdout);
-  if (!row) {
-    const error = new Error("tmux did not return the fork window");
-    error.status = 500;
-    throw error;
-  }
+  const window = await currentWindowRuntime().createWindowAfter({
+    windowId: windowInfo.windowId,
+    cwd: pane.cwd || process.env.HOME || "/",
+    name: forkSpec.windowName,
+    command: forkSpec.command,
+  });
   return {
     ok: true,
     forked: true,
     agent: forkSpec.agent,
     source: windowInfo,
-    window: windowFromRow(row),
+    window,
   };
 }
 
@@ -1945,8 +1612,7 @@ async function detectCommandCenterAgent(pane) {
 async function listAgentSessions() {
   let sessions = [];
   try {
-    const stdout = await runTmux(["list-sessions", "-F", formats.sessions]);
-    sessions = rows(stdout).map(sessionFromRow);
+    sessions = await currentWindowRuntime().listSessions();
   } catch (error) {
     if (isNoServerError(error)) return { agents: [] };
     throw error;
@@ -3094,12 +2760,7 @@ async function handleApi(req, res, url) {
 
   if (req.method === "GET" && url.pathname === "/api/sessions") {
     try {
-      const stdout = await runTmux(["list-sessions", "-F", formats.sessions]);
-      sendJson(
-        res,
-        200,
-        rows(stdout).map(sessionFromRow),
-      );
+      sendJson(res, 200, await currentWindowRuntime().listSessions());
     } catch (error) {
       if (isNoServerError(error)) {
         sendJson(res, 200, []);
@@ -3521,22 +3182,20 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/inspect") {
     const paneId = requireId(url.searchParams.get("paneId"), "pane");
     const lines = parseLines(url.searchParams.get("lines"));
-    const [infoStdout, captureText] = await Promise.all([
-      runTmux(["display-message", "-p", "-t", paneId, formats.paneInfo]),
+    const [{ windowInfo, pane }, captureText] = await Promise.all([
+      getPaneContext(paneId),
       capturePane(paneId, "tail", lines),
     ]);
-    const [session, windowIndex, windowName, paneIndex, command, cwd, pid, active] =
-      infoStdout.trimEnd().split("\t");
     sendJson(res, 200, {
       paneId,
-      session,
-      windowIndex: Number(windowIndex),
-      windowName,
-      paneIndex: Number(paneIndex),
-      command,
-      cwd,
-      pid: Number(pid),
-      active: active === "1",
+      session: windowInfo.sessionName,
+      windowIndex: windowInfo.windowIndex,
+      windowName: windowInfo.windowName,
+      paneIndex: pane.index,
+      command: pane.command,
+      cwd: pane.cwd,
+      pid: Number(pane.pid),
+      active: pane.active,
       summary: summarizeOutput(captureText),
     });
     return;
@@ -3571,7 +3230,7 @@ async function handleApi(req, res, url) {
       // no race; send it directly.
       sendResult = { mode: "none", sentEnter: false };
       if (sendEnter) {
-        await runTmux(["send-keys", "-t", paneId, "Enter"]);
+        await currentWindowRuntime().sendKeyToSurface({ surfaceId: paneId, key: "Enter" });
       }
     }
     sendJson(res, 200, {
@@ -3798,7 +3457,7 @@ async function handleApi(req, res, url) {
     // copy-mode, this would fight them — but the allowed keys here are
     // submit/edit keys for the app's input, not copy-mode navigation.)
     await exitCopyModeIfNeeded(paneId);
-    await runTmux(["send-keys", "-t", paneId, key]);
+    await currentWindowRuntime().sendKeyToSurface({ surfaceId: paneId, key });
     sendJson(res, 200, { ok: true });
     return;
   }
@@ -3868,7 +3527,7 @@ async function handleApi(req, res, url) {
     const maxSteps = 8;
     let steps = 0;
     while (current !== target && steps < maxSteps) {
-      await runTmux(["send-keys", "-t", paneId, cfg.cycleKey]);
+      await currentWindowRuntime().sendKeyToSurface({ surfaceId: paneId, key: cfg.cycleKey });
       await delay(ASK_KEY_DELAY_MS * 2); // let the footer redraw before re-reading
       current = await readMode();
       steps++;
