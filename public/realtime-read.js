@@ -328,6 +328,7 @@ export async function playRealtimeRead({
   windowId,
   paneId,
   machineId = "",
+  mux = "",
   logClientEvent = () => {},
   setStatus = () => {},
   onPlaybackBlocked = () => {},
@@ -378,6 +379,7 @@ export async function playRealtimeRead({
     method: "POST",
     signal: abortController.signal,
     machineId,
+    mux,
     body: JSON.stringify({ windowId, paneId }),
   });
   throwIfAudioReadStopped(audioState, readId);

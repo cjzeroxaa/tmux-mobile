@@ -44,6 +44,21 @@ assert.equal(rmuxRuntime.kind, "rmux");
 assert.equal(rmuxRuntime.commandName(), "rmux");
 assert.equal(rmuxRuntime.capabilities().runtime, "rmux");
 
+const muxOptionCalls = [];
+const selectedMuxRuntime = createWindowRuntime(
+  {
+    muxKind: () => "tmux",
+    muxCommand: (mux) => mux || "tmux",
+    async tmux(_args, options = {}) {
+      muxOptionCalls.push(options.mux || "");
+      return "";
+    },
+  },
+  { mux: "rmux" },
+);
+await selectedMuxRuntime.sendKeyToSurface({ surfaceId: "%1", key: "Enter" });
+assert.equal(muxOptionCalls.at(-1), "rmux", "runtime passes selected mux to backend");
+
 const tree = await runtime.listTree();
 assert.deepEqual(tree.sessions, [
   { id: "$1", name: "work", windows: 2, attached: false, created: "created" },

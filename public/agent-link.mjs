@@ -8,17 +8,24 @@ export function buildAgentAppUrl(agent = {}, { appBaseUrl = "", machine = {} } =
       : String(agent.windowIndex);
   const machineId = routeMachineIdForLink(agent, machine);
   const windowName = String(agent.windowName || "");
+  const mux = normalizeMux(agent.mux || agent.machineMux);
 
   if (session) params.set("session", session);
   if (windowId) params.set("windowId", windowId);
   if (windowIndex) params.set("window", windowIndex);
   if (machineId && machineId !== "local") params.set("machineId", machineId);
   if (windowName) params.set("windowName", windowName);
+  if (mux) params.set("mux", mux);
 
   const query = params.toString();
   const base = normalizeAppBaseUrl(appBaseUrl);
   if (!base) return `/app/${query ? `?${query}` : ""}`;
   return `${base}${query ? `?${query}` : ""}`;
+}
+
+function normalizeMux(value) {
+  const mux = String(value || "").trim().toLowerCase();
+  return mux === "tmux" || mux === "rmux" ? mux : "";
 }
 
 export function routeMachineIdForLink(agent = {}, machine = {}) {

@@ -423,10 +423,16 @@ function muxLabel(value) {
   return mux === "rmux" ? "RMUX" : "TMUX";
 }
 
+function agentMux(agent) {
+  const mux = String(agent?.mux || agent?.machineMux || "").trim().toLowerCase();
+  return mux === "rmux" || mux === "tmux" ? mux : "";
+}
+
 function agentMuxChip(agent) {
-  const mux = muxLabel(agent.machineMux);
-  const version = agent.machineMuxVersion || "";
-  const command = agent.machineMuxCommand || agent.machineMux || mux.toLowerCase();
+  const mux = muxLabel(agentMux(agent) || agent.machineMux);
+  const version = agent.muxVersion || agent.machineMuxVersion || "";
+  const command =
+    agent.muxCommand || agent.machineMuxCommand || agent.machineMux || mux.toLowerCase();
   const title = [command, version].filter(Boolean).join(" · ");
   return `<span class="cc-mux-chip cc-mux-chip-${escapeHtml(mux.toLowerCase())}" title="${escapeHtml(title)}">${escapeHtml(mux)}</span>`;
 }
@@ -543,7 +549,7 @@ function contextStartAgentMachine(machines = startAgentMachineChoices()) {
 }
 
 async function api(path, options = {}) {
-  const { machineId, headers: inputHeaders, ...requestOptions } = options;
+  const { machineId, mux, headers: inputHeaders, ...requestOptions } = options;
   const headers = { accept: "application/json", ...(inputHeaders || {}) };
   const hasBody =
     requestOptions.body !== undefined && requestOptions.body !== null;
@@ -553,6 +559,7 @@ async function api(path, options = {}) {
     headers["content-type"] = "application/json";
   }
   if (!isLocalMachineId(machineId)) headers["x-machine-id"] = machineId;
+  if (mux) headers["x-mux"] = mux;
 
   const response = await fetch(path, {
     cache: "no-store",
@@ -577,6 +584,7 @@ async function sendTextToAgent(agent, text) {
   return api("/api/send", {
     method: "POST",
     machineId,
+    mux: agentMux(agent),
     body: JSON.stringify({ paneId: agent.paneId, text, enter: true }),
   });
 }
@@ -587,6 +595,7 @@ async function sendKeyToAgent(agent, key) {
   return api("/api/key", {
     method: "POST",
     machineId,
+    mux: agentMux(agent),
     body: JSON.stringify({ paneId: agent.paneId, key }),
   });
 }
@@ -694,6 +703,7 @@ async function uploadInteractFiles(fileList) {
       const data = await api(`/api/upload?${params}`, {
         method: "POST",
         machineId: agentMachineKey(agent),
+        mux: agentMux(agent),
         headers: { "content-type": file.type || "application/octet-stream" },
         body: file,
       });
@@ -990,6 +1000,7 @@ async function confirmDeleteWindow() {
     await api("/api/windows", {
       method: "DELETE",
       machineId: agentMachineKey(agent),
+      mux: agentMux(agent),
       body: JSON.stringify({ windowId: agent.windowId }),
     });
     setStatus(`Deleted ${agent.windowIndex}: ${agent.windowName || "(unnamed)"}`);
@@ -1667,9 +1678,9 @@ function machinesFromAgents(agents) {
         ownerId: agent.machineOwnerId || "",
         ownerEmail: agent.machineOwnerId || "",
         ownerHd: agent.machineOwnerHd || "",
-        mux: agent.machineMux || "tmux",
-        muxCommand: agent.machineMuxCommand || agent.machineMux || "tmux",
-        muxVersion: agent.machineMuxVersion || "",
+        mux: agentMux(agent) || "tmux",
+        muxCommand: agent.muxCommand || agent.machineMuxCommand || agent.machineMux || "tmux",
+        muxVersion: agent.muxVersion || agent.machineMuxVersion || "",
         online: true,
         stale: false,
         missingOps: [],
@@ -1688,6 +1699,26 @@ function machinesFromAgents(agents) {
     ...machine,
     agentCount: counts.get(machineKey(machine)) || 0,
   }));
+}
+
+function machineMuxes(machine) {
+  const muxes = Array.isArray(machine?.muxes)
+    ? machine.muxes
+        .map((item) => String(item?.mux || item?.kind || "").trim().toLowerCase())
+        .filter((mux) => mux === "tmux" || mux === "rmux")
+    : [];
+  const primary = String(machine?.mux || "").trim().toLowerCase();
+  if ((primary === "tmux" || primary === "rmux") && !muxes.includes(primary)) {
+    muxes.unshift(primary);
+  }
+  return [...new Set(muxes)];
+}
+
+function preferredStartMux(machine) {
+  const muxes = machineMuxes(machine);
+  if (muxes.includes("rmux")) return "rmux";
+  if (muxes.includes("tmux")) return "tmux";
+  return "";
 }
 
 function normalizeMachines(machines, agents) {
@@ -1896,6 +1927,7 @@ async function updateConnector(machine) {
         agentMachine: machine.machineAlias || machine.hostname || machine.machineId || "",
         machineLabel: machineLabel(machine),
         mux: machine.mux || "",
+        muxes: "tmux,rmux",
       }),
     });
     setStatus(
@@ -2163,6 +2195,7 @@ async function submitStartAgent() {
   }
   state.startAgent.starting = true;
   syncStartAgentControls();
+  const mux = preferredStartMux(machine);
   setStartAgentStatus(`Starting ${state.startAgent.kind} in ${abbrevHome(cwd)}...`);
   try {
     const result = await api("/api/agent-sessions", {
@@ -2172,6 +2205,7 @@ async function submitStartAgent() {
         kind: state.startAgent.kind,
         cwd,
         sessionName: els.startAgentSessionName?.value || "",
+        mux,
       }),
     });
     closeStartAgent();
@@ -2190,7 +2224,7 @@ async function submitStartAgent() {
 }
 
 function readKeyForAgent(agent) {
-  return `${agentMachineKey(agent)}::${agent.windowId || agent.paneId || agent.agentSessionId || ""}`;
+  return `${agentMachineKey(agent)}::${agentMux(agent) || "tmux"}::${agent.windowId || agent.paneId || agent.agentSessionId || ""}`;
 }
 
 function selectedAgentFrom(agents = filterAndSort(state.agents)) {
@@ -2538,7 +2572,7 @@ function handleCardShortcuts(event) {
 }
 
 function deleteKeyForAgent(agent) {
-  return `${agentMachineKey(agent)}::${agent.windowId || ""}`;
+  return `${agentMachineKey(agent)}::${agentMux(agent) || "tmux"}::${agent.windowId || ""}`;
 }
 
 function cardActionButton({ className = "", title, dataAttrs, disabled = false, busy = false, icon }) {
@@ -2594,6 +2628,7 @@ async function readAgent(agent) {
       windowId: agent.windowId,
       paneId: agent.paneId,
       machineId,
+      mux: agentMux(agent),
       logClientEvent: (event, details = {}) =>
         logClientEvent(event, details, machineId),
       setStatus,
@@ -2679,7 +2714,7 @@ function renderCard(agent) {
       label: "Last prompt",
       text: agent.lastUserText,
       timestamp: agent.lastUserAt,
-      expandedKey: `${agentMachineKey(agent)}::${agent.windowId}::user`,
+      expandedKey: `${agentMachineKey(agent)}::${agentMux(agent) || "tmux"}::${agent.windowId}::user`,
       format: "plain",
     }),
   );
@@ -2689,7 +2724,7 @@ function renderCard(agent) {
       label: "Last response",
       text: agent.lastAssistantText,
       timestamp: agent.lastAssistantAt,
-      expandedKey: `${agentMachineKey(agent)}::${agent.windowId}::assistant`,
+      expandedKey: `${agentMachineKey(agent)}::${agentMux(agent) || "tmux"}::${agent.windowId}::assistant`,
       format: "markdown",
       fullscreen: true,
     }),

@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
 import {
   currentBackend,
@@ -85,6 +86,7 @@ const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const MAX_TEXT_BYTES = 64 * 1024;
 const MAX_CAPTURE_LINES = 5000;
+const muxStore = new AsyncLocalStorage();
 // Voice models (transcription / realtime / TTS) are now runtime-configurable
 // via lib/voice-config.mjs and the web app's Settings panel; read them at call
 // time with getVoiceConfig() rather than freezing them at module load.
@@ -452,7 +454,41 @@ function isNoServerError(error) {
 }
 
 function currentWindowRuntime() {
-  return createWindowRuntime(currentBackend());
+  return createWindowRuntime(currentBackend(), { mux: currentRequestMux() });
+}
+
+function normalizeMuxName(value) {
+  const mux = String(value || "").trim().toLowerCase();
+  return mux === "tmux" || mux === "rmux" ? mux : "";
+}
+
+function currentRequestMux() {
+  return muxStore.getStore() || "";
+}
+
+function withRequestMux(mux, fn) {
+  return muxStore.run(normalizeMuxName(mux), fn);
+}
+
+function requestMux(req, url) {
+  return normalizeMuxName(req.headers["x-mux"] || url.searchParams.get("mux"));
+}
+
+function backendMuxKinds() {
+  const backend = currentBackend();
+  if (typeof backend.muxKinds === "function") {
+    const muxes = backend.muxKinds().map(normalizeMuxName).filter(Boolean);
+    if (muxes.length > 0) return [...new Set(muxes)];
+  }
+  const mux =
+    (typeof backend.muxKind === "function" ? normalizeMuxName(backend.muxKind()) : "") ||
+    (typeof backend.muxCommand === "function" ? normalizeMuxName(backend.muxCommand()) : "") ||
+    "tmux";
+  return [mux];
+}
+
+function windowRuntimeForMux(mux) {
+  return createWindowRuntime(currentBackend(), { mux });
 }
 
 function rows(stdout) {
@@ -751,6 +787,7 @@ function defaultStartAgentSessionName(kind, cwd) {
 }
 
 async function startAgentSession(options = {}) {
+  const runtime = currentWindowRuntime();
   const kind = requireStartAgentKind(options.kind);
   const cwd = requireDirectoryPath(options.cwd);
   const spec = START_AGENT_COMMANDS[kind];
@@ -758,7 +795,7 @@ async function startAgentSession(options = {}) {
     options.sessionName || defaultStartAgentSessionName(kind, cwd),
   );
   const format = `${formats.sessions}\t#{window_id}\t#{pane_id}`;
-  const stdout = await runTmux(
+  const stdout = await runtime.tmux(
     [
       "new-session",
       "-d",
@@ -790,6 +827,8 @@ async function startAgentSession(options = {}) {
     kind,
     command: spec.command,
     cwd,
+    mux: runtime.kind || "tmux",
+    muxCommand: runtime.commandName?.() || runtime.kind || "tmux",
     session,
     windowId,
     paneId,
@@ -834,6 +873,7 @@ async function startConnectorUpdate(options = {}) {
   const scriptUrl = safeUpdateUrl(options.updateScriptUrl) || CONNECTOR_UPDATE_SCRIPT_URL;
   const muxCommand = safeUpdateValue(runtime.commandName?.() || runtime.kind || "tmux", 512);
   const updateMux = safeMuxName(options.mux || runtime.kind || "");
+  const updateMuxes = safeMuxList(options.muxes);
   const heredoc = `TMUX_MOBILE_UPDATE_${Date.now().toString(36).toUpperCase()}`;
   const inner = [
     "set -euo pipefail",
@@ -845,6 +885,7 @@ async function startConnectorUpdate(options = {}) {
     `export TMUX_MOBILE_UPDATE_AGENT_MACHINE=${shellQuote(agentMachine)}`,
     `export TMUX_MOBILE_UPDATE_SCRIPT_URL=${shellQuote(scriptUrl)}`,
     `export TMUX_MOBILE_UPDATE_MUX=${shellQuote(updateMux)}`,
+    `export TMUX_MOBILE_UPDATE_MUXES=${shellQuote(updateMuxes)}`,
     `MUX_BIN=${shellQuote(muxCommand || "tmux")}`,
     `NODE_BIN=${shellQuote(nodePath)}`,
     `echo "tmux-mobile connector update${machineLabel ? ` for ${machineLabel}` : ""}"`,
@@ -882,6 +923,7 @@ async function startConnectorUpdate(options = {}) {
     targetRef,
     scriptUrl,
     mux: updateMux,
+    muxes: updateMuxes,
   };
 }
 
@@ -905,6 +947,14 @@ function safeControllerUrl(value) {
 function safeMuxName(value) {
   const text = String(value || "").trim().toLowerCase();
   return text === "tmux" || text === "rmux" ? text : "";
+}
+
+function safeMuxList(value) {
+  const muxes = String(value || "")
+    .split(",")
+    .map(safeMuxName)
+    .filter(Boolean);
+  return [...new Set(muxes)].join(",");
 }
 
 function requestOrigin(req) {
@@ -1210,9 +1260,25 @@ async function getSessionWindowMetadata(sessionId) {
 // cross-machine /api/attention aggregate. Best-effort: a failing session is
 // skipped rather than failing the whole sweep.
 async function collectMachineAttention() {
+  const muxes = currentRequestMux() ? [currentRequestMux()] : backendMuxKinds();
+  const results = await Promise.all(
+    muxes.map(async (mux) => {
+      const runtime = windowRuntimeForMux(mux);
+      try {
+        return await collectMachineAttentionForRuntime(runtime);
+      } catch (error) {
+        if (isNoServerError(error) || muxes.length > 1) return [];
+        throw error;
+      }
+    }),
+  );
+  return results.flat();
+}
+
+async function collectMachineAttentionForRuntime(runtime) {
   let sessions = [];
   try {
-    sessions = await currentWindowRuntime().listSessions();
+    sessions = await runtime.listSessions();
   } catch (error) {
     if (isNoServerError(error)) return [];
     throw error;
@@ -1223,14 +1289,15 @@ async function collectMachineAttention() {
       let windows;
       let meta;
       try {
-        windows = await listWindows(session.id);
-        meta = await getSessionWindowMetadata(session.id);
+        windows = await runtime.listWindows({ sessionId: session.id });
+        meta = await withRequestMux(runtime.kind, () => getSessionWindowMetadata(session.id));
       } catch {
         return; // session vanished mid-sweep
       }
       for (const win of windows) {
         const m = meta[win.id] || {};
         out.push({
+          mux: runtime.kind || "tmux",
           sessionName: session.name,
           windowIndex: win.index,
           windowName: win.name,
@@ -1623,21 +1690,53 @@ async function detectCommandCenterAgent(pane) {
  * Per-pane work runs in parallel so even ten windows return in roughly the
  * time of the slowest pane.
  */
+const runtimeVersionCache = new Map();
+
+async function runtimeVersion(runtime) {
+  const key = `${runtime.kind}:${runtime.commandName?.() || runtime.kind}`;
+  if (runtimeVersionCache.has(key)) return runtimeVersionCache.get(key);
+  let version = "";
+  try {
+    version = (await runtime.tmux(["-V"], { timeout: 3000 })).trim();
+  } catch {}
+  runtimeVersionCache.set(key, version);
+  return version;
+}
+
 async function listAgentSessions() {
+  const muxes = currentRequestMux() ? [currentRequestMux()] : backendMuxKinds();
+  const results = await Promise.all(
+    muxes.map(async (mux) => {
+      const runtime = windowRuntimeForMux(mux);
+      try {
+        return await listAgentSessionsForRuntime(runtime);
+      } catch (error) {
+        if (isNoServerError(error) || muxes.length > 1) return { agents: [] };
+        throw error;
+      }
+    }),
+  );
+  return { agents: results.flatMap((result) => result.agents || []) };
+}
+
+async function listAgentSessionsForRuntime(runtime) {
   let sessions = [];
   try {
-    sessions = await currentWindowRuntime().listSessions();
+    sessions = await runtime.listSessions();
   } catch (error) {
     if (isNoServerError(error)) return { agents: [] };
     throw error;
   }
+  const mux = runtime.kind || "tmux";
+  const muxCommand = runtime.commandName?.() || mux;
+  const muxVersion = await runtimeVersion(runtime);
 
   // Flatten every window into one queue with its session context.
   const queue = [];
   for (const session of sessions) {
     let windows;
     try {
-      windows = await listWindows(session.id);
+      windows = await runtime.listWindows({ sessionId: session.id });
     } catch {
       continue;
     }
@@ -1648,7 +1747,7 @@ async function listAgentSessions() {
     queue.map(async ({ session, win }) => {
       let panes;
       try {
-        panes = await listPanes(win.id);
+        panes = await runtime.listWindowSurfaces({ windowId: win.id });
       } catch {
         return null;
       }
@@ -1676,7 +1775,9 @@ async function listAgentSessions() {
       let waitingForInput = false;
       let waitingConfidence = "";
       try {
-        const screen = cleanTerminalText(await capturePane(pane.id, "screen"));
+        const screen = cleanTerminalText(
+          await runtime.captureSurface({ surfaceId: pane.id, mode: "screen" }),
+        );
         const lines = screen.split("\n");
         turn = detectTurn(info.kind, {
           title: pane.title,
@@ -1698,6 +1799,9 @@ async function listAgentSessions() {
             : "unverified";
 
       return {
+        mux,
+        muxCommand,
+        muxVersion,
         sessionId: session.id,
         sessionName: session.name,
         windowId: win.id,
@@ -1734,18 +1838,25 @@ async function listAgentSessions() {
   return { agents: rows_.filter(Boolean) };
 }
 
-let localMuxVersion = null;
 async function localCommandCenterMachine(agentCount = 0) {
-  const runtime = currentWindowRuntime();
-  const muxKind = runtime.kind || "tmux";
-  const muxCommand = runtime.commandName?.() || muxKind;
-  if (localMuxVersion === null) {
-    try {
-      localMuxVersion = (await runtime.tmux(["-V"])).trim();
-    } catch {
-      localMuxVersion = "";
-    }
-  }
+  const muxes = (
+    await Promise.all(
+      backendMuxKinds().map(async (mux) => {
+        const runtime = windowRuntimeForMux(mux);
+        return {
+          mux: runtime.kind || mux,
+          kind: runtime.kind || mux,
+          muxCommand: runtime.commandName?.() || mux,
+          version: await runtimeVersion(runtime),
+        };
+      }),
+    )
+  ).filter((item) => item.version || backendMuxKinds().length === 1);
+  const primary = muxes[0] || {
+    mux: "tmux",
+    muxCommand: "tmux",
+    version: "",
+  };
   const ownerId = String(process.env.TMUX_MOBILE_USER || "");
   const hostname = os.hostname();
   return {
@@ -1759,10 +1870,11 @@ async function localCommandCenterMachine(agentCount = 0) {
     ownerHd: "",
     os: process.platform,
     arch: process.arch,
-    tmux: localMuxVersion,
-    mux: muxKind,
-    muxCommand,
-    muxVersion: localMuxVersion,
+    tmux: primary.version,
+    mux: primary.mux,
+    muxCommand: primary.muxCommand,
+    muxVersion: primary.version,
+    muxes,
     agentRevision: APP_REVISION,
     connectorVersion: CONNECTOR_VERSION,
     agentCwd: __dirname,
@@ -1803,18 +1915,27 @@ function commandCenterMachineMatches(machine, machineId) {
 }
 
 function tagCommandCenterAgents(result, machine) {
-  return (result.agents || []).map((agent) => ({
-    machineId: machine.id,
-    machineRawId: machine.machineId || "",
-    machineAgentId: machine.agentId || "",
-    machineHostname: machine.hostname,
-    machineOwnerId: machine.ownerId || "",
-    machineOwnerHd: machine.ownerHd || "",
-    machineMux: machine.mux || "tmux",
-    machineMuxCommand: machine.muxCommand || machine.mux || "tmux",
-    machineMuxVersion: machine.muxVersion || machine.tmux || "",
-    ...agent,
-  }));
+  return (result.agents || []).map((agent) => {
+    const agentMux = normalizeMuxName(agent.mux) || normalizeMuxName(machine.mux) || "tmux";
+    const muxInfo = Array.isArray(machine.muxes)
+      ? machine.muxes.find((item) => normalizeMuxName(item?.mux || item?.kind) === agentMux)
+      : null;
+    return {
+      machineId: machine.id,
+      machineRawId: machine.machineId || "",
+      machineAgentId: machine.agentId || "",
+      machineHostname: machine.hostname,
+      machineOwnerId: machine.ownerId || "",
+      machineOwnerHd: machine.ownerHd || "",
+      ...agent,
+      mux: agentMux,
+      muxCommand: agent.muxCommand || muxInfo?.muxCommand || machine.muxCommand || agentMux,
+      muxVersion: agent.muxVersion || muxInfo?.version || machine.muxVersion || machine.tmux || "",
+      machineMux: agentMux,
+      machineMuxCommand: agent.muxCommand || muxInfo?.muxCommand || machine.muxCommand || agentMux,
+      machineMuxVersion: agent.muxVersion || muxInfo?.version || machine.muxVersion || machine.tmux || "",
+    };
+  });
 }
 
 function commandCenterResultFromInventory(inventory) {
@@ -2863,11 +2984,13 @@ async function handleApi(req, res, url) {
       cwd: String(body.cwd || ""),
       sessionName: String(body.sessionName || ""),
     });
-    const result = await startAgentSession({
-      kind: body.kind,
-      cwd: body.cwd,
-      sessionName: body.sessionName,
-    });
+    const result = await withRequestMux(body.mux || currentRequestMux(), () =>
+      startAgentSession({
+        kind: body.kind,
+        cwd: body.cwd,
+        sessionName: body.sessionName,
+      }),
+    );
     logServerEvent("start_agent_session_started", {
       machineId: requestedMachineId,
       kind: result.kind,
@@ -2897,6 +3020,7 @@ async function handleApi(req, res, url) {
         agentMachine: body.agentMachine,
         machineLabel: body.machineLabel,
         mux: body.mux,
+        muxes: body.muxes,
       }),
     );
     return;
@@ -3971,11 +4095,15 @@ if (MODE.kind === "register") {
             return;
           }
           await withBackend(hub.backendFor(viewer, machineId), () =>
-            withVoiceUser(userId, () => handleApi(req, res, url)),
+            withRequestMux(requestMux(req, url), () =>
+              withVoiceUser(userId, () => handleApi(req, res, url)),
+            ),
           );
           return;
         }
-        await withVoiceUser(userId, () => handleApi(req, res, url));
+        await withRequestMux(requestMux(req, url), () =>
+          withVoiceUser(userId, () => handleApi(req, res, url)),
+        );
         return;
       }
 

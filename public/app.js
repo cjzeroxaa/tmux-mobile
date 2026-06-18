@@ -181,7 +181,16 @@ function windowRecentKey(win) {
   if (!win) return "";
   const session = state.sessions.find((s) => s.id === win.sessionId);
   const sessionName = session?.name ?? win.sessionId;
-  return windowKey({ machineId: state.machineId, sessionName, index: win.index });
+  return windowKey({
+    machineId: scopedMachineId(state.machineId, state.mux),
+    sessionName,
+    index: win.index,
+  });
+}
+
+function scopedMachineId(machineId, mux) {
+  const normalizedMux = normalizeMux(mux);
+  return `${machineId || "local"}${normalizedMux ? `#${normalizedMux}` : ""}`;
 }
 
 // Stable identity key for a cross-machine attention descriptor. Goes through
@@ -191,7 +200,7 @@ function windowRecentKey(win) {
 // Needs-you pill (the keys never matched, so it fell back to opening the picker).
 function attentionKey(d) {
   return windowKey({
-    machineId: d.machineId,
+    machineId: scopedMachineId(d.machineId, d.mux),
     sessionName: d.sessionName,
     index: d.windowIndex,
   });
@@ -273,7 +282,7 @@ function activeWindowHasQuestion() {
 // tmux window id can't do this). MRU, deduped by stable key, capped at 20.
 const GLOBAL_RECENTS_MAX = 20;
 const globalRecentsAtom = createPersistedAtom("tmux-mobile-global-recents", {
-  entries: [], // [{ key, machineId, host, sessionName, index, name, cwd, branch, worktree }]
+  entries: [], // [{ key, machineId, mux, host, sessionName, index, name, cwd, branch, worktree }]
 });
 
 // Record the just-visited window into the global list (MRU, deduped, capped).
@@ -282,7 +291,7 @@ function recordGlobalRecent(win) {
   const fields = windowIdFields(win);
   if (!fields) return;
   const key = windowKey({
-    machineId: state.machineId,
+    machineId: scopedMachineId(state.machineId, state.mux),
     sessionName: fields.sessionName,
     index: fields.index,
   });
@@ -359,6 +368,7 @@ const state = {
   cloneUrl: "https://github.com/cjzeroxaa/tmux-mobile.git",
   machines: [],
   machineId: initialUrlTarget.machineId || "",
+  mux: initialUrlTarget.mux || "",
   sessions: [],
   windows: [],
   windowActivity: {},
@@ -445,6 +455,7 @@ function readUrlTarget() {
   const params = new URLSearchParams(window.location.search);
   return {
     machineId: params.get("machineId") || "",
+    mux: normalizeMux(params.get("mux")),
     windowId: params.get("windowId") || "",
     session: params.get("session") || params.get("sessionName") || "",
     windowIndex: params.get("window") || params.get("windowIndex") || "",
@@ -453,7 +464,12 @@ function readUrlTarget() {
 }
 
 function hasUrlTarget(target = readUrlTarget()) {
-  return Boolean(target.machineId || target.windowId || target.session || target.windowIndex || target.windowName);
+  return Boolean(target.machineId || target.mux || target.windowId || target.session || target.windowIndex || target.windowName);
+}
+
+function normalizeMux(value) {
+  const mux = String(value || "").trim().toLowerCase();
+  return mux === "tmux" || mux === "rmux" ? mux : "";
 }
 
 function updateTargetUrl() {
@@ -461,6 +477,7 @@ function updateTargetUrl() {
   const win = selectedWindow();
   const target = {
     machineId: state.runtimeMode === "hub" ? state.machineId || "" : "",
+    mux: state.mux || "",
     windowId: win?.id || "",
     session: session?.name || "",
     windowIndex: win ? String(win.index) : "",
@@ -468,6 +485,7 @@ function updateTargetUrl() {
   };
   const params = new URLSearchParams();
   if (target.machineId) params.set("machineId", target.machineId);
+  if (target.mux) params.set("mux", target.mux);
   if (target.windowId) params.set("windowId", target.windowId);
   if (target.session) params.set("session", target.session);
   if (target.windowIndex) params.set("window", target.windowIndex);
@@ -628,7 +646,7 @@ const els = {
 };
 
 async function api(path, options = {}) {
-  const { machineId: _machineId, ...requestOptions } = options;
+  const { machineId: _machineId, mux, ...requestOptions } = options;
   const headers = { ...(requestOptions.headers || {}) };
   const hasBody = requestOptions.body !== undefined && requestOptions.body !== null;
   const isRawBody =
@@ -638,6 +656,10 @@ async function api(path, options = {}) {
   }
   if (state.machineId && shouldAttachMachineHeader(path)) {
     headers["x-machine-id"] = state.machineId;
+  }
+  const requestMux = normalizeMux(mux) || state.mux;
+  if (requestMux && shouldAttachMachineHeader(path)) {
+    headers["x-mux"] = requestMux;
   }
 
   const response = await fetch(path, {
@@ -964,6 +986,7 @@ async function selectMachine(machineId, target = null) {
   if (machineId === state.machineId && !target) return;
   state.treeLoadGeneration += 1;
   state.machineId = machineId;
+  state.mux = target ? normalizeMux(target.mux) : "";
   resetTmuxState(machineId ? "Loading machine..." : "Select a machine.");
   updateTargetUrl();
   if (!machineId) {
@@ -973,6 +996,7 @@ async function selectMachine(machineId, target = null) {
   await refreshTree({
     urlTarget: {
       machineId,
+      mux: state.mux,
       session: target?.session || "",
       windowIndex: target?.windowIndex != null ? String(target.windowIndex) : "",
       windowName: "",
@@ -1245,6 +1269,7 @@ function windowIdFields(win) {
   return {
     host:
       selectedMachine()?.hostname || state.machineId || location.hostname || "local",
+    mux: state.mux || "",
     sessionName: session?.name ?? win.sessionId ?? "",
     index: win.index,
     name: win.name,
@@ -1372,6 +1397,7 @@ function clearPaneViewForWindowSwitch(message = "Loading window...") {
 function clearTargetViewForUrlNavigation(urlTarget, message = "Loading window...") {
   state.treeLoadGeneration += 1;
   if (urlTarget?.machineId) state.machineId = urlTarget.machineId;
+  if (urlTarget?.mux !== undefined) state.mux = normalizeMux(urlTarget.mux);
   state.targetLoadingMessage = message;
   state.sessions = [];
   state.windows = [];
@@ -2305,6 +2331,7 @@ async function playWindowSummaryRealtime({ readId, windowId, paneId }) {
     readId,
     windowId,
     paneId,
+    mux: state.mux,
     logClientEvent,
     setStatus,
     onPlaybackBlocked: (error) => {
@@ -2809,6 +2836,9 @@ async function refreshTree({
   if (urlTarget.machineId && urlTarget.machineId !== state.machineId) {
     state.machineId = urlTarget.machineId;
   }
+  if (urlTarget.mux !== undefined) {
+    state.mux = normalizeMux(urlTarget.mux);
+  }
   // Remember whether we were actively viewing a machine's window BEFORE this
   // refresh — so a momentary drop (deploy/wifi/agent restart) can be held in a
   // grace window instead of instantly wiping to "no machine".
@@ -3220,17 +3250,19 @@ async function jumpToFirstAttention() {
   );
   const { descriptor, reason } = pending[0];
   const targetKey = attentionKey(descriptor);
+  const descriptorMux = normalizeMux(descriptor.mux);
 
   if (
     state.runtimeMode === "hub" &&
     descriptor.machineId &&
-    descriptor.machineId !== state.machineId
+    (descriptor.machineId !== state.machineId || descriptorMux !== state.mux)
   ) {
     // Hop to the other machine AND land directly on the window in one step —
     // pass the target so refreshTree's urlTarget resolution selects it once the
     // new machine's windows load (avoids a switch-then-find race where the
     // window list isn't ready yet and we'd fall back to the picker).
     await selectMachine(descriptor.machineId, {
+      mux: descriptorMux,
       session: descriptor.sessionName,
       windowIndex: descriptor.windowIndex,
     });
@@ -5259,16 +5291,18 @@ function renderGlobalRecentsMenu() {
 }
 
 async function switchToGlobalRecent(entry) {
+  const entryMux = normalizeMux(entry.mux);
   const onOtherMachine =
     state.runtimeMode === "hub" &&
     entry.machineId &&
-    entry.machineId !== state.machineId;
+    (entry.machineId !== state.machineId || entryMux !== state.mux);
   if (onOtherMachine) {
     // Hop to the other machine AND land directly on this window in one step:
     // pass the target so refreshTree's urlTarget resolution selects it once the
     // new machine's windows load (avoids a switch-then-find race where the
     // window list isn't ready yet and we'd fall back to the picker).
     await selectMachine(entry.machineId, {
+      mux: entryMux,
       session: entry.sessionName,
       windowIndex: entry.index,
     });
