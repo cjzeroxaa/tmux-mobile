@@ -1455,6 +1455,39 @@
   line-height: 1.55;
 }
 
+.cc-transcript-panel {
+  width: min(980px, 100%);
+}
+
+.cc-transcript-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+  background: var(--surface);
+}
+
+.cc-transcript-body .cc-section-text {
+  max-height: none;
+  cursor: auto;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.cc-transcript-body .cc-section-text.is-markdown {
+  white-space: normal;
+}
+
+.cc-transcript-empty {
+  padding: 28px 14px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
 .cc-card-search-sheet {
   position: fixed;
   inset: 0;

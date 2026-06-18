@@ -47,6 +47,8 @@ const ICONS = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>',
   fullscreen:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>',
+  transcript:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>',
   copy:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>',
   check:
@@ -131,6 +133,12 @@ const els = {
   responseFullscreenTitle: document.querySelector("#ccResponseFullscreenTitle"),
   responseFullscreenMeta: document.querySelector("#ccResponseFullscreenMeta"),
   responseFullscreenBody: document.querySelector("#ccResponseFullscreenBody"),
+  transcriptSheet: document.querySelector("#ccTranscriptSheet"),
+  transcriptBackdrop: document.querySelector("#ccTranscriptBackdrop"),
+  transcriptClose: document.querySelector("#ccTranscriptClose"),
+  transcriptTitle: document.querySelector("#ccTranscriptTitle"),
+  transcriptMeta: document.querySelector("#ccTranscriptMeta"),
+  transcriptBody: document.querySelector("#ccTranscriptBody"),
   cardSearchSheet: document.querySelector("#ccCardSearchSheet"),
   cardSearchBackdrop: document.querySelector("#ccCardSearchBackdrop"),
   cardSearchClose: document.querySelector("#ccCardSearchClose"),
@@ -1555,6 +1563,95 @@ function closeResponseFullscreen() {
   els.responseFullscreenBody?.replaceChildren();
 }
 
+function transcriptKeyForAgent(agent) {
+  return `${readKeyForAgent(agent)}::transcript`;
+}
+
+function setTranscriptEmpty(message) {
+  if (!els.transcriptBody) return;
+  const empty = document.createElement("div");
+  empty.className = "cc-transcript-empty";
+  empty.textContent = message;
+  els.transcriptBody.replaceChildren(empty);
+}
+
+function renderTranscriptTurns(agent, turns) {
+  if (!els.transcriptBody) return;
+  const nodes = [];
+  turns.forEach((turn, index) => {
+    const role = turn?.role === "assistant" ? "assistant" : "user";
+    const label = role === "assistant" ? "Agent response" : "User prompt";
+    nodes.push(
+      renderSection({
+        className: role,
+        label: `${label} ${index + 1}`,
+        text: turn?.text || "",
+        timestamp: turn?.t || null,
+        expandedKey: `${transcriptKeyForAgent(agent)}::${index}`,
+        format: role === "assistant" ? "markdown" : "plain",
+      }),
+    );
+  });
+  els.transcriptBody.replaceChildren(...nodes);
+  requestAnimationFrame(() => {
+    if (els.transcriptBody) els.transcriptBody.scrollTop = els.transcriptBody.scrollHeight;
+  });
+}
+
+async function openAgentTranscript(agent) {
+  if (!agent?.paneId || !els.transcriptSheet) return;
+  if (els.transcriptTitle) els.transcriptTitle.textContent = "Transcript";
+  if (els.transcriptMeta) els.transcriptMeta.textContent = "Loading transcript...";
+  setTranscriptEmpty("Loading...");
+  els.transcriptSheet.hidden = false;
+  requestAnimationFrame(() => els.transcriptClose?.focus());
+  try {
+    const params = new URLSearchParams({ paneId: agent.paneId });
+    const data = await api(`/api/agent-transcript?${params}`, {
+      machineId: agentMachineKey(agent),
+      mux: agentMux(agent),
+    });
+    const result = data.result;
+    if (!result) {
+      if (els.transcriptTitle) els.transcriptTitle.textContent = "Transcript · none";
+      if (els.transcriptMeta) {
+        els.transcriptMeta.textContent = "No Codex or Claude transcript detected.";
+      }
+      setTranscriptEmpty("Nothing to show.");
+      return;
+    }
+
+    const turns = Array.isArray(result.turns) ? result.turns : [];
+    if (els.transcriptTitle) {
+      els.transcriptTitle.textContent = `Transcript · ${agentKindLabel(result.kind || agent.kind)}`;
+    }
+    if (els.transcriptMeta) {
+      els.transcriptMeta.textContent = [
+        agent.machineHostname || "",
+        agent.sessionName || "",
+        `${turns.length} turn${turns.length === 1 ? "" : "s"}`,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    if (turns.length === 0) {
+      setTranscriptEmpty("Transcript located but no user/assistant turns parsed yet.");
+      return;
+    }
+    renderTranscriptTurns(agent, turns);
+  } catch (error) {
+    if (els.transcriptTitle) els.transcriptTitle.textContent = "Transcript · error";
+    if (els.transcriptMeta) els.transcriptMeta.textContent = error.message || String(error);
+    setTranscriptEmpty("Failed to load.");
+  }
+}
+
+function closeAgentTranscript() {
+  if (!els.transcriptSheet) return;
+  els.transcriptSheet.hidden = true;
+  els.transcriptBody?.replaceChildren();
+}
+
 function renderSection({ className, label, text, timestamp, expandedKey, format = "plain", fullscreen = false }) {
   const wrap = document.createElement("div");
   wrap.className = `cc-section ${className}`;
@@ -2340,6 +2437,13 @@ function openSelectedResponseFullscreen() {
   return true;
 }
 
+function openSelectedTranscript() {
+  const agent = selectedAgentFrom();
+  if (!agent?.paneId) return false;
+  openAgentTranscript(agent);
+  return true;
+}
+
 function machineForAgent(agent) {
   const key = agentMachineKey(agent);
   return state.machines.find((machine) => machineKey(machine) === key) || null;
@@ -2495,7 +2599,8 @@ function handleCardSearchShortcut(event) {
     !els.interactSheet?.hidden ||
     !els.startAgentSheet?.hidden ||
     !els.deleteDialog?.hidden ||
-    !els.responseFullscreen?.hidden
+    !els.responseFullscreen?.hidden ||
+    !els.transcriptSheet?.hidden
   ) {
     return;
   }
@@ -2520,6 +2625,7 @@ function handleCardShortcuts(event) {
     !els.startAgentSheet?.hidden ||
     !els.deleteDialog?.hidden ||
     !els.responseFullscreen?.hidden ||
+    !els.transcriptSheet?.hidden ||
     !els.cardSearchSheet?.hidden ||
     els.moreMenu?.open
   ) {
@@ -2566,6 +2672,10 @@ function handleCardShortcuts(event) {
     openSelectedAgent({ newTab: true });
   } else if (key === "f") {
     if (openSelectedResponseFullscreen()) {
+      event.preventDefault();
+    }
+  } else if (key === "t") {
+    if (openSelectedTranscript()) {
       event.preventDefault();
     }
   }
@@ -2734,6 +2844,7 @@ function renderCard(agent) {
   footer.className = "cc-card-footer";
   const readKey = readKeyForAgent(agent);
   const deleteKey = deleteKeyForAgent(agent);
+  const transcriptKey = transcriptKeyForAgent(agent);
   const readingThis = state.audio.busy && state.readingKey === readKey;
   const readDisabled = state.audio.busy && !readingThis;
   const deletingThis = state.deletingWindows.has(deleteKey);
@@ -2745,6 +2856,13 @@ function renderCard(agent) {
         title: "Interact",
         dataAttrs: `data-interact-key="${escapeHtml(readKey)}"`,
         icon: ICONS.interact,
+      })}
+      ${cardActionButton({
+        className: "cc-transcript-button",
+        title: "Transcript",
+        dataAttrs: `data-transcript-key="${escapeHtml(transcriptKey)}"`,
+        disabled: !agent.paneId,
+        icon: ICONS.transcript,
       })}
       ${cardActionButton({
         className: `cc-read-button${readingThis ? " is-reading" : ""}`,
@@ -3038,6 +3156,14 @@ els.list.addEventListener("click", (event) => {
     if (agent) openInteract(agent);
     return;
   }
+  const transcriptButton = target.closest("[data-transcript-key]");
+  if (transcriptButton) {
+    const agent = state.agents.find(
+      (item) => transcriptKeyForAgent(item) === transcriptButton.dataset.transcriptKey,
+    );
+    if (agent) openAgentTranscript(agent);
+    return;
+  }
   const deleteButton = target.closest("[data-delete-window-key]");
   if (deleteButton) {
     const agent = state.agents.find((item) => deleteKeyForAgent(item) === deleteButton.dataset.deleteWindowKey);
@@ -3123,6 +3249,8 @@ els.deleteCancel?.addEventListener("click", closeDeleteWindowDialog);
 els.deleteConfirm?.addEventListener("click", confirmDeleteWindow);
 els.responseFullscreenBackdrop?.addEventListener("click", closeResponseFullscreen);
 els.responseFullscreenClose?.addEventListener("click", closeResponseFullscreen);
+els.transcriptBackdrop?.addEventListener("click", closeAgentTranscript);
+els.transcriptClose?.addEventListener("click", closeAgentTranscript);
 els.cardSearchOpen?.addEventListener("click", openCardSearch);
 els.cardSearchBackdrop?.addEventListener("click", closeCardSearch);
 els.cardSearchClose?.addEventListener("click", closeCardSearch);
@@ -3205,6 +3333,10 @@ document.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !els.responseFullscreen?.hidden) {
     closeResponseFullscreen();
+    return;
+  }
+  if (event.key === "Escape" && !els.transcriptSheet?.hidden) {
+    closeAgentTranscript();
     return;
   }
   if (event.key === "Escape" && !els.cardSearchSheet?.hidden) {
