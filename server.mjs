@@ -87,6 +87,9 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const MAX_TEXT_BYTES = 64 * 1024;
 const MAX_CAPTURE_LINES = 5000;
 const RMUX_WEB_SHARE_TTL_SECONDS = Number(process.env.RMUX_WEB_SHARE_TTL_SECONDS || 24 * 60 * 60);
+const RMUX_WEB_SHARE_TUNNEL_PROVIDER = String(
+  process.env.RMUX_WEB_SHARE_TUNNEL_PROVIDER || "localhost-run",
+).trim();
 const muxStore = new AsyncLocalStorage();
 // Voice models (transcription / realtime / TTS) are now runtime-configurable
 // via lib/voice-config.mjs and the web app's Settings panel; read them at call
@@ -784,6 +787,7 @@ async function createRmuxWebShare({ paneId, windowId, ttlSeconds } = {}) {
   return backend.rmuxWebShare({
     target,
     ttlSeconds: Number.isFinite(ttl) && ttl > 0 ? ttl : RMUX_WEB_SHARE_TTL_SECONDS,
+    tunnelProvider: RMUX_WEB_SHARE_TUNNEL_PROVIDER,
   });
 }
 
