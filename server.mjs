@@ -86,6 +86,7 @@ const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const MAX_TEXT_BYTES = 64 * 1024;
 const MAX_CAPTURE_LINES = 5000;
+const RMUX_WEB_SHARE_TTL_SECONDS = Number(process.env.RMUX_WEB_SHARE_TTL_SECONDS || 24 * 60 * 60);
 const muxStore = new AsyncLocalStorage();
 // Voice models (transcription / realtime / TTS) are now runtime-configurable
 // via lib/voice-config.mjs and the web app's Settings panel; read them at call
@@ -738,6 +739,52 @@ function sendSubmitNudge(paneId) {
       console.error(`submit nudge failed: ${error.message}`);
     });
   }, SUBMIT_NUDGE_DELAY_MS);
+}
+
+function requireRmuxRuntime() {
+  const runtime = currentWindowRuntime();
+  if (runtime.kind !== "rmux") {
+    const error = new Error("RMUX web share is only available for RMUX windows");
+    error.status = 400;
+    throw error;
+  }
+  return runtime;
+}
+
+async function resolveSharePaneId({ paneId, windowId } = {}) {
+  if (paneId) return requireId(paneId, "pane");
+  const winId = requireId(windowId, "window");
+  const panes = await listPanes(winId);
+  const pane = panes.find((item) => item.active) || panes[0];
+  if (!pane?.id) {
+    const error = new Error("Window has no pane to share");
+    error.status = 404;
+    throw error;
+  }
+  return requireId(pane.id, "pane");
+}
+
+async function createRmuxWebShare({ paneId, windowId, ttlSeconds } = {}) {
+  requireRmuxRuntime();
+  const backend = currentBackend();
+  if (typeof backend.supportsOp === "function" && !backend.supportsOp(OP.RMUX_WEB_SHARE)) {
+    const error = new Error(
+      "This machine's connector is out of date — restart it to share RMUX terminals.",
+    );
+    error.status = 501;
+    throw error;
+  }
+  if (typeof backend.rmuxWebShare !== "function") {
+    const error = new Error("This connector cannot create RMUX web shares");
+    error.status = 501;
+    throw error;
+  }
+  const target = await resolveSharePaneId({ paneId, windowId });
+  const ttl = Number(ttlSeconds);
+  return backend.rmuxWebShare({
+    target,
+    ttlSeconds: Number.isFinite(ttl) && ttl > 0 ? ttl : RMUX_WEB_SHARE_TTL_SECONDS,
+  });
 }
 
 function sessionFromRow(row) {
@@ -3144,6 +3191,20 @@ async function handleApi(req, res, url) {
     const body = await readJsonBody(req);
     const paneId = requireId(body.paneId, "pane");
     sendJson(res, 200, await forkAgentWindow(paneId));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/rmux-web-share") {
+    const body = await readJsonBody(req);
+    sendJson(
+      res,
+      200,
+      await createRmuxWebShare({
+        paneId: body.paneId,
+        windowId: body.windowId,
+        ttlSeconds: body.ttlSeconds,
+      }),
+    );
     return;
   }
 

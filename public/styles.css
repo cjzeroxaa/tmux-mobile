@@ -2388,6 +2388,40 @@ input {
   text-align: left;
 }
 
+.window-item-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+
+.window-item-row .window-item-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.window-share-button {
+  display: inline-flex;
+  flex: 0 0 42px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--accent-dark);
+}
+
+.window-share-button:hover,
+.window-share-button:focus-visible,
+.window-share-button.is-copied {
+  border-color: var(--accent);
+  background: var(--surface-soft);
+}
+
+.window-share-button.is-busy {
+  opacity: 0.72;
+}
+
 .item.active,
 .item:hover {
   border-color: var(--accent);

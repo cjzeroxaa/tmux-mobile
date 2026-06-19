@@ -49,6 +49,8 @@ const ICONS = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>',
   transcript:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>',
+  share:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>',
   copy:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>',
   check:
@@ -268,6 +270,7 @@ const state = {
   deleteAgent: null,
   deleteBusy: false,
   deletingWindows: new Set(),
+  sharingWindows: new Set(),
   updatingMachines: new Set(),
   startAgent: {
     machineId: "",
@@ -2685,6 +2688,51 @@ function deleteKeyForAgent(agent) {
   return `${agentMachineKey(agent)}::${agentMux(agent) || "tmux"}::${agent.windowId || ""}`;
 }
 
+function shareKeyForAgent(agent) {
+  return `${agentMachineKey(agent)}::${agentMux(agent) || "tmux"}::${agent.paneId || agent.windowId || ""}`;
+}
+
+function openRmuxShareUrl(url) {
+  if (!url) return false;
+  const opened = window.open(url, "_blank");
+  if (opened) opened.opener = null;
+  return Boolean(opened);
+}
+
+async function shareRmuxAgent(agent) {
+  if (!agent?.paneId || agentMux(agent) !== "rmux") return;
+  const key = shareKeyForAgent(agent);
+  if (state.sharingWindows.has(key)) return;
+  state.sharingWindows.add(key);
+  setStatus("sharing RMUX terminal...");
+  renderAgents();
+  try {
+    const data = await api("/api/rmux-web-share", {
+      method: "POST",
+      machineId: agentMachineKey(agent),
+      mux: "rmux",
+      body: JSON.stringify({ paneId: agent.paneId }),
+    });
+    let copied = false;
+    if (data.code) {
+      try {
+        await copyTextToClipboard(data.code);
+        copied = true;
+      } catch {}
+    }
+    const opened = openRmuxShareUrl(data.operatorUrl);
+    if (!opened && data.operatorUrl) {
+      window.prompt(copied ? "RMUX operator link (PIN copied)" : "RMUX operator link", data.operatorUrl);
+    }
+    setStatus(copied ? "RMUX share ready. PIN copied." : "RMUX share ready.");
+  } catch (error) {
+    setStatus(`RMUX share failed: ${error.message}`);
+  } finally {
+    state.sharingWindows.delete(key);
+    renderAgents();
+  }
+}
+
 function cardActionButton({ className = "", title, dataAttrs, disabled = false, busy = false, icon }) {
   const classes = `cc-card-action ${className}${busy ? " is-busy" : ""}`.trim();
   return `<button class="${classes}" type="button" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"${busy ? ' aria-busy="true"' : ""}${disabled ? " disabled" : ""} ${dataAttrs}>${icon}</button>`;
@@ -2845,9 +2893,11 @@ function renderCard(agent) {
   const readKey = readKeyForAgent(agent);
   const deleteKey = deleteKeyForAgent(agent);
   const transcriptKey = transcriptKeyForAgent(agent);
+  const shareKey = shareKeyForAgent(agent);
   const readingThis = state.audio.busy && state.readingKey === readKey;
   const readDisabled = state.audio.busy && !readingThis;
   const deletingThis = state.deletingWindows.has(deleteKey);
+  const sharingThis = state.sharingWindows.has(shareKey);
   footer.innerHTML = `
     <span>${agent.turnCount} turn${agent.turnCount === 1 ? "" : "s"} · session <code>${escapeHtml((agent.agentSessionId || "").slice(0, 8))}</code></span>
     <span class="cc-card-actions">
@@ -2864,6 +2914,14 @@ function renderCard(agent) {
         disabled: !agent.paneId,
         icon: ICONS.transcript,
       })}
+      ${agentMux(agent) === "rmux" ? cardActionButton({
+        className: "cc-rmux-share-button",
+        title: sharingThis ? "Sharing RMUX terminal" : "Share RMUX terminal",
+        dataAttrs: `data-rmux-share-key="${escapeHtml(shareKey)}"`,
+        disabled: sharingThis || !agent.paneId,
+        busy: sharingThis,
+        icon: ICONS.share,
+      }) : ""}
       ${cardActionButton({
         className: `cc-read-button${readingThis ? " is-reading" : ""}`,
         title: readingThis ? "Stop reading" : "Read aloud",
@@ -3162,6 +3220,14 @@ els.list.addEventListener("click", (event) => {
       (item) => transcriptKeyForAgent(item) === transcriptButton.dataset.transcriptKey,
     );
     if (agent) openAgentTranscript(agent);
+    return;
+  }
+  const shareButton = target.closest("[data-rmux-share-key]");
+  if (shareButton) {
+    const agent = state.agents.find(
+      (item) => shareKeyForAgent(item) === shareButton.dataset.rmuxShareKey,
+    );
+    if (agent) shareRmuxAgent(agent);
     return;
   }
   const deleteButton = target.closest("[data-delete-window-key]");

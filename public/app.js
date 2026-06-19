@@ -1024,6 +1024,11 @@ const AGENT_ICONS = {
     '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M12 2c.5 5 2.9 7.5 8 8-5.1.5-7.5 3-8 8-.5-5-2.9-7.5-8-8 5.1-.5 7.5-3 8-8z"/></svg>',
 };
 
+const RMUX_SHARE_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>';
+const RMUX_SHARE_DONE_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+
 function agentIcon(type) {
   return AGENT_ICONS[type] || escapeHtml(type);
 }
@@ -1109,6 +1114,90 @@ function itemButton({
     ${meta ? `<div class="item-meta ${escapeHtml(metaClassName)}">${escapeHtml(meta)}</div>` : ""}
   `;
   button.addEventListener("click", onClick);
+  return button;
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-9999px";
+  textarea.style.left = "-9999px";
+  document.body.append(textarea);
+  textarea.select();
+  try {
+    if (!document.execCommand("copy")) throw new Error("copy command failed");
+  } finally {
+    textarea.remove();
+  }
+}
+
+function openRmuxShareUrl(url) {
+  if (!url) return false;
+  const opened = window.open(url, "_blank");
+  if (opened) opened.opener = null;
+  return Boolean(opened);
+}
+
+async function shareRmuxWindow(win, button) {
+  if (!win || state.mux !== "rmux") return;
+  const originalHtml = button.innerHTML;
+  const originalTitle = button.title;
+  button.disabled = true;
+  button.classList.add("is-busy");
+  setStatus("sharing RMUX terminal...");
+  try {
+    const data = await api("/api/rmux-web-share", {
+      method: "POST",
+      mux: "rmux",
+      body: JSON.stringify({ windowId: win.id }),
+    });
+    let copied = false;
+    if (data.code) {
+      try {
+        await copyTextToClipboard(data.code);
+        copied = true;
+      } catch {}
+    }
+    const opened = openRmuxShareUrl(data.operatorUrl);
+    if (!opened && data.operatorUrl) {
+      window.prompt(copied ? "RMUX operator link (PIN copied)" : "RMUX operator link", data.operatorUrl);
+    }
+    button.classList.remove("is-busy");
+    button.classList.add("is-copied");
+    button.innerHTML = RMUX_SHARE_DONE_ICON;
+    button.title = copied ? "PIN copied" : "Share ready";
+    setStatus(copied ? "RMUX share ready. PIN copied." : "RMUX share ready.");
+    window.setTimeout(() => {
+      button.classList.remove("is-copied");
+      button.innerHTML = originalHtml;
+      button.title = originalTitle;
+      button.disabled = false;
+    }, 1400);
+  } catch (error) {
+    button.classList.remove("is-busy");
+    button.disabled = false;
+    setStatus(error.message || "Could not share RMUX terminal", false);
+  }
+}
+
+function rmuxShareWindowButton(win) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "window-share-button";
+  button.title = "Share RMUX terminal";
+  button.setAttribute("aria-label", `Share RMUX terminal ${win.index}: ${win.name}`);
+  button.innerHTML = RMUX_SHARE_ICON;
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    shareRmuxWindow(win, button);
+  });
   return button;
 }
 
@@ -1236,24 +1325,31 @@ function renderWindows() {
       // just be visual noise.
       const dirBasename = pathLabel(win.cwd) || "";
       const cwdLabel = branch && dirBasename === branch ? "" : dirBasename;
-      els.mobileWindows.append(
-        itemButton({
-          active: win.id === state.windowId,
-          title: `${win.index}: ${win.name}`,
-          meta: win.activeCommand || win.id,
-          badge: live ? "live" : "",
-          badgeGreen: live,
-          onClick: () => selectWindow(win.id),
-          cwd: cwdLabel,
-          branch,
-          worktree,
-          agentType,
-          turn,
-          unread,
-          waitingForInput,
-          waitingConfidence,
-        }),
-      );
+      const windowButton = itemButton({
+        active: win.id === state.windowId,
+        title: `${win.index}: ${win.name}`,
+        meta: win.activeCommand || win.id,
+        badge: live ? "live" : "",
+        badgeGreen: live,
+        onClick: () => selectWindow(win.id),
+        className: state.mux === "rmux" ? "item window-item-main" : "",
+        cwd: cwdLabel,
+        branch,
+        worktree,
+        agentType,
+        turn,
+        unread,
+        waitingForInput,
+        waitingConfidence,
+      });
+      if (state.mux === "rmux") {
+        const row = document.createElement("div");
+        row.className = "window-item-row";
+        row.append(windowButton, rmuxShareWindowButton(win));
+        els.mobileWindows.append(row);
+      } else {
+        els.mobileWindows.append(windowButton);
+      }
       els.mobileWindows.append(windowAnnotationRow(win));
     }
   }
