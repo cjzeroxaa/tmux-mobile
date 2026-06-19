@@ -209,24 +209,25 @@ function restartSystemd() {
   if (!known) return false;
 
   log(`restart=systemd unit=${SYSTEMD_UNIT}`);
-  if (agentMachine || targetMux || targetMuxes) writeSystemdEnvironment();
+  writeSystemdOverride();
   run("systemctl", ["--user", "daemon-reload"], { check: false });
   run("systemctl", ["--user", "restart", SYSTEMD_UNIT]);
   return true;
 }
 
-function writeSystemdEnvironment() {
+function writeSystemdOverride() {
   const dir = path.join(os.homedir(), ".config", "systemd", "user", `${SYSTEMD_UNIT}.d`);
   mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, "override.conf");
   const text = [
     "[Service]",
+    "KillMode=process",
     ...(agentMachine ? [`Environment=${systemdQuoteEnv(`AGENT_MACHINE=${agentMachine}`)}`] : []),
     ...(targetMux ? [`Environment=${systemdQuoteEnv(`TMUX_MOBILE_MUX=${targetMux}`)}`] : []),
     ...(targetMuxes ? [`Environment=${systemdQuoteEnv(`TMUX_MOBILE_MUXES=${targetMuxes}`)}`] : []),
     "",
   ].join("\n");
-  log(`systemd environment override=${filePath}`);
+  log(`systemd override=${filePath}`);
   writeFileSync(filePath, text, "utf8");
 }
 

@@ -157,6 +157,8 @@ Environment=TMUX_MOBILE_MUXES=tmux,rmux
 ExecStart=/usr/bin/env node server.mjs --register https://eng.impo.ai
 Restart=always
 RestartSec=5
+# Keep tmux/rmux sessions alive when the connector process restarts.
+KillMode=process
 
 [Install]
 WantedBy=default.target
