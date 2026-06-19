@@ -81,10 +81,19 @@ const MACHINE_ALIASES = readMachineAliases(
   process.env.TMUX_MOBILE_MACHINE_ALIASES,
   DEFAULT_MACHINE_ALIASES,
 );
-const MAX_BODY_BYTES = 512 * 1024;
+function positiveIntEnv(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+const MAX_TEXT_BYTES = positiveIntEnv("TMUX_MOBILE_MAX_TEXT_BYTES", 5 * 1024 * 1024);
+const MAX_BODY_BYTES = Math.max(
+  positiveIntEnv("TMUX_MOBILE_MAX_BODY_BYTES", 512 * 1024),
+  MAX_TEXT_BYTES + 64 * 1024,
+);
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
-const MAX_TEXT_BYTES = 64 * 1024;
+const MAX_ANNOTATION_BYTES = 64 * 1024;
 const MAX_CAPTURE_LINES = 5000;
 const RMUX_WEB_SHARE_TTL_SECONDS = Number(process.env.RMUX_WEB_SHARE_TTL_SECONDS || 24 * 60 * 60);
 const RMUX_WEB_SHARE_TUNNEL_PROVIDER = String(
@@ -1111,7 +1120,7 @@ async function setWindowAnnotation(windowId, annotation) {
   return currentWindowRuntime().setWindowNote({
     windowId,
     note: annotation,
-    maxBytes: MAX_TEXT_BYTES,
+    maxBytes: MAX_ANNOTATION_BYTES,
   });
 }
 

@@ -11,6 +11,7 @@ import {
   LEGACY_AGENT_OPS,
   OP,
   helloFrame,
+  isAllowedTmux,
 } from "../lib/protocol.mjs";
 import { localBackend } from "../lib/backend.mjs";
 
@@ -37,6 +38,7 @@ assert.equal(localBackend.supportsOp(OP.READFILE), true, "3 local supports readf
 assert.equal(localBackend.supportsOp(OP.WRITEFILE), true, "3 local supports writefile");
 assert.equal(localBackend.supportsOp(OP.TMUX), true, "3 local supports tmux");
 assert.equal(localBackend.supportsOp(OP.RMUX_WEB_SHARE), true, "3 local supports rmux web share");
+assert.equal(isAllowedTmux(["load-buffer", "-b", "name", "-"]), true, "3 load-buffer allowed");
 
 // 4. Simulate the hub's agentSupportsOp logic for a current vs. legacy agent.
 //    (Mirror of lib/hub.mjs agentSupportsOp: missing `ops` => LEGACY set.)

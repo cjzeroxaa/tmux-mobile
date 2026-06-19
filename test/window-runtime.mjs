@@ -5,9 +5,11 @@ import {
 } from "../lib/window-runtime.mjs";
 
 const calls = [];
+const callOptions = [];
 const backend = {
-  async tmux(args) {
+  async tmux(args, options = {}) {
     calls.push(args);
+    callOptions.push(options);
     const [cmd] = args;
     if (cmd === "list-windows" && args.includes("-a")) {
       return [
@@ -24,7 +26,7 @@ const backend = {
     if (cmd === "display-message" && args.at(-1) === "#{pane_mode}") {
       return "copy-mode\n";
     }
-    if (cmd === "set-buffer" || cmd === "paste-buffer" || cmd === "send-keys") {
+    if (cmd === "load-buffer" || cmd === "set-buffer" || cmd === "paste-buffer" || cmd === "send-keys") {
       return "";
     }
     throw new Error(`unexpected tmux call: ${args.join(" ")}`);
@@ -91,8 +93,46 @@ await runtime.sendTextToSurface({
 
 const commandNames = calls.map((args) => args[0]);
 assert.ok(commandNames.includes("display-message"), "exits copy mode check first");
-assert.ok(commandNames.includes("set-buffer"), "uses tmux buffer paste");
+assert.ok(commandNames.includes("load-buffer"), "loads tmux buffer from stdin");
 assert.ok(commandNames.includes("paste-buffer"), "pastes the buffer");
+const loadIndex = calls.findIndex((args) => args[0] === "load-buffer");
+assert.equal(calls[loadIndex][1], "-b", "load-buffer names the buffer");
 assert.deepEqual(calls.at(-1), ["send-keys", "-t", "%1", "Enter"]);
+assert.equal(calls[loadIndex].at(-1), "-", "load-buffer reads from stdin");
+assert.equal(
+  callOptions[loadIndex].input,
+  "line\npasted",
+  "paste text is passed via stdin, not argv",
+);
+
+const fallbackCalls = [];
+const fallbackRuntime = createTmuxWindowRuntime({
+  async tmux(args) {
+    fallbackCalls.push(args);
+    if (args[0] === "display-message") return "\n";
+    if (args[0] === "load-buffer") throw new Error("tmux subcommand not allowed: load-buffer");
+    return "";
+  },
+});
+await fallbackRuntime.sendTextToSurface({
+  surfaceId: "%1",
+  text: "short text",
+  enter: false,
+});
+assert.ok(
+  fallbackCalls.some((args) => args[0] === "set-buffer" && args.at(-1) === "short text"),
+  "falls back to set-buffer for old connectors and short text",
+);
+
+await assert.rejects(
+  () =>
+    fallbackRuntime.sendTextToSurface({
+      surfaceId: "%1",
+      text: "x".repeat(70 * 1024),
+      enter: false,
+    }),
+  /Connector is out of date/,
+  "large text needs the new load-buffer connector path",
+);
 
 console.log("window-runtime unit tests passed");
