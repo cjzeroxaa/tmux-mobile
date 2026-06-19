@@ -12,7 +12,6 @@ const hub = createHub(server, {
   authenticateAgent: () => viewer,
   livenessIntervalMs: 25,
   inventoryStaleMs: 75,
-  inventoryDisconnectMs: 175,
   transportStaleMs: 5_000,
 });
 
@@ -153,11 +152,39 @@ try {
   });
   assert.equal(stale.machine.agentCount, 0, "stale inventory does not count old agents");
   assert.equal(stale.agents.length, 0, "stale inventory does not expose old agents");
+  await new Promise((resolve) => setTimeout(resolve, 225));
+  assert.equal(hub.listMachines(viewer).length, 1, "stale inventory does not disconnect machine");
 
-  const removed = await waitFor("stale connector removal", () => {
-    return hub.listMachines(viewer).length === 0 ? true : null;
+  ws.send(
+    JSON.stringify(
+      inventoryFrame({
+        ok: true,
+        observedAt: Date.now(),
+        durationMs: 9,
+        agents: [
+          {
+            sessionId: "$2",
+            sessionName: "recovered",
+            windowId: "@2",
+            windowIndex: 0,
+            windowName: "codex",
+            paneId: "%2",
+            cwd: "/tmp",
+            kind: "codex",
+            status: "idle",
+            turnCount: 4,
+          },
+        ],
+      }),
+    ),
+  );
+
+  const recovered = await waitFor("recovered inventory", () => {
+    const snapshot = hub.commandCenterInventory(viewer, machine.id);
+    return snapshot?.machine?.inventoryStatus === "fresh" ? snapshot : null;
   });
-  assert.equal(removed, true, "stale inventory disconnects the connector");
+  assert.equal(recovered.machine.agentCount, 1, "fresh inventory recovers after stale");
+  assert.equal(recovered.agents[0].sessionName, "recovered");
 
   console.log("hub command-center inventory tests passed");
 } finally {
