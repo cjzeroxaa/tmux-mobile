@@ -1836,8 +1836,8 @@ function machineMuxes(machine) {
 
 function preferredStartMux(machine) {
   const muxes = machineMuxes(machine);
-  if (muxes.includes("rmux")) return "rmux";
   if (muxes.includes("tmux")) return "tmux";
+  if (muxes.includes("rmux")) return "rmux";
   return "";
 }
 
