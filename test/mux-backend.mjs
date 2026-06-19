@@ -7,7 +7,8 @@ import {
 
 assert.equal(muxCommandFromEnv({}), "tmux");
 assert.equal(muxCommandFromEnv({ TMUX_MOBILE_MUX: "rmux" }), "rmux");
-assert.deepEqual(muxKindsFromEnv({}), ["tmux"]);
+assert.deepEqual(muxKindsFromEnv({}), ["tmux", "rmux"]);
+assert.deepEqual(muxKindsFromEnv({ TMUX_MOBILE_MUX: "rmux" }), ["rmux"]);
 assert.deepEqual(muxKindsFromEnv({ TMUX_MOBILE_MUXES: "tmux,rmux,tmux" }), [
   "tmux",
   "rmux",

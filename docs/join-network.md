@@ -28,6 +28,10 @@ Command Center has two different concepts:
 - `tmux` on `PATH`
 - Optional: `rmux` on `PATH` if you want RMUX windows and web shares.
 
+Current connectors auto-probe both `tmux` and `rmux` when no mux env var is set.
+The service examples below still set `TMUX_MOBILE_MUXES=tmux,rmux` explicitly so
+the intended runtimes are visible in the service config.
+
 Use the Google account whose visibility you want:
 
 - Google Workspace users see machines registered by users in the same hosted
