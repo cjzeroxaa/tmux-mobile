@@ -1,119 +1,156 @@
-# Adding a machine to https://eng.impo.ai
+# Add a machine to eng.impo.ai
 
-Run this on any Mac (or Linux box) you want to drive from the phone. After
-this is done you'll see the machine — and every one of its tmux sessions —
-in the picker at https://eng.impo.ai.
+This is the current connector setup for a Mac or Linux machine.
+
+## What has to run
+
+`https://eng.impo.ai` is the controller. Each machine runs one connector process:
+
+```text
+browser -> eng.impo.ai controller -> outbound WebSocket -> connector -> tmux/rmux
+```
+
+Running `tmux` by itself is not enough. The machine only appears after the
+connector logs in and opens its outbound WebSocket. The connector does not need
+an inbound port, Tailscale, or a local `3737` server.
+
+Command Center has two different concepts:
+
+- A machine chip means the connector is online.
+- Agent cards are recognized agent windows, not every tmux window on the box.
+  A machine can be online and still have no cards if it has no recognized
+  Claude/Codex/agent window.
 
 ## Prerequisites
 
-- `tmux` installed and a `tmux` server running on the machine.
-- `node >= 22`.
-- A Google account whose email is in the controller's allow list:
-  - `sonicgg@gmail.com`, or
-  - anything ending in `@rebyte.ai`.
-  - (Other accounts will be refused at device-login time. Ask the owner of
-    eng.impo.ai to add yours.)
+- `git`
+- Node.js `20+`
+- `tmux` on `PATH`
+- Optional: `rmux` on `PATH` if you want RMUX windows and web shares.
 
-## One-time setup
+Use the Google account whose visibility you want:
+
+- Google Workspace users see machines registered by users in the same hosted
+  domain.
+- Personal Google accounts see only their own machines.
+- Super-admins configured on the controller see every machine.
+
+## Fresh install
+
+Use the controller's current connector branch:
 
 ```bash
-# 1. Clone (or `git pull` if you already have it)
-git clone https://github.com/cjzeroxaa/tmux-mobile ~/src/tmux-mobile
+export TMUX_MOBILE_REF=fix-connector-update-inventory
+```
+
+On a new machine:
+
+```bash
+mkdir -p ~/src
+git clone --branch "$TMUX_MOBILE_REF" https://github.com/cjzeroxaa/tmux-mobile.git ~/src/tmux-mobile
 cd ~/src/tmux-mobile
+npm install --omit=dev
 
-# 2. Install deps
-npm ci
-
-# 3. Register this machine. --login triggers Google device-login.
-node server.mjs --register https://eng.impo.ai --login
+TMUX_MOBILE_MUXES=tmux,rmux node server.mjs --register https://eng.impo.ai --login
 ```
 
-The CLI will print:
+The first run prints a Google device-login URL and code. Approve it in a browser.
+After approval the connector stores its token at:
 
-```
-Open in a browser: https://www.google.com/device
-Enter code: XXX-XXX-XXXX
-Waiting for Google authorization...
-```
-
-On any device (phone is fine), open that URL, enter the code, sign in with
-your allowed Google account, and click **Allow**.
-
-The CLI will then print:
-
-```
-Google login complete: <your-email>.
-Agent token saved: ~/.config/tmux-mobile/agent.json
-event: agent_registered  websocket: wss://eng.impo.ai/agent/connect
+```text
+~/.config/tmux-mobile/agent.json
 ```
 
-That's it — open https://eng.impo.ai, sign in with the same account, and
-your machine should appear in the picker.
+Future starts do not need `--login` unless you want to re-authenticate.
+
+For an existing checkout:
+
+```bash
+cd ~/src/tmux-mobile
+git fetch origin
+git checkout "$TMUX_MOBILE_REF"
+git pull --ff-only origin "$TMUX_MOBILE_REF"
+npm install --omit=dev
+
+TMUX_MOBILE_MUXES=tmux,rmux node server.mjs --register https://eng.impo.ai --login
+```
 
 ## Keep it running
 
-The `node server.mjs --register …` process needs to stay running. Options:
-
-### A) tmux/screen — simplest, fine for a workstation
+For a quick temporary run, put the connector in tmux:
 
 ```bash
-tmux new-session -d -s tmux-mobile-agent \
-  'cd ~/src/tmux-mobile && node server.mjs --register https://eng.impo.ai'
+tmux new-session -d -s tmux-mobile-connector \
+  'cd ~/src/tmux-mobile && TMUX_MOBILE_MUXES=tmux,rmux node server.mjs --register https://eng.impo.ai'
 ```
 
-(No `--login` on subsequent starts — it reuses the saved token in
-`~/.config/tmux-mobile/agent.json`.)
+For a real machine, use the OS user service below.
 
-`tmux attach -t tmux-mobile-agent` if you want to see the logs.
+### macOS launchd
 
-### B) launchd on macOS — survives reboots
-
-Write `~/Library/LaunchAgents/com.tmux-mobile.agent.plist`:
+Create `~/Library/LaunchAgents/com.tmux-mobile.agent.plist`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key>           <string>com.tmux-mobile.agent</string>
+  <key>Label</key>
+  <string>com.tmux-mobile.agent</string>
+
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/YOUR-USER/.nvm/versions/node/v22.20.0/bin/node</string>
-    <string>server.mjs</string>
-    <string>--register</string>
-    <string>https://eng.impo.ai</string>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd /Users/YOUR-USER/src/tmux-mobile && exec node server.mjs --register https://eng.impo.ai</string>
   </array>
-  <key>WorkingDirectory</key> <string>/Users/YOUR-USER/src/tmux-mobile</string>
+
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PATH</key> <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>TMUX_MOBILE_MUXES</key>
+    <string>tmux,rmux</string>
+    <!-- Optional display name override:
+    <key>AGENT_MACHINE</key>
+    <string>my-mac</string>
+    -->
   </dict>
-  <key>RunAtLoad</key>       <true/>
-  <key>KeepAlive</key>       <true/>
-  <key>StandardOutPath</key> <string>/Users/YOUR-USER/Library/Logs/tmux-mobile-agent.log</string>
-  <key>StandardErrorPath</key> <string>/Users/YOUR-USER/Library/Logs/tmux-mobile-agent.log</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/YOUR-USER/Library/Logs/tmux-mobile-agent.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOUR-USER/Library/Logs/tmux-mobile-agent.log</string>
 </dict>
 </plist>
 ```
 
-Replace `YOUR-USER` and the node path (`which node` to find it). Then:
+Replace `YOUR-USER`, then start it:
 
 ```bash
 launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.tmux-mobile.agent.plist
 launchctl print gui/$UID/com.tmux-mobile.agent | grep -E '(state|pid)'
+tail -f ~/Library/Logs/tmux-mobile-agent.log
 ```
 
-### C) systemd on Linux — survives reboots
+### Linux systemd user service
 
-`~/.config/systemd/user/tmux-mobile-agent.service`:
+Create `~/.config/systemd/user/tmux-mobile-agent.service`:
 
 ```ini
 [Unit]
-Description=tmux-mobile agent → eng.impo.ai
+Description=tmux-mobile connector -> eng.impo.ai
 
 [Service]
 WorkingDirectory=%h/src/tmux-mobile
-ExecStart=/usr/bin/node server.mjs --register https://eng.impo.ai
+Environment=TMUX_MOBILE_MUXES=tmux,rmux
+# Optional display name override:
+# Environment=AGENT_MACHINE=my-linux-box
+ExecStart=/usr/bin/env node server.mjs --register https://eng.impo.ai
 Restart=always
 RestartSec=5
 
@@ -121,100 +158,92 @@ RestartSec=5
 WantedBy=default.target
 ```
 
+Start it:
+
 ```bash
 systemctl --user daemon-reload
 systemctl --user enable --now tmux-mobile-agent
 journalctl --user -u tmux-mobile-agent -f
 ```
 
-## Verify
-
-The agent prints a JSON line on every state change. A healthy registration
-looks like:
-
-```json
-{"event":"agent_registered","controller":"https://eng.impo.ai",
- "websocket":"wss://eng.impo.ai/agent/connect",
- "machine":"<your-hostname>","auth":"device_token"}
-```
-
-If you see `agent_reconnecting` and an HTTP 403, your Google account isn't
-on the allow list. If you see network errors, the controller might be
-mid-deploy — retry in a minute.
-
-## Renaming a machine
-
-The agent picks its `machineId` at startup from, in order:
-
-1. The `AGENT_MACHINE` env var, if set
-2. `os.hostname()` as fallback
-
-So your default name is whatever `hostname` prints (e.g. `homos-Mac-mini.local`).
-To rename:
+If the machine should reconnect after reboot before you SSH in, enable user
+lingering once:
 
 ```bash
-# stop the current agent
-pkill -f -- '--register https://eng.impo.ai'
-
-# restart with a custom name
-AGENT_MACHINE="cj-mini" nohup node server.mjs --register https://eng.impo.ai \
-  >/tmp/tmux-mobile-agent.log 2>&1 &
-disown
+sudo loginctl enable-linger "$USER"
 ```
 
-That changes the name everyone sees in the picker. The saved token in
-`~/.config/tmux-mobile/agent.json` is keyed by Google account, not machine
-name, so no re-login.
+## Machine name and identity
 
-To make the new name **persist across reboots**, set the env var in your
-launchd plist / systemd unit:
+The display name comes from:
 
-- **launchd** — inside `<key>EnvironmentVariables</key>`:
-  ```xml
-  <key>AGENT_MACHINE</key>  <string>cj-mini</string>
-  ```
-- **systemd** — inside the `[Service]` block:
-  ```ini
-  Environment=AGENT_MACHINE=cj-mini
-  ```
+1. `AGENT_MACHINE`, if set
+2. `os.hostname()`
 
-> `AGENT_MACHINE` is display-only for current connectors. Deep links should use
-> the durable `agentId` UUID from `~/.config/tmux-mobile/agent.json` as the
-> `?machineId=…` value, because display names can collide.
+The durable route identity is the connector's `agentId` in
+`~/.config/tmux-mobile/agent.json`. Display names can change or collide; routing
+uses the durable id.
 
-## Adding more machines
+## Auto update
 
-Run the same `--register --login` on each one. If you sign in with the
-same Google account, all of them appear under your name. If a colleague
-in the same Google Workspace (e.g. another `@rebyte.ai` user) does it
-with their own account, their machines appear in your picker too — see
-"Who can see what" below.
+The connector advertises a `connectorVersion` and supported ops when it connects.
+The controller compares that with the current required connector version. If the
+machine is old, Command Center shows an update warning and an **Update connector**
+button.
 
-## Removing a machine
+Clicking **Update connector** does this on the selected machine:
 
-Either:
+1. Opens a temporary mux session named `tmux-mobile-update-*` with a
+   `connector-update` window.
+2. Sends a small bash script into that window.
+3. Downloads `scripts/update-connector.mjs` from the controller's configured
+   update script URL.
+4. Runs the update with environment supplied by the controller:
+   - `TMUX_MOBILE_UPDATE_REPO`, normally `~/src/tmux-mobile`
+   - `TMUX_MOBILE_UPDATE_CONTROLLER`, normally `https://eng.impo.ai`
+   - `TMUX_MOBILE_UPDATE_REF`, currently `fix-connector-update-inventory`
+   - `TMUX_MOBILE_UPDATE_EXPECTED_REVISION`, the controller's expected revision
+   - optional `AGENT_MACHINE` / mux settings
+5. The update script clones the repo if missing, fetches, checks out the target
+   ref, `git pull --ff-only`s, verifies the expected revision, runs
+   `npm install --omit=dev`, and syntax-checks the connector files.
+6. It restarts the connector:
+   - macOS: existing `launchd` service `com.tmux-mobile.agent`, if present
+   - Linux: existing user systemd unit `tmux-mobile-agent.service`, if present
+   - otherwise: starts a detached connector process and stops old connector pids
 
-- Stop the agent process (`kill <pid>` / `launchctl bootout …`), and the
-  controller marks it offline within ~1 s. It disappears from the picker.
-- Or revoke the saved token: `rm ~/.config/tmux-mobile/agent.json` and stop
-  the agent. The next `--register --login` issues a fresh token under
-  whatever Google account you sign back in with.
+Update logs are written to:
 
-## Who can see what
+```text
+/tmp/tmux-mobile-connector-update.log
+```
 
-Visibility is tied to your Google account type:
+Detached fallback connector logs go to:
 
-- **Google Workspace** (`hd` claim present, e.g. `@rebyte.ai`) — see every
-  machine registered by anyone in the same workspace.
-- **Personal Google** (no `hd`, e.g. `@gmail.com`) — see only your own
-  machines.
-- **Super-admins** (deployment config, `SUPER_ADMIN_EMAILS`) — see every
-  machine on the controller regardless of workspace.
+```text
+/tmp/tmux-mobile-agent.log
+```
 
-Practical implication: register your machines with the Google account whose
-workspace you want them visible inside. If you register a `@rebyte.ai`
-machine while logged in as a personal Gmail account, only you will see it.
+If the connector is offline or too old to run the update, SSH into the machine
+and rerun the fresh install/start commands manually.
 
-The controller runs your tmux commands by brokering them over the
-WebSocket the agent opened **outbound** from your Mac. Nothing on your
-Mac needs an inbound port; works behind NAT / VPN.
+## Quick checks
+
+Controller health:
+
+```bash
+curl -fsS https://eng.impo.ai/api/health
+```
+
+Local connector process:
+
+```bash
+ps -axo pid,command | grep '[s]erver.mjs --register https://eng.impo.ai'
+```
+
+Mux availability:
+
+```bash
+tmux -V
+rmux -V 2>/dev/null || true
+```

@@ -377,25 +377,27 @@ The agent keeps its WebSocket alive with a ping/pong liveness check and
 terminates a dead socket to force a reconnect (env: `AGENT_PING_INTERVAL_MS`,
 `AGENT_PONG_TIMEOUT_MS`, `AGENT_MAX_BACKOFF_MS`).
 
-A Cloud Run deploy is a special case: the agent's live socket keeps the *old*
-instance alive, so the controller never gets SIGTERM and never closes the agent,
-which would otherwise leave it pinned to stale code. To handle this the agent
-polls the controller's public `/api/health` revision and re-dials when it
-changes, migrating itself onto the new revision (env: `AGENT_REVISION_POLL_MS`,
-default 15000; set `0` to disable). The controller also closes agent sockets on
-SIGTERM as a secondary path, for the cases where the old instance is torn down.
+A controller deploy can leave existing agent sockets pinned to the old task for
+a short time. To handle this the agent polls the controller's public
+`/api/health` revision and re-dials when it changes, migrating itself onto the
+new revision (env: `AGENT_REVISION_POLL_MS`, default 15000; set `0` to disable).
+The controller also closes agent sockets on SIGTERM as a secondary path, for the
+cases where the old instance is torn down.
 
 That handles the *controller* updating. The other skew is the **connector process
 itself** running older code than the controller — e.g. the agent was started
 before a new op (`PANECMD`) existed, so it can't answer that request and newer
 features (here, agent-type detection for interpreter-launched agents) silently
 fail. The agent advertises its supported ops in the hello frame; the controller
-compares them against its current `AGENT_OPS` and marks the machine **stale**
-(with the missing ops) in `GET /api/machines`. The web app shows a "Connector out
-of date" banner with the restart command when the connected machine is stale; it
-clears automatically once the connector is restarted on current code. (Restarting
-the connector is also the fix — the running process keeps its old code until then;
-the on-disk checkout being current isn't enough.)
+compares them against its current `AGENT_OPS` and connector compatibility
+version, then marks the machine **stale** in `GET /api/machines`. Command Center
+shows an **Update connector** action for stale machines. That action opens a
+temporary mux session on the target machine, downloads `scripts/update-connector.mjs`,
+pulls the controller's configured update ref, verifies the expected revision,
+runs `npm install --omit=dev`, and restarts the connector via launchd, systemd,
+or a detached fallback process. The running connector keeps its old code until it
+is restarted; the on-disk checkout being current is not enough. See
+[`docs/join-network.md`](docs/join-network.md) for the operator flow.
 
 ## Scope
 

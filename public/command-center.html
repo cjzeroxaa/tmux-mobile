@@ -69,11 +69,13 @@
         <button id="ccWelcomeClose" class="cc-welcome-close" type="button" aria-label="Dismiss">×</button>
         <div class="cc-welcome-block">
           <h2>Add a machine</h2>
-          <p>On any Mac or Linux box you want to drive from here, with tmux running, sign in once with the same Google account you log into the site with:</p>
-          <pre><code>git clone https://github.com/cjzeroxaa/tmux-mobile &amp;&amp; cd tmux-mobile
-npm ci
-node server.mjs --register https://eng.impo.ai --login</code></pre>
-          <p class="cc-welcome-muted">The CLI prints a Google device-login code. After approval, the machine appears in everyone's picker who shares your workspace (see below). Full instructions: <a href="https://github.com/cjzeroxaa/tmux-mobile/blob/main/docs/join-network.md">docs/join-network.md</a>.</p>
+          <p>On any Mac or Linux box you want to drive from here, install the connector and sign in once:</p>
+          <pre><code>export TMUX_MOBILE_REF=fix-connector-update-inventory
+git clone --branch "$TMUX_MOBILE_REF" https://github.com/cjzeroxaa/tmux-mobile ~/src/tmux-mobile
+cd ~/src/tmux-mobile
+npm install --omit=dev
+TMUX_MOBILE_MUXES=tmux,rmux node server.mjs --register https://eng.impo.ai --login</code></pre>
+          <p class="cc-welcome-muted">The CLI prints a Google device-login code. After approval, the machine chip appears for users who can see that Google identity or workspace. Agent cards appear only for recognized agent windows. Full instructions: <a href="https://github.com/cjzeroxaa/tmux-mobile/blob/fix-connector-update-inventory/docs/join-network.md">docs/join-network.md</a>.</p>
         </div>
         <div class="cc-welcome-block">
           <h2>Who can see what</h2>
