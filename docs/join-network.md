@@ -143,18 +143,33 @@ tail -f ~/Library/Logs/tmux-mobile-agent.log
 
 ### Linux systemd user service
 
-Create `~/.config/systemd/user/tmux-mobile-agent.service`:
+Two mistakes here make the agent silently fail to come back after a reboot.
+Fix both up front:
+
+1. **Use the real `node` path.** Many boxes have no `/usr/bin/node` (nvm, fnm,
+   or a private install under `~/.local/node/bin`). Run `command -v node` and
+   put that absolute path in `ExecStart`. A wrong path fails with
+   `status=203/EXEC` and the service just flaps.
+2. **Enable linger.** A `--user` service only runs while you have an active
+   login session *unless* lingering is enabled. Without it the agent dies when
+   your SSH session ends and never starts at boot — which looks exactly like
+   "it doesn't reconnect after a reboot."
+
+`~/.config/systemd/user/tmux-mobile-agent.service` (replace the node path; set
+`AGENT_MACHINE` to the name you want in the picker):
 
 ```ini
 [Unit]
 Description=tmux-mobile connector -> eng.impo.ai
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 WorkingDirectory=%h/src/tmux-mobile
 Environment=TMUX_MOBILE_MUXES=tmux,rmux
-# Optional display name override:
-# Environment=AGENT_MACHINE=my-linux-box
-ExecStart=/usr/bin/env node server.mjs --register https://eng.impo.ai
+# Use the output of `command -v node` — do NOT assume /usr/bin/node:
+ExecStart=/home/YOUR-USER/.local/node/bin/node server.mjs --register https://eng.impo.ai
+Environment=AGENT_MACHINE=YOUR-MACHINE-NAME
 Restart=always
 RestartSec=5
 # Keep tmux/rmux sessions alive when the connector process restarts.
@@ -169,15 +184,38 @@ Start it:
 ```bash
 systemctl --user daemon-reload
 systemctl --user enable --now tmux-mobile-agent
-journalctl --user -u tmux-mobile-agent -f
+sudo loginctl enable-linger "$USER"          # <- starts at boot, no login needed
+journalctl --user -u tmux-mobile-agent -f    # watch for "event":"agent_registered"
 ```
 
-If the machine should reconnect after reboot before you SSH in, enable user
-lingering once:
+Confirm it will actually survive a reboot:
 
 ```bash
-sudo loginctl enable-linger "$USER"
+loginctl show-user "$USER" -p Linger          # expect Linger=yes
+systemctl --user is-enabled tmux-mobile-agent # expect enabled
 ```
+
+> Why a `--user` service (not a system one): the update mechanism
+> (`scripts/update-connector.mjs`) restarts the agent via
+> `systemctl --user restart tmux-mobile-agent`. If no such *user* unit exists it
+> falls back to a bare detached process that does **not** survive reboot. So the
+> user unit above is what makes controller-pushed auto-updates and reboots both
+> work.
+
+## Verify
+
+The agent prints a JSON line on every state change. A healthy registration
+looks like:
+
+```json
+{"event":"agent_registered","controller":"https://eng.impo.ai",
+ "websocket":"wss://eng.impo.ai/agent/connect",
+ "machine":"<your-hostname>","auth":"device_token"}
+```
+
+If you see `agent_reconnecting` and an HTTP 403, your Google account isn't
+on the allow list. If you see network errors, the controller might be
+mid-deploy — retry in a minute.
 
 ## Machine name and identity
 
@@ -189,6 +227,10 @@ The display name comes from:
 The durable route identity is the connector's `agentId` in
 `~/.config/tmux-mobile/agent.json`. Display names can change or collide; routing
 uses the durable id.
+
+To rename a machine, set `AGENT_MACHINE` in the launchd plist or systemd unit,
+then restart the connector service. The saved token is tied to the Google
+account, not the display name, so renaming does not require another login.
 
 ## Auto update
 
