@@ -7,12 +7,21 @@
     "start": "node server.mjs",
     "controller": "node server.mjs --controller",
     "agent": "node server.mjs --register",
-    "test": "node --check scripts/update-connector.mjs && node test/linkify.mjs && node test/markdown.mjs && node test/window-metadata.mjs && node test/window-id.mjs && node test/worktree-add.mjs && node test/agent-transcript.mjs && node test/turn-detection.mjs && node test/detection-fixtures.mjs && node test/agent-mode.mjs && node test/reconnect-grace.mjs && node test/readfile.mjs && node test/writefile.mjs && node test/pane-mode.mjs && node test/notify-sound.mjs && node test/agent-ntfy.mjs && node test/ask-question.mjs && node test/ask-question-keys.mjs && node test/agent-caps.mjs && node test/hub-machine-alias.mjs && node test/voice-config.mjs && node test/agent-liveness.mjs && node test/agent-shutdown-reconnect.mjs && node test/agent-revision-migrate.mjs && node test/agent-revision-stable.mjs && node test/agent-single-connection.mjs && node test/agent-reconnect-survives.mjs && node test/agent-replaced-stops.mjs && node test/agent-auth-rejected.mjs && node test/e2e-controller.mjs"
+    "test": "node --check scripts/update-connector.mjs && node test/linkify.mjs && node test/markdown.mjs && node test/window-metadata.mjs && node test/window-id.mjs && node test/worktree-add.mjs && node test/agent-transcript.mjs && node test/turn-detection.mjs && node test/detection-fixtures.mjs && node test/agent-mode.mjs && node test/reconnect-grace.mjs && node test/readfile.mjs && node test/writefile.mjs && node test/pane-mode.mjs && node test/notify-sound.mjs && node test/agent-ntfy.mjs && node test/ask-question.mjs && node test/ask-question-keys.mjs && node test/agent-caps.mjs && node test/hub-machine-alias.mjs && node test/voice-config.mjs && node test/artifact-storage.mjs && node test/pin-index.mjs && node test/pins.mjs && node test/pin-serve.mjs && node test/agent-liveness.mjs && node test/agent-shutdown-reconnect.mjs && node test/agent-revision-migrate.mjs && node test/agent-revision-stable.mjs && node test/revision.mjs && node test/agent-single-connection.mjs && node test/agent-reconnect-survives.mjs && node test/agent-replaced-stops.mjs && node test/agent-auth-rejected.mjs && node test/e2e-controller.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
     "ws": "^8.21.0"
+  },
+  "comments": {
+    "optionalDependencies": "Cloud drivers — artifact bytes (TMUX_MOBILE_ARTIFACT_STORAGE=gcs|s3) and the pin index (TMUX_MOBILE_PIN_INDEX=firestore). Optional so the boring local default still installs/boots with zero cloud infra; lib/artifact-storage.mjs and lib/pin-index.mjs import them lazily and fall back if absent."
+  },
+  "optionalDependencies": {
+    "@aws-sdk/client-s3": "^3.700.0",
+    "@aws-sdk/s3-request-presigner": "^3.700.0",
+    "@google-cloud/firestore": "^7.10.0",
+    "@google-cloud/storage": "^7.14.0"
   }
 }
