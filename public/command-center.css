@@ -1341,6 +1341,11 @@
   color: var(--accent-dark);
 }
 
+.cc-agent-kind-option:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
 .cc-start-agent-path-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

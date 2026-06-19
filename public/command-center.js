@@ -116,6 +116,9 @@ const els = {
   startAgentKindButtons: [
     ...document.querySelectorAll("[data-start-agent-kind]"),
   ],
+  startAgentMuxButtons: [
+    ...document.querySelectorAll("[data-start-agent-mux]"),
+  ],
   startAgentSessionName: document.querySelector("#ccStartAgentSessionName"),
   startAgentPath: document.querySelector("#ccStartAgentPath"),
   startAgentLoadDir: document.querySelector("#ccStartAgentLoadDir"),
@@ -275,6 +278,7 @@ const state = {
   startAgent: {
     machineId: "",
     kind: "codex",
+    mux: "",
     cwd: "",
     loadingDirs: false,
     starting: false,
@@ -533,6 +537,12 @@ function startAgentMachines() {
         machineId: id,
         hostname: agent.machineHostname || id,
         agentCwd: agent.cwd || "",
+        mux: agent.machineMux || agent.mux || "",
+        muxCommand: agent.machineMuxCommand || agent.muxCommand || "",
+        muxVersion: agent.machineMuxVersion || agent.muxVersion || "",
+        muxes: agent.machineMux || agent.mux
+          ? [{ mux: agent.machineMux || agent.mux }]
+          : [],
       });
     }
   }
@@ -1831,6 +1841,28 @@ function preferredStartMux(machine) {
   return "";
 }
 
+function normalizeStartAgentMux(value) {
+  const mux = String(value || "").trim().toLowerCase();
+  return mux === "tmux" || mux === "rmux" ? mux : "";
+}
+
+function startAgentMuxes(machine) {
+  if (!machine) return [];
+  const muxes = machineMuxes(machine);
+  return muxes.length > 0 ? muxes : ["tmux"];
+}
+
+function resolveStartAgentMux(machine, requestedMux = "") {
+  const muxes = startAgentMuxes(machine);
+  const requested = normalizeStartAgentMux(requestedMux);
+  if (requested && muxes.includes(requested)) return requested;
+  const preferred = preferredStartMux(machine);
+  if (preferred && muxes.includes(preferred)) return preferred;
+  if (muxes.includes("tmux")) return "tmux";
+  if (muxes.includes("rmux")) return "rmux";
+  return "";
+}
+
 function normalizeMachines(machines, agents) {
   const counts = countAgentsByMachine(agents);
   return machines.map((machine) => ({
@@ -2069,6 +2101,12 @@ function setStartAgentKind(kind) {
   }
 }
 
+function setStartAgentMux(mux) {
+  const machine = selectedStartAgentMachine();
+  state.startAgent.mux = resolveStartAgentMux(machine, mux);
+  syncStartAgentControls();
+}
+
 function selectedStartAgentMachine({ preferContext = false } = {}) {
   const machines = startAgentMachineChoices();
   if (machines.length === 0) return null;
@@ -2099,7 +2137,10 @@ function renderStartAgentMachineOptions() {
 
 function syncStartAgentControls() {
   const busy = state.startAgent.starting;
-  const hasMachine = Boolean(state.startAgent.machineId);
+  const machine = findStartAgentMachine(state.startAgent.machineId);
+  const hasMachine = Boolean(machine);
+  const selectedMux = resolveStartAgentMux(machine, state.startAgent.mux);
+  state.startAgent.mux = selectedMux;
   if (els.startAgentMachine) {
     els.startAgentMachine.disabled = busy || startAgentMachineChoices().length === 0;
   }
@@ -2112,8 +2153,15 @@ function syncStartAgentControls() {
   for (const button of els.startAgentKindButtons) {
     button.disabled = busy || !hasMachine;
   }
+  for (const button of els.startAgentMuxButtons) {
+    const mux = normalizeStartAgentMux(button.dataset.startAgentMux);
+    const available = Boolean(hasMachine && startAgentMuxes(machine).includes(mux));
+    button.disabled = busy || !available;
+    button.setAttribute("aria-pressed", String(available && mux === selectedMux));
+    button.title = available ? `${muxLabel(mux)} runtime` : `${muxLabel(mux)} unavailable`;
+  }
   if (els.startAgentSubmit) {
-    els.startAgentSubmit.disabled = busy || !hasMachine || state.startAgent.loadingDirs;
+    els.startAgentSubmit.disabled = busy || !hasMachine || !selectedMux || state.startAgent.loadingDirs;
     els.startAgentSubmit.textContent = busy ? "Starting..." : "Start";
   }
 }
@@ -2164,6 +2212,10 @@ function renderStartAgentDirectories() {
 function renderStartAgentSheet() {
   renderStartAgentMachineOptions();
   setStartAgentKind(state.startAgent.kind);
+  state.startAgent.mux = resolveStartAgentMux(
+    findStartAgentMachine(state.startAgent.machineId),
+    state.startAgent.mux,
+  );
   if (els.startAgentPath && els.startAgentPath.value !== state.startAgent.cwd) {
     els.startAgentPath.value = state.startAgent.cwd;
   }
@@ -2231,6 +2283,7 @@ function openStartAgent() {
   closeMoreMenu();
   const machine = selectedStartAgentMachine({ preferContext: true });
   state.startAgent.machineId = machine ? machineKey(machine) : "";
+  state.startAgent.mux = resolveStartAgentMux(machine, state.startAgent.mux);
   state.startAgent.cwd = machine ? defaultStartAgentDirectory(machine) : "";
   state.startAgent.directories = {
     cwd: state.startAgent.cwd,
@@ -2276,11 +2329,13 @@ function handleStartAgentMachineChange() {
       entries: [],
       error: "No machines online.",
     };
+    state.startAgent.mux = "";
     setStartAgentStatus("No machines online.", { error: true });
     renderStartAgentSheet();
     return;
   }
   state.startAgent.machineId = machineKey(machine);
+  state.startAgent.mux = resolveStartAgentMux(machine, state.startAgent.mux);
   state.startAgent.cwd = defaultStartAgentDirectory(machine);
   if (els.startAgentPath) els.startAgentPath.value = state.startAgent.cwd;
   loadStartAgentDirectories({ path: state.startAgent.cwd }).catch((error) => {
@@ -2305,8 +2360,15 @@ async function submitStartAgent() {
   }
   state.startAgent.starting = true;
   syncStartAgentControls();
-  const mux = preferredStartMux(machine);
-  setStartAgentStatus(`Starting ${state.startAgent.kind} in ${abbrevHome(cwd)}...`);
+  const mux = resolveStartAgentMux(machine, state.startAgent.mux);
+  state.startAgent.mux = mux;
+  if (!mux) {
+    state.startAgent.starting = false;
+    syncStartAgentControls();
+    setStartAgentStatus("No runtime available on this machine.", { error: true });
+    return;
+  }
+  setStartAgentStatus(`Starting ${state.startAgent.kind} in ${abbrevHome(cwd)} on ${muxLabel(mux)}...`);
   try {
     const result = await api("/api/agent-sessions", {
       method: "POST",
@@ -2322,7 +2384,7 @@ async function submitStartAgent() {
     const sessionName = result.session?.name || "new mux session";
     ensureStartedMachineVisible(machineId);
     setStatus(
-      `Started ${result.kind} on ${machineLabel(machine)} in ${abbrevHome(cwd)} (${sessionName}).`,
+      `Started ${result.kind} on ${machineLabel(machine)} in ${abbrevHome(cwd)} via ${muxLabel(result.mux || mux)} (${sessionName}).`,
     );
     window.setTimeout(() => loadAgents(), 900);
   } catch (error) {
@@ -3409,6 +3471,9 @@ els.startAgentPath?.addEventListener("keydown", (event) => {
 });
 for (const button of els.startAgentKindButtons) {
   button.addEventListener("click", () => setStartAgentKind(button.dataset.startAgentKind));
+}
+for (const button of els.startAgentMuxButtons) {
+  button.addEventListener("click", () => setStartAgentMux(button.dataset.startAgentMux));
 }
 els.startAgentDirectoryList?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;

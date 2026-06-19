@@ -3045,6 +3045,7 @@ async function handleApi(req, res, url) {
       kind: String(body.kind || ""),
       cwd: String(body.cwd || ""),
       sessionName: String(body.sessionName || ""),
+      mux: String(body.mux || currentRequestMux() || ""),
     });
     const result = await withRequestMux(body.mux || currentRequestMux(), () =>
       startAgentSession({
@@ -3061,6 +3062,8 @@ async function handleApi(req, res, url) {
       sessionId: result.session?.id || "",
       windowId: result.windowId || "",
       paneId: result.paneId || "",
+      mux: result.mux || "",
+      muxCommand: result.muxCommand || "",
     });
     sendJson(res, 200, result);
     return;
