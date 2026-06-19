@@ -1520,6 +1520,104 @@ input {
   padding: 12px 4px;
 }
 
+/* Pinned artifacts management sheet (reuses the directory-sheet shell). */
+.pins-list {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 2px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pins-empty {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 16px 4px;
+  text-align: center;
+}
+
+.pin-row {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(127, 127, 127, 0.05);
+  padding: 12px;
+}
+
+.pin-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pin-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.pin-chip {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.pin-meta {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pin-source {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.pin-actions .small-button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.pin-scope-select,
+.pin-users-input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.pin-users-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+}
+
 .small-button,
 .icon-button {
   border: 1px solid var(--line);
