@@ -1380,6 +1380,7 @@ function sortComparator(by) {
 // machine came online). Status is displayed on cards, not used as a filter.
 function renderFilterRow() {
   const row = els.filterRow;
+  const priorFocusedMachineKey = focusedMachineChipKey();
   row.innerHTML = "";
   // Agentless machines stay visible without adding separate machine cards to
   // the agent feed.
@@ -1409,15 +1410,19 @@ function renderFilterRow() {
         label: hostname,
         active,
         kind: "machine",
+        value: id,
         status: machineChipStatus(id),
-        onTap: () => toggleFilter("filterMachines", id),
+        onTap: () => toggleFilter("filterMachines", id, { focusMachineKey: id }),
       }));
     }
   }
   if (!els.startAgentSheet?.hidden) renderStartAgentMachineOptions();
+  if (priorFocusedMachineKey) {
+    requestAnimationFrame(() => focusMachineChip(priorFocusedMachineKey, { scroll: false }));
+  }
 }
 
-function chipButton({ label, active, kind, status = "", onTap }) {
+function chipButton({ label, active, kind, value = "", status = "", onTap }) {
   const btn = document.createElement("button");
   btn.type = "button";
   const statusLabel_ = machineChipStatusLabel(status);
@@ -1429,6 +1434,8 @@ function chipButton({ label, active, kind, status = "", onTap }) {
   ].filter(Boolean).join(" ");
   btn.title = statusLabel_ ? `${label} · ${statusLabel_}` : label;
   btn.setAttribute("aria-label", btn.title);
+  btn.setAttribute("aria-pressed", String(active));
+  if (value) btn.dataset.machineKey = value;
   if (status) {
     const statusIcon = document.createElement("span");
     statusIcon.className = `cc-filter-chip-status is-${status}`;
@@ -1443,12 +1450,15 @@ function chipButton({ label, active, kind, status = "", onTap }) {
   return btn;
 }
 
-function toggleFilter(setName, value) {
+function toggleFilter(setName, value, { focusMachineKey = "" } = {}) {
   const s = state[setName];
   if (s.has(value)) s.delete(value);
   else s.add(value);
   renderFilterRow();
   renderAgents();
+  if (focusMachineKey) {
+    requestAnimationFrame(() => focusMachineChip(focusMachineKey, { scroll: false }));
+  }
 }
 
 function renderEmpty() {
@@ -2351,10 +2361,25 @@ function cardElementByKey(key) {
   return cardElements().find((card) => card.dataset.cardKey === key) || null;
 }
 
+function machineChipElements() {
+  return [...els.filterRow.querySelectorAll(".cc-filter-chip-machine[data-machine-key]")];
+}
+
+function machineChipElementByKey(key) {
+  if (!key) return null;
+  return machineChipElements().find((chip) => chip.dataset.machineKey === key) || null;
+}
+
 function focusedCardKey() {
   const active = document.activeElement instanceof Element ? document.activeElement : null;
   const card = active?.closest(".cc-card[data-card-key]");
   return card?.dataset.cardKey || "";
+}
+
+function focusedMachineChipKey() {
+  const active = document.activeElement instanceof Element ? document.activeElement : null;
+  const chip = active?.closest(".cc-filter-chip-machine[data-machine-key]");
+  return chip?.dataset.machineKey || "";
 }
 
 function restoreFocusedCard(key) {
@@ -2362,6 +2387,35 @@ function restoreFocusedCard(key) {
   if (!card) return;
   card.focus({ preventScroll: true });
   card.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+function focusMachineChip(key, { scroll = true } = {}) {
+  const chip = machineChipElementByKey(key);
+  if (!chip) return false;
+  chip.focus({ preventScroll: true });
+  if (scroll) chip.scrollIntoView({ block: "nearest", inline: "nearest" });
+  return true;
+}
+
+function focusSelectedCard({ scroll = true } = {}) {
+  const card = cardElementByKey(state.selectedCardKey);
+  if (!card) return false;
+  card.focus({ preventScroll: true });
+  if (scroll) card.scrollIntoView({ block: "nearest", inline: "nearest" });
+  return true;
+}
+
+function machineChipKeyForCardFocus() {
+  const selectedAgent = selectedAgentFrom();
+  const selectedMachine = selectedAgent ? agentMachineKey(selectedAgent) : "";
+  if (selectedMachine && machineChipElementByKey(selectedMachine)) return selectedMachine;
+  const active = machineChipElements().find((chip) => state.filterMachines.has(chip.dataset.machineKey));
+  if (active) return active.dataset.machineKey || "";
+  return machineChipElements()[0]?.dataset.machineKey || "";
+}
+
+function focusMachineChipsFromCards() {
+  return focusMachineChip(machineChipKeyForCardFocus());
 }
 
 function updateSelectedCard(key, { scroll = false, focus = false } = {}) {
@@ -2395,7 +2449,10 @@ function cardColumnCount(cards) {
 
 function moveSelectedCard(direction) {
   const cards = cardElements();
-  if (cards.length === 0) return;
+  if (cards.length === 0) {
+    if (direction === "up") focusMachineChipsFromCards();
+    return;
+  }
   let index = cards.findIndex((card) => card.dataset.cardKey === state.selectedCardKey);
   if (index < 0) index = 0;
   const columns = cardColumnCount(cards);
@@ -2405,6 +2462,9 @@ function moveSelectedCard(direction) {
     up: -columns,
     down: columns,
   };
+  if (direction === "up" && index - columns < 0 && focusMachineChipsFromCards()) {
+    return;
+  }
   const nextIndex = Math.max(
     0,
     Math.min(cards.length - 1, index + (deltas[direction] || 0)),
@@ -2609,6 +2669,55 @@ function handleCardSearchShortcut(event) {
   }
   event.preventDefault();
   openCardSearch();
+}
+
+function handleMachineChipShortcuts(event) {
+  if (
+    event.defaultPrevented ||
+    event.isComposing ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey
+  ) {
+    return;
+  }
+  const target = event.target instanceof Element ? event.target : null;
+  const current = target?.closest(".cc-filter-chip-machine[data-machine-key]");
+  if (!current) return;
+
+  const directions = {
+    ArrowLeft: "left",
+    ArrowRight: "right",
+    ArrowUp: "up",
+    ArrowDown: "down",
+    h: "left",
+    l: "right",
+    k: "up",
+    j: "down",
+  };
+  const direction = directions[event.key] || directions[event.key.toLowerCase()];
+  if (direction) {
+    event.preventDefault();
+    if (direction === "down") {
+      focusSelectedCard();
+      return;
+    }
+    if (direction === "up") return;
+    const chips = machineChipElements();
+    const index = chips.findIndex((chip) => chip === current);
+    if (index < 0) return;
+    const delta = direction === "left" ? -1 : 1;
+    const nextIndex = Math.max(0, Math.min(chips.length - 1, index + delta));
+    focusMachineChip(chips[nextIndex]?.dataset.machineKey || "");
+    return;
+  }
+
+  if (event.key === " " || event.key === "Enter") {
+    const key = current.dataset.machineKey || "";
+    if (!key) return;
+    event.preventDefault();
+    toggleFilter("filterMachines", key, { focusMachineKey: key });
+  }
 }
 
 function shortcutTargetIsEditable(target) {
@@ -3424,6 +3533,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !els.interactSheet?.hidden) closeInteract();
 });
 document.addEventListener("keydown", handleCardShortcuts);
+els.filterRow?.addEventListener("keydown", handleMachineChipShortcuts);
 
 for (const button of els.themeButtons) {
   button.addEventListener("click", () => {

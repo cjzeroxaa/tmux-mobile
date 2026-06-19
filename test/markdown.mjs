@@ -158,4 +158,18 @@ assert.ok(!/<code>[^<]*<a /.test(h), "28 no anchor inside code");
 h = renderMarkdown("- a\n- b\n\n1. x\n2. y");
 assert.ok(h.includes("<ul>") && h.includes("<ol>"), `29 both list types: ${h}`);
 
+// 30. lightweight LaTeX rendering for inline and display math
+h = renderMarkdown("设 $K$ 和 $\\mathbb{Z}$, $x^p$\n\n$$\\sigma(xy)=x^p y^p$$");
+assert.ok(h.includes('class="md-math md-math-inline"'), `30 inline math: ${h}`);
+assert.ok(h.includes("ℤ"), `30 mathbb rendered: ${h}`);
+assert.ok(h.includes("x<sup>p</sup>"), `30 superscript rendered: ${h}`);
+assert.ok(h.includes('class="md-math md-math-display"'), `30 display math: ${h}`);
+assert.ok(h.includes("σ(xy)=x<sup>p</sup> y<sup>p</sup>"), `30 sigma display: ${h}`);
+
+// 31. code spans stay literal and math contents stay escaped
+h = renderMarkdown("`$K$` and $\\text{<img src=x>}$");
+assert.ok(h.includes("<code>$K$</code>"), `31 code span literal: ${h}`);
+assert.ok(h.includes("&lt;img src=x&gt;"), `31 math HTML escaped: ${h}`);
+assert.ok(!h.includes("<img src=x>"), `31 no raw HTML from math: ${h}`);
+
 console.log("markdown unit tests passed");

@@ -401,6 +401,11 @@
   box-shadow: inset 0 0 0 1px var(--bg), 0 0 0 1px var(--ink);
 }
 
+.cc-filter-chip:focus-visible {
+  outline: 2px solid rgba(35, 131, 226, 0.78);
+  outline-offset: 2px;
+}
+
 .cc-filter-chip-machine {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -541,6 +546,11 @@
 .cc-card.is-selected {
   border-color: rgba(35, 131, 226, 0.6);
   box-shadow: var(--shadow);
+}
+
+.cc-card:focus-visible {
+  outline: 2px solid rgba(35, 131, 226, 0.74);
+  outline-offset: 2px;
 }
 
 .cc-card.is-running {
@@ -1031,7 +1041,8 @@
 .cc-section-text.is-markdown ol,
 .cc-section-text.is-markdown blockquote,
 .cc-section-text.is-markdown pre,
-.cc-section-text.is-markdown table {
+.cc-section-text.is-markdown table,
+.cc-section-text.is-markdown .md-math-display {
   margin: 0 0 0.55em;
 }
 
@@ -1105,6 +1116,51 @@
 .cc-section-text.is-markdown img {
   max-width: 100%;
   border-radius: 6px;
+}
+
+.cc-section-text.is-markdown .md-math {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  color: var(--ink);
+}
+
+.cc-section-text.is-markdown .md-math-inline {
+  white-space: nowrap;
+}
+
+.cc-section-text.is-markdown .md-math-display {
+  display: block;
+  overflow-x: auto;
+  padding: 0.45em 0.55em;
+  border-left: 3px solid rgba(35, 131, 226, 0.42);
+  background: rgba(35, 131, 226, 0.06);
+  line-height: 1.7;
+  white-space: nowrap;
+}
+
+.cc-section-text.is-markdown .md-math-frac {
+  display: inline-grid;
+  grid-template-rows: auto auto;
+  align-items: center;
+  vertical-align: middle;
+  text-align: center;
+  line-height: 1.05;
+}
+
+.cc-section-text.is-markdown .md-math-frac > span:first-child {
+  border-bottom: 1px solid currentColor;
+  padding: 0 0.18em 0.08em;
+}
+
+.cc-section-text.is-markdown .md-math-frac > span:last-child {
+  padding: 0.08em 0.18em 0;
+}
+
+.cc-section-text.is-markdown .md-math-underbrace {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: middle;
+  line-height: 1.05;
 }
 
 .cc-card-footer {

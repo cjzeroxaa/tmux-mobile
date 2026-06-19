@@ -202,6 +202,17 @@ function renderMarkdownPage(name, markdown, truncated) {
   img { max-width: 100%; height: auto; }
   li.task-item { list-style: none; margin-left: -1.2em; }
   del { opacity: .7; }
+  .md-math { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+  .md-math-inline { white-space: nowrap; }
+  .md-math-display { display:block; overflow-x:auto; margin: .7em 0; padding:.45em .55em;
+    border-left:3px solid rgba(35,131,226,.42); background: rgba(35,131,226,.06);
+    line-height:1.7; white-space:nowrap; }
+  .md-math-frac { display:inline-grid; grid-template-rows:auto auto; align-items:center;
+    vertical-align:middle; text-align:center; line-height:1.05; }
+  .md-math-frac > span:first-child { border-bottom: 1px solid currentColor; padding: 0 .18em .08em; }
+  .md-math-frac > span:last-child { padding: .08em .18em 0; }
+  .md-math-underbrace { display:inline-flex; flex-direction:column; align-items:center;
+    vertical-align:middle; line-height:1.05; }
   .trunc { color: #b26b00; font-style: italic; }
   svg { max-width: 100%; height: auto; }
 </style>
