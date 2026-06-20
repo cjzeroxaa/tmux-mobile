@@ -49,6 +49,22 @@ import {
   createNtfyConfig,
   NTFY_TOPIC_PREFIX,
 } from "./lib/agent-ntfy.mjs";
+import {
+  createArtifactStorage,
+  createLocalArtifactStorage,
+} from "./lib/artifact-storage.mjs";
+import {
+  createPin,
+  deletePin,
+  hydratePins,
+  listPins,
+  publicPinView,
+  servePin,
+  setPinIndex,
+  updateShare,
+  withPinViewer,
+} from "./lib/pins.mjs";
+import { createPinIndex } from "./lib/pin-index.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -156,6 +172,30 @@ function fileContentType(filePath) {
   );
 }
 
+// Is this content HTML the browser would execute as a document? Used to decide
+// whether to sandbox the response.
+function isHtmlContentType(contentType) {
+  return /^text\/html\b/i.test(String(contentType || ""));
+}
+
+// Security headers for serving a RAW artifact's bytes. Artifacts are arbitrary,
+// possibly-hostile, agent-authored content served from this (cookie-bearing)
+// origin. For HTML we add `Content-Security-Policy: sandbox` so the document —
+// even when opened as a top-level tab ("Open raw") — runs in a unique OPAQUE
+// origin: scripts may run (allow-scripts) but the document cannot read this
+// origin's cookies/storage or call its APIs. `nosniff` stops a non-HTML type
+// from being reinterpreted as HTML. `download` forces the attachment path, which
+// never executes, so no sandbox is needed there.
+function rawArtifactSecurityHeaders(contentType, { download = false } = {}) {
+  const headers = { "x-content-type-options": "nosniff" };
+  if (!download && isHtmlContentType(contentType)) {
+    // allow-scripts so self-contained pages work; NO allow-same-origin, so the
+    // sandboxed document can't reach the app origin.
+    headers["content-security-policy"] = "sandbox allow-scripts allow-popups allow-forms";
+  }
+  return headers;
+}
+
 // Make a basename safe for a Content-Disposition filename: strip path bits and
 // quotes/control chars that could break the header or smuggle directives.
 function sanitizeFilename(name) {
@@ -166,10 +206,277 @@ function sanitizeFilename(name) {
     .slice(0, 255) || "file";
 }
 
+// A self-contained pin overlay injected into the app-rendered pages. It has TWO
+// modes, both small fixed-position widgets with no external assets:
+//
+//  • CREATE mode — on the viewer pages reached from the pane (URL carries
+//    paneId/path/machineId). Shows a "Pin" button that POSTs /api/pins, then
+//    reveals the share link + scope controls.
+//  • MANAGE mode — on the SERVED pin page (/api/pin, e.g. a rendered markdown
+//    pin). `managePin` is supplied server-side. For the OWNER it shows the
+//    current share scope with controls to change it, copy the link, or unpin
+//    (operating on the pin id). For a non-owner it shows nothing — they only see
+//    the artifact.
+//
+// Styles favor the "kami" look (warm card, indigo accent), text labels not emoji
+// (per the product's no-emoji rule). Same-origin cookie authenticates requests.
+// `managePin` is embedded as a JSON literal with "<" escaped so a value can't
+// break out of the <script>.
+function pinOverlayHtml(managePin) {
+  const manageJson = managePin
+    ? JSON.stringify(managePin).replace(/</g, "\\u003c")
+    : "null";
+  return `
+<div id="tm-pin" class="tm-pin" hidden>
+  <button id="tm-pin-btn" class="tm-pin-btn" type="button">Pin</button>
+  <div id="tm-pin-panel" class="tm-pin-panel" hidden>
+    <div class="tm-pin-row">
+      <input id="tm-pin-link" class="tm-pin-link" readonly />
+      <button id="tm-pin-copy" class="tm-pin-copy" type="button">Copy</button>
+    </div>
+    <label class="tm-pin-scope">Shared with
+      <select id="tm-pin-share">
+        <option value="private">Only me</option>
+        <option value="all">All logged-in users</option>
+        <option value="users">Specific people…</option>
+      </select>
+    </label>
+    <input id="tm-pin-users" class="tm-pin-users" placeholder="emails, comma-separated" hidden />
+    <button id="tm-pin-unpin" class="tm-pin-unpin" type="button" hidden>Unpin</button>
+    <div id="tm-pin-status" class="tm-pin-status"></div>
+  </div>
+</div>
+<style>
+  .tm-pin { position: fixed; top: 12px; right: 12px; z-index: 2147483000;
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .tm-pin-btn, .tm-pin-copy { cursor: pointer; border: 1px solid rgba(99,102,241,.5);
+    background: #6366f1; color: #fff; border-radius: 999px; padding: 6px 14px;
+    font-weight: 600; }
+  .tm-pin-copy { padding: 4px 10px; font-weight: 500; }
+  .tm-pin-panel { margin-top: 8px; background: #fffdf7; color: #1c1917;
+    border: 1px solid rgba(0,0,0,.12); border-radius: 10px; padding: 10px;
+    width: 280px; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+  @media (prefers-color-scheme: dark) { .tm-pin-panel { background: #2a2622; color: #f5f5f4;
+    border-color: rgba(255,255,255,.14); } }
+  .tm-pin-row { display: flex; gap: 6px; align-items: center; }
+  .tm-pin-link { flex: 1; min-width: 0; font: 12px monospace; padding: 4px 6px;
+    border: 1px solid rgba(127,127,127,.4); border-radius: 6px; background: transparent;
+    color: inherit; }
+  .tm-pin-scope { display: block; margin-top: 8px; }
+  .tm-pin-scope select { margin-left: 6px; }
+  .tm-pin-users { margin-top: 6px; width: 100%; box-sizing: border-box; padding: 4px 6px;
+    border: 1px solid rgba(127,127,127,.4); border-radius: 6px; background: transparent;
+    color: inherit; }
+  .tm-pin-unpin { margin-top: 8px; cursor: pointer; border: 1px solid rgba(235,93,76,.5);
+    background: transparent; color: #eb5d4c; border-radius: 8px; padding: 5px 12px;
+    font-weight: 600; }
+  .tm-pin-status { margin-top: 6px; min-height: 1em; opacity: .8; }
+</style>
+<script>
+(function () {
+  var MANAGE = ${manageJson};
+  var root = document.getElementById("tm-pin");
+  var btn = document.getElementById("tm-pin-btn");
+  var panel = document.getElementById("tm-pin-panel");
+  var linkEl = document.getElementById("tm-pin-link");
+  var copyEl = document.getElementById("tm-pin-copy");
+  var shareEl = document.getElementById("tm-pin-share");
+  var usersEl = document.getElementById("tm-pin-users");
+  var unpinEl = document.getElementById("tm-pin-unpin");
+  var statusEl = document.getElementById("tm-pin-status");
+
+  var params = new URLSearchParams(location.search);
+  var paneId = params.get("paneId");
+  var filePath = params.get("path");
+  var machineId = params.get("machineId");
+
+  // MANAGE mode: this is an already-pinned, served page. Only the owner gets
+  // controls; a non-owner viewer sees no overlay at all.
+  var manageMode = MANAGE && typeof MANAGE === "object";
+  if (manageMode && !MANAGE.owned) return;
+  // CREATE mode needs a pane/file to pin; without either signal, no overlay.
+  if (!manageMode && (!paneId || !filePath)) return;
+  root.hidden = false;
+
+  var pinId = manageMode ? MANAGE.id : null;
+
+  function currentShare() {
+    var scope = shareEl.value;
+    var users = scope === "users"
+      ? usersEl.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean)
+      : [];
+    return { scope: scope, users: users };
+  }
+
+  function showShareState(scope, users, link) {
+    shareEl.value = scope;
+    usersEl.hidden = scope !== "users";
+    if (users && users.length) usersEl.value = users.join(", ");
+    if (link) linkEl.value = link;
+  }
+
+  // ---- MANAGE mode: panel is the whole UI (no "Pin" action) ----
+  if (manageMode) {
+    btn.textContent = "Manage";
+    unpinEl.hidden = false;
+    showShareState(MANAGE.share.scope, MANAGE.share.users, location.origin + MANAGE.shareUrl);
+    btn.addEventListener("click", function () { panel.hidden = !panel.hidden; });
+    unpinEl.addEventListener("click", function () {
+      if (!window.confirm("Unpin this artifact? The share link will stop working.")) return;
+      statusEl.textContent = "Unpinning…";
+      fetch("/api/pins?id=" + encodeURIComponent(pinId), { method: "DELETE" })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+        .then(function (res) {
+          statusEl.textContent = res.ok ? "Unpinned. This link no longer works." : (res.j.error || "Unpin failed.");
+        })
+        .catch(function (e) { statusEl.textContent = "Unpin failed: " + e.message; });
+    });
+  } else {
+    // ---- CREATE mode: "Pin" button POSTs, then reveals the share controls ----
+    function pinsUrl() {
+      var p = new URLSearchParams({ paneId: paneId, path: filePath });
+      if (machineId) p.set("machineId", machineId);
+      return "/api/pins?" + p.toString();
+    }
+    function showPinned(pin, deduped) {
+      pinId = pin.id;
+      showShareState(pin.share.scope, pin.share.users, location.origin + pin.shareUrl);
+      statusEl.textContent = deduped ? "Already pinned (unchanged)." : "Pinned (v" + pin.version + ").";
+      btn.textContent = "Pinned ✓";
+      unpinEl.hidden = false;
+      panel.hidden = false;
+    }
+    btn.addEventListener("click", function () {
+      if (pinId) { panel.hidden = !panel.hidden; return; }
+      statusEl.textContent = "Pinning…";
+      fetch(pinsUrl(), {
+        method: "POST",
+        headers: machineId ? { "content-type": "application/json", "x-machine-id": machineId }
+                           : { "content-type": "application/json" },
+        body: JSON.stringify({ share: currentShare() }),
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+        .then(function (res) {
+          if (!res.ok) { statusEl.textContent = res.j.error || "Pin failed."; panel.hidden = false; return; }
+          showPinned(res.j.pin, res.j.deduped);
+        })
+        .catch(function (e) { statusEl.textContent = "Pin failed: " + e.message; panel.hidden = false; });
+    });
+    unpinEl.addEventListener("click", function () {
+      if (!pinId) return;
+      if (!window.confirm("Unpin this artifact? The share link will stop working.")) return;
+      fetch("/api/pins?id=" + encodeURIComponent(pinId), { method: "DELETE" })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+        .then(function (res) {
+          if (res.ok) { pinId = null; btn.textContent = "Pin"; unpinEl.hidden = true; statusEl.textContent = "Unpinned."; }
+          else statusEl.textContent = res.j.error || "Unpin failed.";
+        })
+        .catch(function (e) { statusEl.textContent = "Unpin failed: " + e.message; });
+    });
+  }
+
+  copyEl.addEventListener("click", function () {
+    linkEl.select();
+    (navigator.clipboard ? navigator.clipboard.writeText(linkEl.value) : Promise.reject())
+      .then(function () { statusEl.textContent = "Link copied."; })
+      .catch(function () { try { document.execCommand("copy"); statusEl.textContent = "Link copied."; } catch (e) {} });
+  });
+
+  function applyScope() {
+    usersEl.hidden = shareEl.value !== "users";
+    if (!pinId) return; // (create mode) scope is applied at pin time until then
+    statusEl.textContent = "Updating sharing…";
+    fetch("/api/pins?id=" + encodeURIComponent(pinId), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ share: currentShare() }),
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        statusEl.textContent = res.ok ? "Sharing updated." : (res.j.error || "Update failed.");
+      })
+      .catch(function (e) { statusEl.textContent = "Update failed: " + e.message; });
+  }
+  shareEl.addEventListener("change", applyScope);
+  usersEl.addEventListener("change", applyScope);
+})();
+</script>`;
+}
+
+// A lightweight viewer-wrapper page for images and standalone HTML, so those
+// artifacts can host the Pin overlay too (a raw image/HTML response can't). The
+// artifact itself is embedded via the existing /api/file-raw URL (an <img> for
+// images, a sandboxed <iframe> for HTML), and the overlay rides on top.
+//
+// HTML SANDBOX: the artifact is arbitrary, possibly-hostile, agent-authored HTML
+// served from THIS origin (which holds the session cookie + authenticated APIs).
+// The iframe gets `allow-scripts` so self-contained pages work, but NOT
+// `allow-same-origin` — that combination would let the artifact script the app
+// origin (read the cookie, call /api/* as the user). Without allow-same-origin
+// the iframe is a unique OPAQUE origin: scripts run but can't touch the parent's
+// cookie/storage/APIs. The cost is that an artifact needing same-origin (relative
+// fetch, ES modules, localStorage) still won't fully work — hence the banner with
+// an "Open raw" / "Download" escape hatch. The raw endpoint serves HTML under a
+// `Content-Security-Policy: sandbox` so even that top-level tab stays opaque.
+function renderArtifactViewerPage(name, kind, rawUrl) {
+  const title = escapeHtmlShared(sanitizeFilename(name));
+  const safeRaw = escapeHtmlShared(rawUrl);
+  const dlUrl = `${rawUrl}${rawUrl.includes("?") ? "&" : "?"}dl=1`;
+  const safeDl = escapeHtmlShared(dlUrl);
+  if (kind === "image") {
+    return `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${title}</title>
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; height: 100%; background: #0b0b0c; }
+  body { display: flex; align-items: center; justify-content: center; }
+  img { max-width: 100%; max-height: 100vh; height: auto; }
+</style>
+</head><body>
+<img src="${safeRaw}" alt="${title}" />
+${pinOverlayHtml()}
+</body></html>`;
+  }
+  // HTML artifact: sandboxed iframe (opaque origin) + a banner escape hatch.
+  return `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${title}</title>
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; height: 100%; background: #0b0b0c; }
+  body { display: flex; flex-direction: column; }
+  .tm-art-bar { flex: 0 0 auto; display: flex; gap: 8px; align-items: center;
+    padding: 6px 10px; background: #fffdf7; color: #1c1917; font: 12px/1.4
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    border-bottom: 1px solid rgba(0,0,0,.12); }
+  @media (prefers-color-scheme: dark) { .tm-art-bar { background: #2a2622; color: #f5f5f4;
+    border-color: rgba(255,255,255,.14); } }
+  .tm-art-bar .note { flex: 1; min-width: 0; opacity: .8; }
+  .tm-art-bar a { cursor: pointer; text-decoration: none; border: 1px solid rgba(99,102,241,.5);
+    color: #6366f1; border-radius: 999px; padding: 3px 12px; font-weight: 600; white-space: nowrap; }
+  iframe { border: 0; flex: 1 1 auto; width: 100%; background: #fff; }
+</style>
+</head><body>
+<div class="tm-art-bar">
+  <span class="note">This artifact runs in a sandbox (no access to your account). If it needs more, open it raw.</span>
+  <a href="${safeRaw}" target="_blank" rel="noopener">Open raw</a>
+  <a href="${safeDl}">Download</a>
+</div>
+<iframe src="${safeRaw}" sandbox="allow-scripts allow-popups allow-forms" title="${title}"></iframe>
+${pinOverlayHtml()}
+</body></html>`;
+}
+
 // Wrap rendered markdown in a minimal, self-contained HTML page for a new tab.
 // The <title> is the file name so the tab label and "Save as…" are sensible.
 // Styles are inlined (the tab isn't the app) and kept close to the in-app viewer.
-function renderMarkdownPage(name, markdown, truncated) {
+// `managePin` (optional) is the manage descriptor from servePin — when present,
+// the page hosts the pin-management overlay (owner-only share/unpin controls)
+// instead of the create-a-pin overlay.
+function renderMarkdownPage(name, markdown, truncated, managePin) {
   const title = escapeHtmlShared(sanitizeFilename(name));
   const body = renderMarkdown(markdown);
   const note = truncated
@@ -229,6 +536,7 @@ function renderMarkdownPage(name, markdown, truncated) {
 ${note}
 ${body}
 ${mermaidScript}
+${pinOverlayHtml(managePin)}
 </body></html>`;
 }
 
@@ -3376,6 +3684,8 @@ async function handleApi(req, res, url) {
       "content-disposition": `${download ? "attachment" : "inline"}; filename="${sanitizeFilename(f.name)}"`,
       "content-length": String(bytes.length),
       "cache-control": "no-store",
+      // Sandbox hostile HTML so a top-level "open raw" tab can't script this origin.
+      ...rawArtifactSecurityHeaders(f.contentType, { download }),
     });
     res.end(bytes);
     return;
@@ -3406,6 +3716,74 @@ async function handleApi(req, res, url) {
       "cache-control": "no-store",
     });
     res.end(page);
+    return;
+  }
+
+  // Viewer-wrapper page for images and standalone HTML, so those artifacts can
+  // host the Pin overlay (a raw image/HTML response can't). The artifact bytes
+  // are embedded via the existing /api/file-raw URL (re-using its streaming/auth)
+  // and the overlay rides on top. Validation goes through readFileForServing so
+  // an unviewable/oversized/denied file is rejected the same way as the viewer.
+  // Raw media (video/audio) can't host an overlay; they keep opening file-raw
+  // directly and pin from the file chip instead.
+  if (req.method === "GET" && url.pathname === "/api/file-page") {
+    const f = await readFileForServing(req, res, url);
+    if (!f) return;
+    const ext = path.extname(f.name).toLowerCase();
+    const isHtml = ext === ".html" || ext === ".htm";
+    if (f.kind !== "image" && !isHtml) {
+      // Not an overlay-capable kind — send the caller to the raw stream.
+      sendRedirect(res, `/api/file-raw${url.search}`);
+      return;
+    }
+    const rawUrl = `/api/file-raw${url.search}`;
+    const page = renderArtifactViewerPage(f.name, isHtml ? "html" : "image", rawUrl);
+    res.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+    });
+    res.end(page);
+    return;
+  }
+
+  // Pin a viewed artifact: snapshot its CURRENT bytes into artifact storage and
+  // record a shareable pin. Reuses readFileForServing so pinning inherits the
+  // exact same viewable-type gating (415), denylist, cwd resolution, and
+  // connector-out-of-date (501) handling as the file viewer — only viewable
+  // artifacts can be pinned. The bytes must be complete to hash honestly, so a
+  // truncated (too-large) read is rejected. The viewer is read from the
+  // withPinViewer() scope established by the request layer.
+  if (req.method === "POST" && url.pathname === "/api/pins") {
+    const f = await readFileForServing(req, res, url);
+    if (!f) return; // error already sent
+    if (f.result.truncated) {
+      sendJson(res, 413, {
+        error: "File is too large to pin — pinning needs the whole file to hash it.",
+      });
+      return;
+    }
+    const body = await readJsonBody(req).catch(() => ({}));
+    const sourceMachineId =
+      req.headers["x-machine-id"] || url.searchParams.get("machineId") || "";
+    const bytes = Buffer.from(f.result.base64, "base64");
+    const { pin, deduped, persisted } = await createPin(
+      {
+        bytes,
+        name: f.name,
+        contentType: f.contentType,
+        ext: path.extname(f.name).toLowerCase(),
+        kind: f.kind,
+        sourcePath: f.requestedPath,
+        sourceMachineId,
+        share: body && body.share,
+      },
+      { storage: ARTIFACT_STORAGE },
+    );
+    sendJson(res, deduped ? 200 : 201, {
+      pin: publicPinView(pin),
+      deduped,
+      persisted,
+    });
     return;
   }
 
@@ -3923,6 +4301,47 @@ const IS_HUB_MODE = MODE.kind === "controller";
 const REQUIRE_BROWSER_AUTH =
   MODE.kind === "controller" || process.env.TMUX_MOBILE_REQUIRE_AUTH === "1";
 
+// Artifact storage backs the "pin a file" feature: pinning snapshots a viewed
+// file's bytes here so it gets a stable, shareable link that survives the origin
+// machine going offline. Local-disk by default (zero new infra); GCS/S3 when
+// TMUX_MOBILE_ARTIFACT_STORAGE is set. If a cloud driver fails to initialize
+// (e.g. its SDK isn't installed), fall back to the local driver so the server
+// still boots — pinning degrades to local-only rather than taking the box down.
+let ARTIFACT_STORAGE;
+try {
+  ARTIFACT_STORAGE = await createArtifactStorage();
+} catch (error) {
+  console.error(
+    `Artifact storage init failed (${error.message}); falling back to local disk.`,
+  );
+  ARTIFACT_STORAGE = createLocalArtifactStorage();
+}
+
+// The pin INDEX (mutable metadata records) is a separate concern from the bytes:
+// it lives in a pluggable PinIndex backend chosen by TMUX_MOBILE_PIN_INDEX —
+// memory (default, zero infra) | file (local JSON) | firestore (durable,
+// per-document, concurrent-safe). On Cloud Run the home dir is ephemeral, so a
+// file/memory index would reset on every restart; Firestore makes pins durable
+// with proper per-record writes (no whole-file rewrite). If the chosen backend
+// fails to init (e.g. SDK missing / bad creds), fall back to an in-memory index
+// so the server still boots — pinning degrades to ephemeral rather than crashing.
+let PIN_INDEX;
+try {
+  PIN_INDEX = await createPinIndex();
+} catch (error) {
+  console.error(
+    `Pin index init failed (${error.message}); falling back to in-memory.`,
+  );
+  const { createMemoryPinIndex } = await import("./lib/pin-index.mjs");
+  PIN_INDEX = createMemoryPinIndex();
+}
+setPinIndex(PIN_INDEX);
+try {
+  await hydratePins();
+} catch (error) {
+  console.error(`Pin index hydrate failed (${error.message}); starting empty.`);
+}
+
 function validateStartupConfig() {
   if (MODE.kind !== "controller") return;
 
@@ -4098,6 +4517,78 @@ if (MODE.kind === "register") {
         return;
       }
 
+      // Pinned artifacts — listing, sharing, unpinning, and the shareable serve
+      // link. These live ABOVE the per-machine /api routing on purpose: a pin's
+      // bytes are in artifact storage, not on the origin machine, so the share
+      // link and the manage UI must work even when that machine is offline.
+      // Creating a pin (POST /api/pins) DOES need the live machine to read the
+      // bytes, so it lives inside handleApi instead. Every branch authorizes
+      // with the already-computed `viewer`.
+      // GET/PATCH/DELETE are machine-independent (they read the pin index, not
+      // the origin machine), so they're handled here. POST /api/pins is NOT
+      // intercepted — it needs the live machine's bytes and falls through to
+      // handleApi below.
+      if (url.pathname === "/api/pins" && req.method !== "POST") {
+        if (req.method === "GET") {
+          sendJson(res, 200, { pins: await listPins(viewer) });
+          return;
+        }
+        const pinId = url.searchParams.get("id") || "";
+        if (req.method === "PATCH") {
+          const body = await readJsonBody(req);
+          try {
+            const { pin, persisted } = await updateShare(pinId, viewer, body.share);
+            sendJson(res, 200, { pin: publicPinView(pin), persisted });
+          } catch (error) {
+            sendJson(res, error.status || 400, { error: error.message });
+          }
+          return;
+        }
+        if (req.method === "DELETE") {
+          try {
+            const result = await deletePin(pinId, viewer, { storage: ARTIFACT_STORAGE });
+            sendJson(res, 200, { ok: true, ...result });
+          } catch (error) {
+            sendJson(res, error.status || 400, { error: error.message });
+          }
+          return;
+        }
+        sendJson(res, 405, { error: "Method not allowed" });
+        return;
+      }
+
+      // Shareable serve link. The user-visible path is the short `/pin?token=…`;
+      // `/api/pin` is kept as an alias so links shared before the rename still
+      // work. Because `/pin` is NOT under `/api/`, an unauthenticated hit is
+      // redirected to the login flow by the auth gate above (with returnTo back
+      // to the pin) rather than getting a JSON 401.
+      //
+      // Re-checks the share scope on every request (so a re-scope/unpin takes
+      // effect immediately), then serves the artifact. A markdown pin RENDERS to
+      // a styled HTML page by default (with the owner's pin-management overlay);
+      // `?raw=1` serves the source text and `?dl=1` downloads it. Non-markdown is
+      // streamed (local) or 302-redirected to a presigned URL (cloud, presign).
+      if (req.method === "GET" && (url.pathname === "/pin" || url.pathname === "/api/pin")) {
+        const token = url.searchParams.get("token") || "";
+        const result = await servePin(viewer, token, {
+          storage: ARTIFACT_STORAGE,
+          dl: url.searchParams.get("dl") === "1",
+          raw: url.searchParams.get("raw") === "1",
+          renderMarkdown: renderMarkdownPage,
+        });
+        if (result.status === 302) {
+          sendRedirect(res, result.redirect);
+          return;
+        }
+        if (result.status !== 200) {
+          sendJson(res, result.status, { error: result.error });
+          return;
+        }
+        res.writeHead(200, result.headers);
+        res.end(result.body);
+        return;
+      }
+
       if (url.pathname.startsWith("/api/")) {
         if (hub) {
           if (req.method === "GET" && url.pathname === "/api/machines") {
@@ -4184,13 +4675,17 @@ if (MODE.kind === "register") {
           }
           await withBackend(hub.backendFor(viewer, machineId), () =>
             withRequestMux(requestMux(req, url), () =>
-              withVoiceUser(userId, () => handleApi(req, res, url)),
+              withPinViewer(viewer, () =>
+                withVoiceUser(userId, () => handleApi(req, res, url)),
+              ),
             ),
           );
           return;
         }
         await withRequestMux(requestMux(req, url), () =>
-          withVoiceUser(userId, () => handleApi(req, res, url)),
+          withPinViewer(viewer, () =>
+            withVoiceUser(userId, () => handleApi(req, res, url)),
+          ),
         );
         return;
       }

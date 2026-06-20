@@ -635,6 +635,12 @@ const els = {
   refreshDirectoryPicker: document.querySelector("#refreshDirectoryPicker"),
   directoryBackdrop: document.querySelector("#directoryBackdrop"),
   directorySheet: document.querySelector("#directorySheet"),
+  openPinsSheet: document.querySelector("#openPinsSheet"),
+  closePinsSheet: document.querySelector("#closePinsSheet"),
+  refreshPins: document.querySelector("#refreshPins"),
+  pinsBackdrop: document.querySelector("#pinsBackdrop"),
+  pinsSheet: document.querySelector("#pinsSheet"),
+  pinsList: document.querySelector("#pinsList"),
   openTargetPicker: document.querySelector("#openTargetPicker"),
   copyWindowId: document.querySelector("#copyWindowId"),
   globalRecentsToggle: document.querySelector("#globalRecentsToggle"),
@@ -654,7 +660,7 @@ async function api(path, options = {}) {
   if (hasBody && !isRawBody && !headers["content-type"]) {
     headers["content-type"] = "application/json";
   }
-  if (state.machineId && shouldAttachMachineHeader(path)) {
+  if (state.machineId && shouldAttachMachineHeader(path, requestOptions.method)) {
     headers["x-machine-id"] = state.machineId;
   }
   const requestMux = normalizeMux(mux) || state.mux;
@@ -676,8 +682,13 @@ async function api(path, options = {}) {
   return json;
 }
 
-function shouldAttachMachineHeader(path) {
+function shouldAttachMachineHeader(path, method) {
   const pathname = new URL(path, window.location.origin).pathname;
+  // The pin serve link and pin listing/sharing/unpinning are machine-independent
+  // (the bytes live in artifact storage, not on a machine). POST /api/pins is the
+  // exception: it reads the file off the live machine, so it keeps the header.
+  if (pathname === "/pin" || pathname === "/api/pin") return false;
+  if (pathname === "/api/pins") return String(method || "GET").toUpperCase() === "POST";
   return (
     pathname.startsWith("/api/") &&
     pathname !== "/api/runtime" &&
@@ -1557,7 +1568,7 @@ function directoryStatus(text) {
 function syncSheetOpenClass() {
   document.body.classList.toggle(
     "sheet-open",
-    state.targetPickerOpen || state.directoryPickerOpen,
+    state.targetPickerOpen || state.directoryPickerOpen || state.pinsSheetOpen,
   );
 }
 
@@ -1601,6 +1612,213 @@ function closeDirectoryPicker() {
   state.directoryPickerOpen = false;
   els.directorySheet.hidden = true;
   syncSheetOpenClass();
+}
+
+// ---- Pinned artifacts management sheet ----------------------------------
+
+function openPinsSheet() {
+  closeTargetPicker();
+  closeDirectoryPicker();
+  setGlobalRecentsOpen(false);
+  state.pinsSheetOpen = true;
+  els.pinsSheet.hidden = false;
+  syncSheetOpenClass();
+  loadPins();
+}
+
+function closePinsSheet() {
+  state.pinsSheetOpen = false;
+  els.pinsSheet.hidden = true;
+  syncSheetOpenClass();
+}
+
+const PIN_SCOPE_LABELS = {
+  private: "Only me",
+  all: "All logged-in users",
+  users: "Specific people",
+};
+
+function formatPinAge(ts) {
+  if (!ts) return "";
+  const secs = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function formatPinSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function loadPins() {
+  if (!els.pinsList) return;
+  els.pinsList.innerHTML = "";
+  const loading = document.createElement("div");
+  loading.className = "pins-empty";
+  loading.textContent = "Loading…";
+  els.pinsList.append(loading);
+  try {
+    const { pins } = await api("/api/pins");
+    renderPins(pins || []);
+  } catch (error) {
+    els.pinsList.innerHTML = "";
+    const err = document.createElement("div");
+    err.className = "pins-empty";
+    err.textContent = error.message || "Failed to load pins.";
+    els.pinsList.append(err);
+  }
+}
+
+function renderPins(pins) {
+  els.pinsList.innerHTML = "";
+  if (!pins.length) {
+    const empty = document.createElement("div");
+    empty.className = "pins-empty";
+    empty.textContent = "No pinned artifacts yet. Open a file and tap Pin.";
+    els.pinsList.append(empty);
+    return;
+  }
+  for (const pin of pins) {
+    els.pinsList.append(renderPinRow(pin));
+  }
+}
+
+function renderPinRow(pin) {
+  const row = document.createElement("div");
+  row.className = "pin-row";
+
+  const head = document.createElement("div");
+  head.className = "pin-row-head";
+  const name = document.createElement("strong");
+  name.className = "pin-name";
+  name.textContent = pin.name;
+  head.append(name);
+  if (pin.version > 1) {
+    const ver = document.createElement("span");
+    ver.className = "pin-chip";
+    ver.textContent = `v${pin.version}`;
+    head.append(ver);
+  }
+  row.append(head);
+
+  const meta = document.createElement("div");
+  meta.className = "pin-meta";
+  const bits = [
+    formatPinSize(pin.size),
+    formatPinAge(pin.createdAt),
+    PIN_SCOPE_LABELS[pin.share.scope] || pin.share.scope,
+  ].filter(Boolean);
+  if (!pin.owned && pin.ownerEmail) bits.push(`by ${pin.ownerEmail}`);
+  meta.textContent = bits.join(" · ");
+  row.append(meta);
+
+  if (pin.sourcePath) {
+    const src = document.createElement("div");
+    src.className = "pin-source";
+    src.textContent = pin.sourcePath;
+    row.append(src);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "pin-actions";
+
+  const open = document.createElement("button");
+  open.className = "small-button";
+  open.type = "button";
+  open.textContent = "Open";
+  open.addEventListener("click", () => {
+    // Markdown renders by default on the share link now; no &view needed.
+    window.open(pin.shareUrl, "_blank", "noopener");
+  });
+  actions.append(open);
+
+  const copy = document.createElement("button");
+  copy.className = "small-button";
+  copy.type = "button";
+  copy.textContent = "Copy link";
+  copy.addEventListener("click", async () => {
+    const link = `${window.location.origin}${pin.shareUrl}`;
+    try {
+      await navigator.clipboard?.writeText(link);
+      setStatus("Link copied", true);
+    } catch {
+      setStatus(link, true);
+    }
+  });
+  actions.append(copy);
+
+  // Owner-only: change sharing scope + unpin.
+  if (pin.owned) {
+    const scope = document.createElement("select");
+    scope.className = "pin-scope-select";
+    for (const value of ["private", "all", "users"]) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = PIN_SCOPE_LABELS[value];
+      if (value === pin.share.scope) opt.selected = true;
+      scope.append(opt);
+    }
+    const usersInput = document.createElement("input");
+    usersInput.className = "pin-users-input";
+    usersInput.placeholder = "emails, comma-separated";
+    usersInput.value = (pin.share.users || []).join(", ");
+    usersInput.hidden = pin.share.scope !== "users";
+
+    const applyScope = async () => {
+      usersInput.hidden = scope.value !== "users";
+      const share = {
+        scope: scope.value,
+        users:
+          scope.value === "users"
+            ? usersInput.value.split(",").map((s) => s.trim()).filter(Boolean)
+            : [],
+      };
+      try {
+        await api(`/api/pins?id=${encodeURIComponent(pin.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ share }),
+        });
+        setStatus("Sharing updated", true);
+      } catch (error) {
+        setStatus(error.message || "Update failed", false);
+      }
+    };
+    scope.addEventListener("change", applyScope);
+    usersInput.addEventListener("change", applyScope);
+    actions.append(scope);
+
+    const unpin = document.createElement("button");
+    unpin.className = "small-button danger";
+    unpin.type = "button";
+    unpin.textContent = "Unpin";
+    unpin.addEventListener("click", async () => {
+      if (!window.confirm(`Unpin "${pin.name}"? The share link will stop working.`)) {
+        return;
+      }
+      try {
+        await api(`/api/pins?id=${encodeURIComponent(pin.id)}`, { method: "DELETE" });
+        setStatus("Unpinned", true);
+        loadPins();
+      } catch (error) {
+        setStatus(error.message || "Unpin failed", false);
+      }
+    });
+    actions.append(unpin);
+
+    row.append(actions);
+    row.append(usersInput);
+  } else {
+    row.append(actions);
+  }
+
+  return row;
 }
 
 // The text composer uses Lexical, loaded from a CDN since the app has no build
@@ -4991,11 +5209,15 @@ els.fullscreenSnapshot.addEventListener("click", () => {
 
 // Smart content viewer: fetch a pane-referenced file and show it inline. The
 // path is resolved against the pane's cwd server-side (and confined to it).
-// Markdown opens in a new tab as a rendered HTML page (/api/file-view); all other
-// viewable artifacts (images, video, HTML) open in a new tab as a real, named URL
-// (/api/file-raw). Real server URLs — not blob: — so the tab title and any
-// "Save as…" use the actual file name (Content-Disposition), no blob GUIDs.
+// Markdown opens as a rendered HTML page (/api/file-view); images and standalone
+// HTML open through a viewer-wrapper page (/api/file-page) that embeds the
+// artifact and carries the "Pin" overlay; raw media (video/audio) open as a real,
+// named URL (/api/file-raw) — they can't host an overlay, so they pin from the
+// file chip instead. All are real server URLs (not blob:) so the tab title and
+// any "Save as…" use the actual file name (Content-Disposition), no blob GUIDs.
 const MARKDOWN_FILE_EXT = /\.(md|markdown|mdown|mkd)$/i;
+// Image + standalone-HTML kinds get the overlay-bearing wrapper page.
+const OVERLAY_VIEWER_EXT = /\.(png|jpe?g|gif|svg|webp|bmp|ico|html?)$/i;
 
 // Build an authed, machine-scoped file URL. A new tab can't send the x-machine-id
 // header, so the machine is passed as a query param (the server accepts either);
@@ -5015,7 +5237,11 @@ function openFileViewer(filePath) {
   }
   // Open in a new tab via a real server URL. window.open in the click gesture
   // avoids popup blocking; no fetch/blob round-trip needed.
-  const endpoint = MARKDOWN_FILE_EXT.test(filePath) ? "/api/file-view" : "/api/file-raw";
+  const endpoint = MARKDOWN_FILE_EXT.test(filePath)
+    ? "/api/file-view"
+    : OVERLAY_VIEWER_EXT.test(filePath)
+      ? "/api/file-page"
+      : "/api/file-raw";
   const url = fileUrl(endpoint, filePath);
   const tab = window.open(url, "_blank", "noopener");
   if (!tab) {
@@ -5025,6 +5251,39 @@ function openFileViewer(filePath) {
     a.target = "_blank";
     a.rel = "noopener";
     a.click();
+  }
+}
+
+// Pin a pane-referenced file directly (the fallback path for raw media, whose
+// viewer tab can't host the in-page Pin overlay, and a right-click/long-press
+// affordance on any file chip). POSTs the file's current bytes to /api/pins and,
+// on success, copies the shareable link to the clipboard and surfaces it in the
+// status line. Re-pinning unchanged content dedups server-side.
+async function pinArtifact(filePath, { share = { scope: "private" } } = {}) {
+  if (!filePath) return;
+  if (!state.paneId) {
+    setStatus("Select a pane first", false);
+    return;
+  }
+  setStatus("Pinning…", true);
+  try {
+    const params = new URLSearchParams({ paneId: state.paneId, path: filePath });
+    if (state.machineId) params.set("machineId", state.machineId);
+    const res = await api(`/api/pins?${params}`, {
+      method: "POST",
+      body: JSON.stringify({ share }),
+    });
+    const link = `${window.location.origin}${res.pin.shareUrl}`;
+    try {
+      await navigator.clipboard?.writeText(link);
+      setStatus(res.deduped ? "Already pinned — link copied" : "Pinned — link copied", true);
+    } catch {
+      setStatus(res.deduped ? "Already pinned (unchanged)" : "Pinned", true);
+    }
+    // Refresh the manage sheet if it happens to be open.
+    if (els.pinsSheet && !els.pinsSheet.hidden) loadPins();
+  } catch (error) {
+    setStatus(error.message || "Pin failed", false);
   }
 }
 
@@ -5201,6 +5460,16 @@ els.snapshot.addEventListener("keydown", (event) => {
   if (!fileSpan) return;
   event.preventDefault();
   openFileViewer(fileSpan.dataset.filePath);
+});
+
+// Right-click / long-press context menu on a file chip pins it directly. This is
+// the pin path for raw media (whose viewer tab can't host the overlay) and a
+// quick shortcut for any artifact.
+els.snapshot.addEventListener("contextmenu", (event) => {
+  const fileSpan = event.target.closest?.(".pane-file");
+  if (!fileSpan) return;
+  event.preventDefault();
+  pinArtifact(fileSpan.dataset.filePath);
 });
 
 els.paneInput.addEventListener("beforeinput", (event) => {
@@ -5462,6 +5731,15 @@ els.refreshDirectoryPicker.addEventListener("click", () => {
   loadDirectories({ clear: false }).catch((error) => {
     addChat("system", error.message, "directory error");
   });
+});
+els.openPinsSheet?.addEventListener("click", openPinsSheet);
+els.closePinsSheet?.addEventListener("click", closePinsSheet);
+els.pinsBackdrop?.addEventListener("click", closePinsSheet);
+els.refreshPins?.addEventListener("click", () => loadPins());
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && els.pinsSheet && !els.pinsSheet.hidden) {
+    closePinsSheet();
+  }
 });
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && shouldHoldScreenAwake()) {

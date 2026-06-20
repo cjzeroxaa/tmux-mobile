@@ -127,6 +127,10 @@ h3 {
   align-items: stretch;
   gap: 8px;
   min-width: 0;
+  /* Positioning context for the recents popup so it can be clamped to the
+     topbar's width (and thus the viewport) regardless of where its toggle
+     button sits in the flex row. */
+  position: relative;
 }
 
 .target-pill {
@@ -164,20 +168,31 @@ h3 {
    the terminal .snapshot so its items stay clickable (same stacking fix the
    More menu needed). */
 .recents-menu {
-  position: relative;
+  /* Intentionally NOT position:relative — the popup is positioned against the
+     .mobile-topbar (a wider container) so it stays within the viewport instead
+     of overflowing off the edge when anchored to this small mid-row button. */
   flex: 0 0 auto;
   isolation: isolate;
   z-index: 60;
 }
 .recents-menu-popup {
   position: absolute;
+  /* Positioned against .mobile-topbar (the nearest positioned ancestor), not the
+     small toggle button — so it's clamped to the topbar/viewport width and can't
+     overflow either edge on a narrow phone (the bug: a right-anchored 240px popup
+     spilled off the left edge, clipping the window descriptors). It hangs below
+     the topbar, pinned to the topbar's right edge but never wider than the
+     viewport allows. */
   top: calc(100% + 6px);
   right: 0;
+  left: auto;
   z-index: 60;
   display: flex;
   flex-direction: column;
+  width: max-content;
   min-width: 240px;
-  max-width: min(86vw, 460px);
+  /* Never exceed the topbar's own width (≈ viewport minus its side padding). */
+  max-width: 100%;
   max-height: 70vh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -1518,6 +1533,104 @@ input {
   font-size: 12px;
   line-height: 1.4;
   padding: 12px 4px;
+}
+
+/* Pinned artifacts management sheet (reuses the directory-sheet shell). */
+.pins-list {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 2px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pins-empty {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 16px 4px;
+  text-align: center;
+}
+
+.pin-row {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(127, 127, 127, 0.05);
+  padding: 12px;
+}
+
+.pin-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pin-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.pin-chip {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.pin-meta {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pin-source {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.pin-actions .small-button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.pin-scope-select,
+.pin-users-input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.pin-users-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
 }
 
 .small-button,
