@@ -127,6 +127,10 @@ h3 {
   align-items: stretch;
   gap: 8px;
   min-width: 0;
+  /* Positioning context for the recents popup so it can be clamped to the
+     topbar's width (and thus the viewport) regardless of where its toggle
+     button sits in the flex row. */
+  position: relative;
 }
 
 .target-pill {
@@ -164,20 +168,31 @@ h3 {
    the terminal .snapshot so its items stay clickable (same stacking fix the
    More menu needed). */
 .recents-menu {
-  position: relative;
+  /* Intentionally NOT position:relative — the popup is positioned against the
+     .mobile-topbar (a wider container) so it stays within the viewport instead
+     of overflowing off the edge when anchored to this small mid-row button. */
   flex: 0 0 auto;
   isolation: isolate;
   z-index: 60;
 }
 .recents-menu-popup {
   position: absolute;
+  /* Positioned against .mobile-topbar (the nearest positioned ancestor), not the
+     small toggle button — so it's clamped to the topbar/viewport width and can't
+     overflow either edge on a narrow phone (the bug: a right-anchored 240px popup
+     spilled off the left edge, clipping the window descriptors). It hangs below
+     the topbar, pinned to the topbar's right edge but never wider than the
+     viewport allows. */
   top: calc(100% + 6px);
   right: 0;
+  left: auto;
   z-index: 60;
   display: flex;
   flex-direction: column;
+  width: max-content;
   min-width: 240px;
-  max-width: min(86vw, 460px);
+  /* Never exceed the topbar's own width (≈ viewport minus its side padding). */
+  max-width: 100%;
   max-height: 70vh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
