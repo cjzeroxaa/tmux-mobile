@@ -2824,13 +2824,13 @@ function handleCardShortcuts(event) {
   }
 
   const key = event.key.toLowerCase();
-  if (key === "i") {
+  if (key === "r") {
     const agent = selectedAgentFrom();
     if (agent) {
       event.preventDefault();
       openInteract(agent);
     }
-  } else if (key === "r") {
+  } else if (key === "i") {
     const agent = selectedAgentFrom();
     if (agent) {
       event.preventDefault();
@@ -3074,7 +3074,7 @@ function renderCard(agent) {
     <span class="cc-card-actions">
       ${cardActionButton({
         className: "cc-interact-button",
-        title: "Interact",
+        title: "Interact (R)",
         dataAttrs: `data-interact-key="${escapeHtml(readKey)}"`,
         icon: ICONS.interact,
       })}
@@ -3095,7 +3095,7 @@ function renderCard(agent) {
       }) : ""}
       ${cardActionButton({
         className: `cc-read-button${readingThis ? " is-reading" : ""}`,
-        title: readingThis ? "Stop reading" : "Read aloud",
+        title: readingThis ? "Stop reading" : "Read aloud (I)",
         dataAttrs: `data-read-key="${escapeHtml(readKey)}"`,
         disabled: readDisabled,
         icon: readingThis ? ICONS.stop : ICONS.read,
