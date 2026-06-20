@@ -5225,6 +5225,7 @@ const OVERLAY_VIEWER_EXT = /\.(png|jpe?g|gif|svg|webp|bmp|ico|html?)$/i;
 function fileUrl(endpoint, filePath, { dl = false } = {}) {
   const params = new URLSearchParams({ paneId: state.paneId, path: filePath });
   if (state.machineId) params.set("machineId", state.machineId);
+  if (state.mux) params.set("mux", state.mux);
   if (dl) params.set("dl", "1");
   return `${endpoint}?${params}`;
 }

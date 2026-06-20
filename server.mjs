@@ -289,6 +289,7 @@ function pinOverlayHtml(managePin) {
   var paneId = params.get("paneId");
   var filePath = params.get("path");
   var machineId = params.get("machineId");
+  var mux = params.get("mux");
 
   // MANAGE mode: this is an already-pinned, served page. Only the owner gets
   // controls; a non-owner viewer sees no overlay at all.
@@ -336,6 +337,7 @@ function pinOverlayHtml(managePin) {
     function pinsUrl() {
       var p = new URLSearchParams({ paneId: paneId, path: filePath });
       if (machineId) p.set("machineId", machineId);
+      if (mux) p.set("mux", mux);
       return "/api/pins?" + p.toString();
     }
     function showPinned(pin, deduped) {
@@ -351,8 +353,11 @@ function pinOverlayHtml(managePin) {
       statusEl.textContent = "Pinning…";
       fetch(pinsUrl(), {
         method: "POST",
-        headers: machineId ? { "content-type": "application/json", "x-machine-id": machineId }
-                           : { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          ...(machineId ? { "x-machine-id": machineId } : {}),
+          ...(mux ? { "x-mux": mux } : {}),
+        },
         body: JSON.stringify({ share: currentShare() }),
       }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
         .then(function (res) {
