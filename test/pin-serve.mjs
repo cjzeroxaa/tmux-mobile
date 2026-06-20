@@ -61,6 +61,13 @@ const renderMarkdown = (name, text, _truncated, managePin) => {
   const owned = managePin && managePin.owned ? "OWNER" : "VIEWER";
   return `<html><title>${name}</title>${text}<!--${owned}--></html>`;
 };
+// Viewer-wrapper renderer for html/image pins. Capture its args.
+let lastViewer;
+const renderViewer = (name, kind, rawUrl, managePin) => {
+  lastViewer = { name, kind, rawUrl, managePin };
+  const owned = managePin && managePin.owned ? "OWNER" : "VIEWER";
+  return `<html><title>${name}</title><iframe src="${rawUrl}"></iframe><!--${kind}:${owned}--></html>`;
+};
 
 let clock = 1;
 const now = () => clock++;
@@ -146,6 +153,52 @@ const now = () => clock++;
   const redir = await servePin(bob, cpin.token, { storage: cloud, raw: true });
   assert.equal(redir.status, 302);
   assert.match(redir.redirect, /^https:\/\/signed\.example\//);
+
+  // --- HTML pin → viewer-wrapper page with the owner overlay (the bug: an HTML
+  // pin served raw bytes with no management overlay). ---
+  const htmlStore = localFake();
+  const { pin: hpin } = await createPin(
+    {
+      viewer: alice,
+      bytes: Buffer.from("<html><body><script>1</script></body></html>"),
+      name: "flow.forge.html",
+      ext: ".html",
+      kind: "external",
+      contentType: "text/html; charset=utf-8",
+      sourcePath: "/p/flow.forge.html",
+      sourceMachineId: "m1",
+      share: { scope: "all" },
+    },
+    { storage: htmlStore, now },
+  );
+  // Owner: wrapper page rendered, overlay flagged owned, iframe points at raw URL.
+  const hres = await servePin(alice, hpin.token, { storage: htmlStore, renderViewer, renderMarkdown });
+  assert.equal(hres.status, 200);
+  assert.equal(hres.headers["content-type"], "text/html; charset=utf-8");
+  assert.equal(lastViewer.kind, "html", "html pin uses the html wrapper");
+  assert.equal(lastViewer.managePin.owned, true, "owner gets owned overlay");
+  assert.match(lastViewer.rawUrl, /token=.*&raw=1$/, "wrapper embeds the raw URL");
+  assert.match(hres.body.toString(), /<!--html:OWNER-->/);
+
+  // Non-owner viewer (scope:all) still sees the wrapper, but not owned.
+  const hresBob = await servePin(bob, hpin.token, { storage: htmlStore, renderViewer, renderMarkdown });
+  assert.match(hresBob.body.toString(), /<!--html:VIEWER-->/, "non-owner not owned");
+
+  // raw=1 → the actual HTML bytes, sandboxed via CSP, NOT the wrapper.
+  const hraw = await servePin(alice, hpin.token, { storage: htmlStore, raw: true, renderViewer });
+  assert.equal(hraw.headers["content-type"], "text/html; charset=utf-8");
+  assert.match(hraw.headers["content-security-policy"], /^sandbox /);
+  assert.match(hraw.body.toString(), /<script>/, "raw serves the source bytes");
+
+  // An IMAGE pin uses the image wrapper.
+  const imgStore = localFake();
+  const { pin: ipin } = await createPin(
+    { viewer: alice, bytes: Buffer.from("PNGDATA"), name: "p.png", ext: ".png", kind: "image",
+      contentType: "image/png", sourcePath: "/p/p.png", sourceMachineId: "m1", share: { scope: "private" } },
+    { storage: imgStore, now },
+  );
+  await servePin(alice, ipin.token, { storage: imgStore, renderViewer, renderMarkdown });
+  assert.equal(lastViewer.kind, "image", "image pin uses the image wrapper");
 
   console.log("pin-serve unit tests passed");
 }
