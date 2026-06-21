@@ -24,6 +24,14 @@ await esbuild.build({
     js: [
       "#!/usr/bin/env node",
       `// tmux-mobile connector bundle, revision ${revision}`,
+      // ESM-bundle compat shim. Some transitive deps reach Node built-ins via
+      // CommonJS require() — notably engine.io-client's xmlhttprequest-ssl, which
+      // does require("fs"). esbuild's ESM output otherwise replaces those with a
+      // stub that throws `Dynamic require of "fs" is not supported` at load.
+      // Defining a real require (via createRequire) lets esbuild's __require
+      // helper fall through to it, so built-in requires resolve normally.
+      "import { createRequire as __tmuxMobileCreateRequire } from 'node:module';",
+      "const require = __tmuxMobileCreateRequire(import.meta.url);",
       "process.env.TMUX_MOBILE_REVISION ||= " + JSON.stringify(revision) + ";",
     ].join("\n"),
   },
