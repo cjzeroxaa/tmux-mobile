@@ -291,6 +291,10 @@ const state = {
     },
   },
   selectedCardKey: "",
+  // Agents backing the transcript sheet and the response-fullscreen overlay, so
+  // a tapped file path in those views resolves to the right pane/machine.
+  transcriptAgent: null,
+  fullscreenAgent: null,
   interactVoice: {
     status: "idle",
     audioContext: null,
@@ -1565,8 +1569,9 @@ function restoreCommandCenterScrollSoon(snapshot) {
   requestAnimationFrame(() => restoreCommandCenterScroll(snapshot));
 }
 
-function openResponseFullscreen({ label, text, timestamp, format }) {
+function openResponseFullscreen({ label, text, timestamp, format, agent = null }) {
   if (!text || !els.responseFullscreen || !els.responseFullscreenBody) return;
+  state.fullscreenAgent = agent || null;
   if (els.responseFullscreenTitle) els.responseFullscreenTitle.textContent = label;
   if (els.responseFullscreenMeta) {
     els.responseFullscreenMeta.textContent =
@@ -1583,6 +1588,7 @@ function closeResponseFullscreen() {
   if (!els.responseFullscreen) return;
   els.responseFullscreen.hidden = true;
   els.responseFullscreenBody?.replaceChildren();
+  state.fullscreenAgent = null;
 }
 
 function transcriptKeyForAgent(agent) {
@@ -1611,6 +1617,7 @@ function renderTranscriptTurns(agent, turns) {
         timestamp: turn?.t || null,
         expandedKey: `${transcriptKeyForAgent(agent)}::${index}`,
         format: role === "assistant" ? "markdown" : "plain",
+        agent,
       }),
     );
   });
@@ -1622,6 +1629,7 @@ function renderTranscriptTurns(agent, turns) {
 
 async function openAgentTranscript(agent) {
   if (!agent?.paneId || !els.transcriptSheet) return;
+  state.transcriptAgent = agent;
   if (els.transcriptTitle) els.transcriptTitle.textContent = "Transcript";
   if (els.transcriptMeta) els.transcriptMeta.textContent = "Loading transcript...";
   setTranscriptEmpty("Loading...");
@@ -1672,9 +1680,10 @@ function closeAgentTranscript() {
   if (!els.transcriptSheet) return;
   els.transcriptSheet.hidden = true;
   els.transcriptBody?.replaceChildren();
+  state.transcriptAgent = null;
 }
 
-function renderSection({ className, label, text, timestamp, expandedKey, format = "plain", fullscreen = false }) {
+function renderSection({ className, label, text, timestamp, expandedKey, format = "plain", fullscreen = false, agent = null }) {
   const wrap = document.createElement("div");
   wrap.className = `cc-section ${className}`;
   if (state.expanded.has(expandedKey)) wrap.classList.add("is-expanded");
@@ -1713,7 +1722,7 @@ function renderSection({ className, label, text, timestamp, expandedKey, format 
     fullscreenButton.innerHTML = ICONS.fullscreen;
     fullscreenButton.disabled = !text;
     fullscreenButton.addEventListener("click", () => {
-      openResponseFullscreen({ label, text, timestamp, format });
+      openResponseFullscreen({ label, text, timestamp, format, agent });
     });
     actions.append(fullscreenButton);
   }
@@ -2557,6 +2566,7 @@ function openSelectedResponseFullscreen() {
     text: agent.lastAssistantText,
     timestamp: agent.lastAssistantAt,
     format: "markdown",
+    agent,
   });
   return true;
 }
@@ -3043,6 +3053,7 @@ function renderCard(agent) {
       timestamp: agent.lastUserAt,
       expandedKey: `${agentMachineKey(agent)}::${agentMux(agent) || "tmux"}::${agent.windowId}::user`,
       format: "plain",
+      agent,
     }),
   );
   card.append(
@@ -3054,6 +3065,7 @@ function renderCard(agent) {
       expandedKey: `${agentMachineKey(agent)}::${agentMux(agent) || "tmux"}::${agent.windowId}::assistant`,
       format: "markdown",
       fullscreen: true,
+      agent,
     }),
   );
 
@@ -3395,6 +3407,25 @@ function agentForCardKey(key) {
   if (!key) return null;
   return state.agents.find((agent) => readKeyForAgent(agent) === key) || null;
 }
+
+// File paths are also linkified inside the transcript sheet and the
+// response-fullscreen overlay; wire those to the viewer using the agent that
+// opened each view (cards handle their own clicks in the list handler below).
+function fileSpanClickHandler(getAgent) {
+  return (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const span = target?.closest(".pane-file");
+    if (!span) return;
+    event.preventDefault();
+    const agent = getAgent();
+    if (agent) openFileViewer(agent, span.dataset.filePath);
+  };
+}
+els.transcriptBody?.addEventListener("click", fileSpanClickHandler(() => state.transcriptAgent));
+els.responseFullscreenBody?.addEventListener(
+  "click",
+  fileSpanClickHandler(() => state.fullscreenAgent),
+);
 
 els.refresh.addEventListener("click", () => loadAgents());
 els.list.addEventListener("click", (event) => {
