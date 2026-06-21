@@ -62,6 +62,7 @@ import {
   renamePin,
   servePin,
   setPinIndex,
+  setPinSuperAdmins,
   updateShare,
   withPinViewer,
 } from "./lib/pins.mjs";
@@ -4615,6 +4616,7 @@ try {
   PIN_INDEX = createMemoryPinIndex();
 }
 setPinIndex(PIN_INDEX);
+setPinSuperAdmins(splitCsv(process.env.SUPER_ADMIN_EMAILS));
 try {
   await hydratePins();
 } catch (error) {

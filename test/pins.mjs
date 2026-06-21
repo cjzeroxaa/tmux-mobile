@@ -21,6 +21,7 @@ const {
   deletePin,
   canSeePin,
   setPinIndex,
+  setPinSuperAdmins,
   hydratePins,
   _resetPinsCache,
 } = await import("../lib/pins.mjs");
@@ -159,6 +160,13 @@ try {
     false,
     "no-hd (consumer) viewer never matches org",
   );
+
+  // super admin sees any pin regardless of owner/scope (mirrors machine access).
+  setPinSuperAdmins(["carol@y.com"]);
+  after = await getPinById(priv.id); // still scope "org", carol is other-domain
+  assert.equal(canSeePin(carol, after), true, "super admin sees any pin");
+  setPinSuperAdmins([]); // reset so later assertions are unaffected
+  assert.equal(canSeePin(carol, after), false, "non-admin other-domain blocked again");
 
   // --- Owner-only mutation (async → assert.rejects). ---
   await assert.rejects(
