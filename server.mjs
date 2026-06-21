@@ -65,6 +65,13 @@ import {
   withPinViewer,
 } from "./lib/pins.mjs";
 import { createPinIndex } from "./lib/pin-index.mjs";
+import {
+  addComment,
+  deleteComment,
+  listComments,
+  setCommentIndex,
+} from "./lib/comments.mjs";
+import { createCommentIndex } from "./lib/comment-index.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -4391,6 +4398,18 @@ try {
   console.error(`Pin index hydrate failed (${error.message}); starting empty.`);
 }
 
+// Comment store — same fall-back-to-memory posture as the pin index so a missing
+// SDK / bad creds degrades comments to ephemeral rather than crashing the boot.
+try {
+  setCommentIndex(await createCommentIndex());
+} catch (error) {
+  console.error(
+    `Comment index init failed (${error.message}); falling back to in-memory.`,
+  );
+  const { createMemoryCommentStore } = await import("./lib/comment-index.mjs");
+  setCommentIndex(createMemoryCommentStore());
+}
+
 function validateStartupConfig() {
   if (MODE.kind !== "controller") return;
 
@@ -4603,6 +4622,39 @@ if (MODE.kind === "register") {
           return;
         }
         sendJson(res, 405, { error: "Method not allowed" });
+        return;
+      }
+
+      // Comments on a pin (keyed by the pin's share token). Visibility + write
+      // access are inherited from the pin (canSeePin), enforced inside the
+      // comments module. Grouped by pin family so they survive new versions.
+      if (url.pathname === "/api/comments") {
+        const token = url.searchParams.get("token") || "";
+        try {
+          if (req.method === "GET") {
+            sendJson(res, 200, { comments: await listComments(viewer, token) });
+            return;
+          }
+          if (req.method === "POST") {
+            const body = await readJsonBody(req);
+            const comment = await addComment(viewer, token, {
+              aid: body.aid,
+              text: body.text,
+              anchor: body.anchor,
+            });
+            sendJson(res, 200, { comment });
+            return;
+          }
+          if (req.method === "DELETE") {
+            const id = url.searchParams.get("id") || "";
+            await deleteComment(viewer, token, id);
+            sendJson(res, 200, { ok: true });
+            return;
+          }
+          sendJson(res, 405, { error: "Method not allowed" });
+        } catch (error) {
+          sendJson(res, error.status || 400, { error: error.message });
+        }
         return;
       }
 
