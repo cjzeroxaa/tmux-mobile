@@ -1755,3 +1755,6 @@
   cursor: pointer;
 }
 .cc-pin-action:active { opacity: 0.7; }
+
+.cc-pin-action.cc-pin-danger { border-color: rgba(235,93,76,.5); color: #c0392b; }
+.cc-pin-action.cc-pin-danger:active { background: rgba(235,93,76,.1); }

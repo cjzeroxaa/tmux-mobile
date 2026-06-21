@@ -2832,6 +2832,30 @@ function renderPinRow(pin) {
     }
   });
   actions.append(copy);
+
+  // Owner-only: unpin removes the artifact (and its bytes, refcounted) for good.
+  if (pin.owned) {
+    const unpin = document.createElement("button");
+    unpin.className = "cc-pin-action cc-pin-danger";
+    unpin.type = "button";
+    unpin.textContent = "Unpin";
+    unpin.addEventListener("click", async () => {
+      if (!window.confirm(`Unpin "${pin.name || "this artifact"}"? This removes the shared link for everyone.`)) {
+        return;
+      }
+      unpin.disabled = true;
+      try {
+        await api(`/api/pins?id=${encodeURIComponent(pin.id)}`, { method: "DELETE" });
+        setStatus("Unpinned");
+        loadPins();
+      } catch (error) {
+        setStatus(error.message || "Unpin failed");
+        unpin.disabled = false;
+      }
+    });
+    actions.append(unpin);
+  }
+
   row.append(actions);
   return row;
 }
