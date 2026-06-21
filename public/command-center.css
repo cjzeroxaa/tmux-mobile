@@ -543,14 +543,15 @@
   min-width: 0;
 }
 
-.cc-card.is-selected {
-  border-color: rgba(35, 131, 226, 0.6);
-  box-shadow: var(--shadow);
-}
-
+/* One "active card" highlight. Mouse-select and keyboard-focus share the same
+   look so there aren't two competing visual states (selected border + focus
+   ring) on the same card. The selected state persists across re-renders, so it
+   doubles as the focus indicator. */
+.cc-card.is-selected,
 .cc-card:focus-visible {
-  outline: 2px solid rgba(35, 131, 226, 0.74);
-  outline-offset: 2px;
+  border-color: rgba(35, 131, 226, 0.74);
+  outline: none;
+  box-shadow: var(--shadow);
 }
 
 .cc-card.is-running {
