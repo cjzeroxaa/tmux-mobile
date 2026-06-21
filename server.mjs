@@ -243,8 +243,9 @@ function pinOverlayHtml(managePin) {
     <label class="tm-pin-scope">Shared with
       <select id="tm-pin-share">
         <option value="private">Only me</option>
-        <option value="all">All logged-in users</option>
         <option value="users">Specific people…</option>
+        <option value="org">My organization</option>
+        <option value="all">All logged-in users</option>
       </select>
     </label>
     <input id="tm-pin-users" class="tm-pin-users" placeholder="emails, comma-separated" hidden />

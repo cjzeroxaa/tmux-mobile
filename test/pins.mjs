@@ -148,6 +148,18 @@ try {
   assert.equal(canSeePin(carol, after), false, "unlisted user does not");
   assert.equal(canSeePin(alice, after), true, "owner always sees it");
 
+  // scope: org (same Google Workspace hosted domain as the owner)
+  await updateShare(priv.id, alice, { scope: "org" }, { now });
+  after = await getPinById(priv.id);
+  assert.equal(canSeePin(bob, after), true, "same-domain viewer sees org pin");
+  assert.equal(canSeePin(carol, after), false, "other-domain viewer does not");
+  assert.equal(canSeePin(alice, after), true, "owner always sees it");
+  assert.equal(
+    canSeePin({ userId: "x@gmail.com", email: "x@gmail.com", hd: "" }, after),
+    false,
+    "no-hd (consumer) viewer never matches org",
+  );
+
   // --- Owner-only mutation (async → assert.rejects). ---
   await assert.rejects(
     () => updateShare(priv.id, bob, { scope: "all" }),

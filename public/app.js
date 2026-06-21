@@ -1634,8 +1634,9 @@ function closePinsSheet() {
 
 const PIN_SCOPE_LABELS = {
   private: "Only me",
-  all: "All logged-in users",
   users: "Specific people",
+  org: "My organization",
+  all: "All logged-in users",
 };
 
 function formatPinAge(ts) {
