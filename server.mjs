@@ -59,6 +59,7 @@ import {
   hydratePins,
   listPins,
   publicPinView,
+  renamePin,
   servePin,
   setPinIndex,
   updateShare,
@@ -4827,7 +4828,10 @@ if (MODE.kind === "register") {
         if (req.method === "PATCH") {
           const body = await readJsonBody(req);
           try {
-            const { pin, persisted } = await updateShare(pinId, viewer, body.share);
+            const { pin, persisted } =
+              typeof body.name === "string"
+                ? await renamePin(pinId, viewer, body.name)
+                : await updateShare(pinId, viewer, body.share);
             sendJson(res, 200, { pin: publicPinView(pin), persisted });
           } catch (error) {
             sendJson(res, error.status || 400, { error: error.message });

@@ -2833,6 +2833,33 @@ function renderPinRow(pin) {
   });
   actions.append(copy);
 
+  // Owner-only: rename the artifact's display name.
+  if (pin.owned) {
+    const rename = document.createElement("button");
+    rename.className = "cc-pin-action";
+    rename.type = "button";
+    rename.textContent = "Rename";
+    rename.addEventListener("click", async () => {
+      const next = window.prompt("Rename artifact", pin.name || "");
+      if (next == null) return;
+      const trimmed = next.trim();
+      if (!trimmed || trimmed === pin.name) return;
+      rename.disabled = true;
+      try {
+        await api(`/api/pins?id=${encodeURIComponent(pin.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ name: trimmed }),
+        });
+        setStatus("Renamed");
+        loadPins();
+      } catch (error) {
+        setStatus(error.message || "Rename failed");
+        rename.disabled = false;
+      }
+    });
+    actions.append(rename);
+  }
+
   // Owner-only: unpin removes the artifact (and its bytes, refcounted) for good.
   if (pin.owned) {
     const unpin = document.createElement("button");
