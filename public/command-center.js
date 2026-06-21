@@ -453,17 +453,13 @@ function agentMuxChip(agent) {
 }
 
 function agentWindowName(agent) {
+  // Always plain text. The executor is already shown once by the kind chip
+  // (agentKindChip); rendering a default window name ("codex"/"claude") as a
+  // logo here produced a second, duplicate executor logo — keep just the chip.
   const name = String(agent?.windowName || "(unnamed)");
-  const normalized = normalizedAgentKind(name);
-  if (!normalized) {
-    return {
-      html: escapeHtml(name),
-      logo: false,
-    };
-  }
   return {
-    html: agentLogo(normalized, "cc-agent-logo-title"),
-    logo: true,
+    html: escapeHtml(name),
+    logo: false,
   };
 }
 
