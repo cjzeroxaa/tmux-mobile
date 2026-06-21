@@ -1723,3 +1723,35 @@
     grid-column: 1 / -1;
   }
 }
+
+/* Pinned-artifacts sheet (reuses the transcript sheet shell). */
+.cc-pins-body { display: flex; flex-direction: column; gap: 10px; }
+.cc-pins-empty { color: var(--muted, #8a8f98); padding: 16px 4px; text-align: center; }
+.cc-pin-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.cc-pin-name { font-size: 14px; word-break: break-word; }
+.cc-pin-meta { font-size: 12px; color: var(--muted, #8a8f98); }
+.cc-pin-source {
+  font-size: 12px;
+  color: var(--muted, #8a8f98);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+.cc-pin-actions { display: flex; gap: 8px; margin-top: 4px; }
+.cc-pin-action {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: inherit;
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.cc-pin-action:active { opacity: 0.7; }

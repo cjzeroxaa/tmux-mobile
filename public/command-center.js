@@ -144,6 +144,12 @@ const els = {
   transcriptTitle: document.querySelector("#ccTranscriptTitle"),
   transcriptMeta: document.querySelector("#ccTranscriptMeta"),
   transcriptBody: document.querySelector("#ccTranscriptBody"),
+  pinsOpen: document.querySelector("#ccPinsOpen"),
+  pinsSheet: document.querySelector("#ccPinsSheet"),
+  pinsBackdrop: document.querySelector("#ccPinsBackdrop"),
+  pinsClose: document.querySelector("#ccPinsClose"),
+  pinsMeta: document.querySelector("#ccPinsMeta"),
+  pinsBody: document.querySelector("#ccPinsBody"),
   cardSearchSheet: document.querySelector("#ccCardSearchSheet"),
   cardSearchBackdrop: document.querySelector("#ccCardSearchBackdrop"),
   cardSearchClose: document.querySelector("#ccCardSearchClose"),
@@ -2696,6 +2702,128 @@ function renderCardSearchResults() {
     ?.scrollIntoView({ block: "nearest" });
 }
 
+// ---- Pinned artifacts (global, owner-scoped — not tied to any machine) ----
+const PIN_SCOPE_LABELS = {
+  private: "Only me",
+  users: "Specific people",
+  org: "My organization",
+  all: "All logged-in users",
+};
+
+function formatPinAge(ts) {
+  if (!ts) return "";
+  const secs = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function formatPinSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function pinsMessage(text) {
+  const el = document.createElement("div");
+  el.className = "cc-pins-empty";
+  el.textContent = text;
+  return el;
+}
+
+function openPinsSheet() {
+  closeMoreMenu();
+  if (!els.pinsSheet) return;
+  els.pinsSheet.hidden = false;
+  requestAnimationFrame(() => els.pinsClose?.focus());
+  loadPins();
+}
+
+function closePinsSheet() {
+  if (!els.pinsSheet) return;
+  els.pinsSheet.hidden = true;
+}
+
+async function loadPins() {
+  if (!els.pinsBody) return;
+  els.pinsBody.replaceChildren(pinsMessage("Loading…"));
+  try {
+    const { pins } = await api("/api/pins");
+    renderPins(pins || []);
+  } catch (error) {
+    els.pinsBody.replaceChildren(pinsMessage(error.message || "Failed to load pins."));
+  }
+}
+
+function renderPins(pins) {
+  if (!els.pinsBody) return;
+  if (!pins.length) {
+    els.pinsBody.replaceChildren(pinsMessage("No pinned artifacts yet."));
+    if (els.pinsMeta) els.pinsMeta.textContent = "";
+    return;
+  }
+  if (els.pinsMeta) els.pinsMeta.textContent = `${pins.length} pin${pins.length === 1 ? "" : "s"}`;
+  els.pinsBody.replaceChildren(...pins.map(renderPinRow));
+}
+
+function renderPinRow(pin) {
+  const row = document.createElement("div");
+  row.className = "cc-pin-row";
+
+  const name = document.createElement("strong");
+  name.className = "cc-pin-name";
+  name.textContent = pin.name || "(unnamed)";
+  row.append(name);
+
+  const meta = document.createElement("div");
+  meta.className = "cc-pin-meta";
+  const bits = [
+    pin.version > 1 ? `v${pin.version}` : "",
+    formatPinSize(pin.size),
+    formatPinAge(pin.createdAt),
+    PIN_SCOPE_LABELS[pin.share?.scope] || pin.share?.scope || "",
+  ].filter(Boolean);
+  if (!pin.owned && pin.ownerEmail) bits.push(`by ${pin.ownerEmail}`);
+  meta.textContent = bits.join(" · ");
+  row.append(meta);
+
+  if (pin.sourcePath) {
+    const src = document.createElement("div");
+    src.className = "cc-pin-source";
+    src.textContent = pin.sourcePath;
+    row.append(src);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "cc-pin-actions";
+  const open = document.createElement("button");
+  open.className = "cc-pin-action";
+  open.type = "button";
+  open.textContent = "Open";
+  open.addEventListener("click", () => window.open(pin.shareUrl, "_blank", "noopener"));
+  actions.append(open);
+  const copy = document.createElement("button");
+  copy.className = "cc-pin-action";
+  copy.type = "button";
+  copy.textContent = "Copy link";
+  copy.addEventListener("click", async () => {
+    const link = `${window.location.origin}${pin.shareUrl}`;
+    try {
+      await navigator.clipboard?.writeText(link);
+      setStatus("Link copied");
+    } catch {
+      setStatus(link);
+    }
+  });
+  actions.append(copy);
+  row.append(actions);
+  return row;
+}
+
 function openCardSearch() {
   if (!els.cardSearchSheet || !els.cardSearchInput) return;
   closeMoreMenu();
@@ -2754,7 +2882,8 @@ function handleCardSearchShortcut(event) {
     !els.startAgentSheet?.hidden ||
     !els.deleteDialog?.hidden ||
     !els.responseFullscreen?.hidden ||
-    !els.transcriptSheet?.hidden
+    !els.transcriptSheet?.hidden ||
+    !els.pinsSheet?.hidden
   ) {
     return;
   }
@@ -2830,6 +2959,7 @@ function handleCardShortcuts(event) {
     !els.responseFullscreen?.hidden ||
     !els.transcriptSheet?.hidden ||
     !els.cardSearchSheet?.hidden ||
+    !els.pinsSheet?.hidden ||
     els.moreMenu?.open
   ) {
     return;
@@ -3603,6 +3733,12 @@ els.transcriptClose?.addEventListener("click", closeAgentTranscript);
 els.cardSearchOpen?.addEventListener("click", openCardSearch);
 els.cardSearchBackdrop?.addEventListener("click", closeCardSearch);
 els.cardSearchClose?.addEventListener("click", closeCardSearch);
+els.pinsOpen?.addEventListener("click", openPinsSheet);
+els.pinsBackdrop?.addEventListener("click", closePinsSheet);
+els.pinsClose?.addEventListener("click", closePinsSheet);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && els.pinsSheet && !els.pinsSheet.hidden) closePinsSheet();
+});
 els.cardSearchInput?.addEventListener("input", () => {
   state.cardSearchQuery = els.cardSearchInput.value || "";
   state.cardSearchIndex = 0;
