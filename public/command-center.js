@@ -2803,10 +2803,15 @@ function renderPinRow(pin) {
   meta.textContent = bits.join(" · ");
   row.append(meta);
 
-  if (pin.sourcePath) {
+  // Show a content preview; fall back to the source path for file pins, but not
+  // the synthetic "agent-response/…" path (internal, meaningless to the reader).
+  const sub =
+    pin.preview ||
+    (pin.sourcePath && !pin.sourcePath.startsWith("agent-response/") ? pin.sourcePath : "");
+  if (sub) {
     const src = document.createElement("div");
     src.className = "cc-pin-source";
-    src.textContent = pin.sourcePath;
+    src.textContent = sub;
     row.append(src);
   }
 

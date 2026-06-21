@@ -1720,10 +1720,13 @@ function renderPinRow(pin) {
   meta.textContent = bits.join(" · ");
   row.append(meta);
 
-  if (pin.sourcePath) {
+  const pinSub =
+    pin.preview ||
+    (pin.sourcePath && !pin.sourcePath.startsWith("agent-response/") ? pin.sourcePath : "");
+  if (pinSub) {
     const src = document.createElement("div");
     src.className = "pin-source";
-    src.textContent = pin.sourcePath;
+    src.textContent = pinSub;
     row.append(src);
   }
 
@@ -1759,7 +1762,7 @@ function renderPinRow(pin) {
   if (pin.owned) {
     const scope = document.createElement("select");
     scope.className = "pin-scope-select";
-    for (const value of ["private", "all", "users"]) {
+    for (const value of ["private", "users", "org", "all"]) {
       const opt = document.createElement("option");
       opt.value = value;
       opt.textContent = PIN_SCOPE_LABELS[value];
