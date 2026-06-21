@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import http from "node:http";
-import { WebSocket } from "ws";
+import { io } from "socket.io-client";
 import { createHub } from "../lib/hub.mjs";
 import { AGENT_WS_PATH, helloFrame, inventoryFrame } from "../lib/protocol.mjs";
 
@@ -12,7 +12,6 @@ const hub = createHub(server, {
   authenticateAgent: () => viewer,
   livenessIntervalMs: 25,
   inventoryStaleMs: 75,
-  transportStaleMs: 5_000,
 });
 
 function waitFor(label, predicate, timeoutMs = 3_000) {
@@ -44,9 +43,14 @@ const { port } = server.address();
 
 let ws;
 try {
-  ws = new WebSocket(`ws://127.0.0.1:${port}${AGENT_WS_PATH}`);
-  ws.on("error", () => {});
-  await new Promise((resolve) => ws.once("open", resolve));
+  ws = io(`http://127.0.0.1:${port}`, {
+    path: AGENT_WS_PATH,
+    transports: ["websocket"],
+    reconnection: false,
+    forceNew: true,
+  });
+  ws.on("connect_error", () => {});
+  await new Promise((resolve) => ws.once("connect", resolve));
   ws.send(
     JSON.stringify(
       helloFrame({
@@ -188,7 +192,7 @@ try {
 
   console.log("hub command-center inventory tests passed");
 } finally {
-  ws?.close();
+  ws?.disconnect();
   hub.shutdown();
   await new Promise((resolve) => server.close(resolve));
 }

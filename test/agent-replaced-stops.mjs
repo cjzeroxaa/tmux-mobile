@@ -1,13 +1,13 @@
 // When the controller accepts a replacement connector for the same canonical
-// machine, it closes the old socket with REPLACED. That old agent process must
-// stop instead of reconnecting forever and fighting the replacement.
+// machine, it force-disconnects the old socket. Socket.IO delivers that as an
+// "io server disconnect", which suppresses auto-reconnect — so the old agent
+// process must stop (and log it) instead of fighting the replacement.
 
 import assert from "node:assert/strict";
 import http from "node:http";
-import { WebSocketServer } from "ws";
-import { AGENT_CLOSE_CODE, AGENT_WS_PATH } from "../lib/protocol.mjs";
+import { Server } from "socket.io";
+import { AGENT_WS_PATH } from "../lib/protocol.mjs";
 
-process.env.AGENT_REVISION_POLL_MS = "0";
 process.env.AGENT_MAX_BACKOFF_MS = "80";
 process.env.AGENT_MACHINE = "replaced-test-machine";
 process.env.TMUX_MOBILE_AGENT_ID = "10000000-0000-4000-8000-000000000003";
@@ -21,15 +21,14 @@ const backend = {
 };
 
 const server = http.createServer();
-const wss = new WebSocketServer({ server, path: AGENT_WS_PATH });
+const io = new Server(server, { path: AGENT_WS_PATH, transports: ["websocket"] });
 const events = [];
 let connections = 0;
 
-wss.on("connection", (ws) => {
+io.on("connection", (socket) => {
   connections += 1;
-  ws.on("message", () => {
-    ws.close(AGENT_CLOSE_CODE.REPLACED, "replaced");
-  });
+  // On the agent's hello, simulate REPLACED: force-disconnect it.
+  socket.on("message", () => socket.disconnect(true));
 });
 
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -54,6 +53,6 @@ try {
   console.log("agent replaced-stops test passed");
 } finally {
   agent.stop();
-  wss.close();
+  io.close();
   await new Promise((resolve) => server.close(resolve));
 }

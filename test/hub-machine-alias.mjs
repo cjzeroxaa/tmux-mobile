@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import http from "node:http";
-import { WebSocket } from "ws";
+import { io } from "socket.io-client";
 import { createHub } from "../lib/hub.mjs";
 import { AGENT_WS_PATH, helloFrame } from "../lib/protocol.mjs";
 
@@ -42,9 +42,16 @@ function waitFor(label, predicate, timeoutMs = 3_000) {
 }
 
 async function connectMachine(port, machine, revision, agentId = "") {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}${AGENT_WS_PATH}`);
-  ws.on("error", () => {});
-  await new Promise((resolve) => ws.once("open", resolve));
+  // forceNew so each call is a distinct connection (Socket.IO multiplexes by
+  // default, which would otherwise share one socket across all three machines).
+  const ws = io(`http://127.0.0.1:${port}`, {
+    path: AGENT_WS_PATH,
+    transports: ["websocket"],
+    reconnection: false,
+    forceNew: true,
+  });
+  ws.on("connect_error", () => {});
+  await new Promise((resolve) => ws.once("connect", resolve));
   ws.send(
     JSON.stringify(
       helloFrame({
@@ -111,9 +118,9 @@ try {
 
   console.log("hub machine-alias replacement passed");
 } finally {
-  first?.close();
-  second?.close();
-  third?.close();
+  first?.disconnect();
+  second?.disconnect();
+  third?.disconnect();
   hub.shutdown();
   await new Promise((resolve) => server.close(resolve));
 }
