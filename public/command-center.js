@@ -691,8 +691,28 @@ function interactClear() {
   interactSetText("");
 }
 
+// Place the caret at the END of the contenteditable. Focusing a contenteditable
+// otherwise drops the caret at the start, so inserting a snippet/quick-fill and
+// then focusing left the caret in front of the inserted text.
+function placeCaretAtEnd(el) {
+  if (!el) return;
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false); // collapse to the end
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } catch {}
+}
+
 function interactFocus() {
-  requestAnimationFrame(() => els.interactInput?.focus());
+  requestAnimationFrame(() => {
+    const el = els.interactInput;
+    if (!el) return;
+    el.focus();
+    placeCaretAtEnd(el);
+  });
 }
 
 function interactAppendText(text) {

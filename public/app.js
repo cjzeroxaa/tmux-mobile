@@ -1896,9 +1896,29 @@ function composerClear() {
   els.textInput.classList.add("empty");
 }
 
+// Place the caret at the END of a contenteditable (the non-Lexical fallback).
+// A plain focus() drops the caret at the start, so inserting a snippet/dictation
+// and focusing left the caret in front of the inserted text.
+function placeCaretAtEnd(el) {
+  if (!el) return;
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false); // collapse to the end
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } catch {}
+}
+
 function composerFocus() {
-  if (composerEditor) composerEditor.editor.focus();
-  else els.textInput.focus();
+  if (composerEditor) {
+    // Lexical: focus AND anchor the selection at the document end.
+    composerEditor.editor.focus(undefined, { defaultSelection: "rootEnd" });
+  } else {
+    els.textInput.focus();
+    placeCaretAtEnd(els.textInput);
+  }
 }
 
 // Drop focus from the editor so the mobile virtual keyboard retracts. Lexical
