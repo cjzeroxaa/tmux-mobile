@@ -888,7 +888,7 @@ function setInteractStatus(text) {
 
 function interactAgentLabel(agent) {
   const machine = agent.machineHostname ? `${agent.machineHostname} · ` : "";
-  const windowLabel = `${agent.windowIndex}: ${agent.windowName || "(unnamed)"}`;
+  const windowLabel = agent.windowName || "(unnamed)";
   const session = agent.sessionName ? ` · ${agent.sessionName}` : "";
   return `${machine}${windowLabel}${session}`;
 }
@@ -2577,7 +2577,7 @@ function cardSearchTitle(agent) {
 function cardSearchMeta(agent) {
   const machine = machineForAgent(agent);
   const machineText = agent.machineHostname || (machine ? machineLabel(machine) : "") || agentMachineKey(agent);
-  const windowText = `${agent.windowName || "(unnamed)"} #${agent.windowIndex}`;
+  const windowText = agent.windowName || "(unnamed)";
   const kind = agent.kind || agent.agentType || "";
   return [machineText, windowText, kind].filter(Boolean).join(" · ");
 }
@@ -3016,7 +3016,6 @@ function renderCard(agent) {
     <span class="cc-card-title">
       ${sessionTitle}
       <span class="${windowNameClass}">${windowName.html}</span>
-      <span class="cc-card-window-index">#${escapeHtml(agent.windowIndex)}</span>
     </span>
     ${machineChip}
     ${ownerChip}
