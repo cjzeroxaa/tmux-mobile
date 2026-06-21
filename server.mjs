@@ -69,8 +69,14 @@ import { createPinIndex } from "./lib/pin-index.mjs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 const connectorDistDir = path.join(__dirname, "dist");
+const connectorScriptsDir = path.join(__dirname, "scripts");
 const CONNECTOR_BUNDLE_ROUTE = "/connector/tmux-mobile-connector.mjs";
 const CONNECTOR_MANIFEST_ROUTE = "/connector/tmux-mobile-connector.json";
+// Clone-free join + self-update, served by the controller. The installer is a
+// shell one-liner (curl … | sh); the updater is run `curl … | node` like the
+// legacy git updater but pulls the bundle instead of a repo.
+const CONNECTOR_INSTALL_ROUTE = "/connector/install.sh";
+const CONNECTOR_UPDATE_BUNDLE_ROUTE = "/connector/update.mjs";
 
 loadLocalEnv(path.join(__dirname, ".env"));
 
@@ -2747,6 +2753,43 @@ function sendJson(res, status, data) {
 
 async function serveConnectorArtifact(req, res, url) {
   if (req.method !== "GET" && req.method !== "HEAD") return false;
+
+  // Clone-free installer: a shell script with the controller origin baked in, so
+  // `curl <origin>/connector/install.sh | sh` joins a fresh machine.
+  if (url.pathname === CONNECTOR_INSTALL_ROUTE) {
+    try {
+      const raw = await readFile(path.join(connectorScriptsDir, "install-connector.sh"), "utf8");
+      const body = raw.replaceAll("__CONTROLLER__", requestOrigin(req));
+      res.writeHead(200, {
+        "content-type": "text/x-shellscript; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      res.end(req.method === "HEAD" ? undefined : body);
+    } catch (error) {
+      sendJson(res, 500, { error: error.message || "Could not read connector installer" });
+    }
+    return true;
+  }
+
+  // Clone-free self-updater: run as `curl <origin>/connector/update.mjs | node
+  // --input-type=module`. Pulls the latest bundle and restarts the connector.
+  if (url.pathname === CONNECTOR_UPDATE_BUNDLE_ROUTE) {
+    try {
+      const body = await readFile(
+        path.join(connectorScriptsDir, "update-connector-bundle.mjs"),
+        "utf8",
+      );
+      res.writeHead(200, {
+        "content-type": "text/javascript; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      res.end(req.method === "HEAD" ? undefined : body);
+    } catch (error) {
+      sendJson(res, 500, { error: error.message || "Could not read connector updater" });
+    }
+    return true;
+  }
+
   const files = new Map([
     [
       CONNECTOR_BUNDLE_ROUTE,
