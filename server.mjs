@@ -4000,6 +4000,38 @@ async function handleApi(req, res, url) {
   // truncated (too-large) read is rejected. The viewer is read from the
   // withPinViewer() scope established by the request layer.
   if (req.method === "POST" && url.pathname === "/api/pins") {
+    // Inline pin: snapshot client-supplied text (e.g. an agent response) into an
+    // artifact directly — no file/live-machine read. Becomes a markdown pin, so
+    // it renders + supports comments like any other. The machine id is metadata
+    // only (provenance/family grouping), so this works even if it's offline.
+    if (url.searchParams.get("inline") === "1") {
+      const body = await readJsonBody(req).catch(() => ({}));
+      const text = String(body.text || "");
+      if (!text.trim()) {
+        sendJson(res, 400, { error: "text is required" });
+        return;
+      }
+      let name = sanitizeFilename(String(body.name || "response.md"));
+      if (!/\.[a-z0-9]+$/i.test(name)) name += ".md";
+      const sourceMachineId =
+        req.headers["x-machine-id"] || url.searchParams.get("machineId") || body.machineId || "";
+      const sourcePath = String(body.sourcePath || `agent-response/${name}`);
+      const { pin, deduped, persisted } = await createPin(
+        {
+          bytes: Buffer.from(text, "utf8"),
+          name,
+          contentType: "text/markdown; charset=utf-8",
+          ext: ".md",
+          kind: "markdown",
+          sourcePath,
+          sourceMachineId,
+          share: body && body.share,
+        },
+        { storage: ARTIFACT_STORAGE },
+      );
+      sendJson(res, deduped ? 200 : 201, { pin: publicPinView(pin), deduped, persisted });
+      return;
+    }
     const f = await readFileForServing(req, res, url);
     if (!f) return; // error already sent
     if (f.result.truncated) {

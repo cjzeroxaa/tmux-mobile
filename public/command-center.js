@@ -1709,7 +1709,7 @@ function closeAgentTranscript() {
   state.transcriptAgent = null;
 }
 
-function renderSection({ className, label, text, timestamp, expandedKey, format = "plain", fullscreen = false, agent = null }) {
+function renderSection({ className, label, text, timestamp, expandedKey, format = "plain", fullscreen = false, agent = null, pinnable = false }) {
   const wrap = document.createElement("div");
   wrap.className = `cc-section ${className}`;
   if (state.expanded.has(expandedKey)) wrap.classList.add("is-expanded");
@@ -1751,6 +1751,18 @@ function renderSection({ className, label, text, timestamp, expandedKey, format 
       openResponseFullscreen({ label, text, timestamp, format, agent });
     });
     actions.append(fullscreenButton);
+  }
+
+  if (pinnable) {
+    const pinButton = document.createElement("button");
+    pinButton.className = "cc-section-copy";
+    pinButton.type = "button";
+    pinButton.title = "Pin as artifact";
+    pinButton.setAttribute("aria-label", "Pin this response as a shareable artifact");
+    pinButton.textContent = "📌";
+    pinButton.disabled = !text;
+    pinButton.addEventListener("click", () => pinResponseAsArtifact(agent, text));
+    actions.append(pinButton);
   }
 
   const copyButton = document.createElement("button");
@@ -3216,6 +3228,7 @@ function renderCard(agent) {
       format: "markdown",
       fullscreen: true,
       agent,
+      pinnable: true,
     }),
   );
 
@@ -3570,6 +3583,38 @@ function openFileViewer(agent, filePath) {
 function agentForCardKey(key) {
   if (!key) return null;
   return state.agents.find((agent) => readKeyForAgent(agent) === key) || null;
+}
+
+// Pin an agent response as a standalone markdown artifact (shareable link +
+// comments). The text is sent inline — no file/live-machine read — so it works
+// even if the agent's machine is offline; the machine id is provenance only.
+// Re-pinning the same window groups as versions of one family (stable
+// sourcePath); identical content dedups.
+async function pinResponseAsArtifact(agent, text) {
+  if (!text || !text.trim()) return;
+  const machineId = agentMachineKey(agent);
+  const base = String(agent?.windowName || agent?.kind || "response")
+    .replace(/[^\w.-]+/g, "-")
+    .slice(0, 60) || "response";
+  const name = /\.[a-z0-9]+$/i.test(base) ? base : `${base}.md`;
+  const sourcePath = `agent-response/${machineId}/${agent?.windowId || agent?.paneId || base}`;
+  setStatus("Pinning…");
+  try {
+    const data = await api("/api/pins?inline=1", {
+      method: "POST",
+      machineId,
+      body: JSON.stringify({ text, name, sourcePath }),
+    });
+    const link = `${window.location.origin}${data.pin.shareUrl}`;
+    try {
+      await navigator.clipboard?.writeText(link);
+      setStatus("Pinned — link copied");
+    } catch {
+      setStatus(link);
+    }
+  } catch (error) {
+    setStatus(error.message || "Pin failed");
+  }
 }
 
 // File paths are also linkified inside the transcript sheet and the
