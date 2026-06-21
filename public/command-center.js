@@ -3356,6 +3356,43 @@ function stopPolling() {
   }
 }
 
+// Tapping a detected file path in a card opens the same artifact viewer the SPA
+// pane view uses. Markdown renders as an HTML page (/api/file-view); images and
+// standalone HTML get the overlay wrapper (/api/file-page); everything else is
+// served raw (/api/file-raw). A new tab can't send the x-machine-id header, so
+// the machine rides as a query param (the file routes accept either), scoped to
+// the card's own agent/pane.
+const MARKDOWN_FILE_EXT = /\.(md|markdown|mdown|mkd)$/i;
+const OVERLAY_VIEWER_EXT = /\.(png|jpe?g|gif|svg|webp|bmp|ico|html?)$/i;
+
+function openFileViewer(agent, filePath) {
+  if (!filePath || !agent?.paneId) return;
+  const endpoint = MARKDOWN_FILE_EXT.test(filePath)
+    ? "/api/file-view"
+    : OVERLAY_VIEWER_EXT.test(filePath)
+      ? "/api/file-page"
+      : "/api/file-raw";
+  const params = new URLSearchParams({ paneId: agent.paneId, path: filePath });
+  const machineId = agentMachineKey(agent);
+  if (!isLocalMachineId(machineId)) params.set("machineId", machineId);
+  const mux = agentMux(agent);
+  if (mux) params.set("mux", mux);
+  const url = `${endpoint}?${params}`;
+  const tab = window.open(url, "_blank", "noopener");
+  if (!tab) {
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.click();
+  }
+}
+
+function agentForCardKey(key) {
+  if (!key) return null;
+  return state.agents.find((agent) => readKeyForAgent(agent) === key) || null;
+}
+
 els.refresh.addEventListener("click", () => loadAgents());
 els.list.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
@@ -3365,6 +3402,15 @@ els.list.addEventListener("click", (event) => {
     "button, a, select, input, textarea, summary, [contenteditable='true']",
   );
   if (card) updateSelectedCard(card.dataset.cardKey, { focus: !interactive });
+
+  // A detected file path opens the artifact viewer, scoped to this card's agent.
+  const fileSpan = target.closest(".pane-file");
+  if (fileSpan && card) {
+    event.preventDefault();
+    const agent = agentForCardKey(card.dataset.cardKey);
+    if (agent) openFileViewer(agent, fileSpan.dataset.filePath);
+    return;
+  }
 
   const updateButton = target.closest("[data-update-machine]");
   if (updateButton) {
