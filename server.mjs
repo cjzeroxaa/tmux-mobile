@@ -72,6 +72,7 @@ import {
   setCommentIndex,
 } from "./lib/comments.mjs";
 import { createCommentIndex } from "./lib/comment-index.mjs";
+import { stampAids } from "./lib/anchor-stamp.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -497,7 +498,8 @@ ${pinOverlayHtml()}
 // instead of the create-a-pin overlay.
 function renderMarkdownPage(name, markdown, truncated, managePin) {
   const title = escapeHtmlShared(sanitizeFilename(name));
-  const body = renderMarkdown(markdown);
+  // Stamp a content-hash data-aid on each block so comments can anchor to it.
+  const body = stampAids(renderMarkdown(markdown)).html;
   const note = truncated
     ? '<p class="trunc">Showing the first part of a large file.</p>'
     : "";
@@ -555,8 +557,174 @@ function renderMarkdownPage(name, markdown, truncated, managePin) {
 ${note}
 ${body}
 ${mermaidScript}
+${commentOverlayHtml()}
 ${pinOverlayHtml(managePin)}
 </body></html>`;
+}
+
+// Inline, mobile-first comment overlay for a rendered pin. Blocks carry data-aid
+// (stampAids). Single TAP on a block toggles an inline panel right BELOW it with
+// that block's thread + an input (no right margin — see the agreed mobile UX);
+// commented blocks get a left highlight + a 💬n marker; a bottom FAB opens a flat
+// list of all comments. Talks to /api/comments?token=… (token from the page URL,
+// auth via the session cookie). Self-contained vanilla JS.
+function commentOverlayHtml() {
+  return `<style>
+  [data-aid] { scroll-margin-top: 56px; }
+  [data-aid].tmc-has { position: relative; box-shadow: inset 3px 0 0 rgba(35,131,226,.55); }
+  [data-aid].tmc-has::after {
+    content: "\\1F4AC " attr(data-tmc-count);
+    position: absolute; top: 0; right: -2px; transform: translateY(-30%);
+    font-size: 11px; line-height: 1; padding: 2px 5px; border-radius: 10px;
+    background: rgba(35,131,226,.14); color: #1a6cbd; pointer-events: none;
+  }
+  [data-aid].tmc-active { box-shadow: inset 3px 0 0 rgba(35,131,226,.9); }
+  .tmc-region {
+    margin: 8px 0 14px; padding: 10px; border: 1px solid rgba(127,127,127,.32);
+    border-radius: 10px; background: rgba(127,127,127,.06); font-size: 14px;
+  }
+  .tmc-c { padding: 6px 0; border-bottom: 1px solid rgba(127,127,127,.18); }
+  .tmc-c:last-of-type { border-bottom: 0; }
+  .tmc-c-head { display:flex; gap:6px; align-items:center; font-size:12px; opacity:.75; }
+  .tmc-c-text { white-space: pre-wrap; word-break: break-word; margin-top: 2px; }
+  .tmc-del { margin-left:auto; cursor:pointer; border:0; background:none; color:#c0392b; font-size:12px; padding:0 4px; }
+  .tmc-input { width:100%; box-sizing:border-box; min-height:54px; margin-top:6px; padding:7px 8px;
+    border:1px solid rgba(127,127,127,.4); border-radius:8px; font:inherit; resize:vertical; }
+  .tmc-actions { display:flex; gap:8px; margin-top:6px; }
+  .tmc-send { cursor:pointer; border:1px solid rgba(35,131,226,.5); background:rgba(35,131,226,.12);
+    color:#1a6cbd; border-radius:8px; padding:6px 14px; font:inherit; font-weight:600; }
+  .tmc-cancel { cursor:pointer; border:1px solid rgba(127,127,127,.4); background:transparent;
+    color:inherit; border-radius:8px; padding:6px 12px; font:inherit; }
+  .tmc-status { min-height:1em; font-size:12px; opacity:.7; margin-top:4px; }
+  .tmc-fab { position:fixed; left:12px; bottom:calc(12px + env(safe-area-inset-bottom)); z-index:2147483000;
+    cursor:pointer; border:1px solid rgba(35,131,226,.5); background:#fffdf7; color:#1a6cbd;
+    border-radius:999px; padding:8px 14px; font:600 13px -apple-system,system-ui,sans-serif; box-shadow:0 2px 10px rgba(0,0,0,.15); }
+  @media (prefers-color-scheme: dark){ .tmc-fab{ background:#2a2622; color:#9ecbff; } }
+  .tmc-fab[hidden]{ display:none; }
+  .tmc-sheet { position:fixed; inset:0; z-index:2147483001; background:rgba(0,0,0,.35); display:flex; align-items:flex-end; }
+  .tmc-sheet[hidden]{ display:none; }
+  .tmc-sheet-panel { width:100%; max-height:70vh; overflow:auto; background:var(--bg,#fff); color:inherit;
+    border-radius:14px 14px 0 0; padding:14px 14px calc(18px + env(safe-area-inset-bottom)); }
+  @media (prefers-color-scheme: dark){ .tmc-sheet-panel{ background:#1c1917; } }
+  .tmc-sheet-item { padding:10px 0; border-bottom:1px solid rgba(127,127,127,.18); cursor:pointer; }
+  .tmc-sheet-snip { font-size:12px; opacity:.65; }
+</style>
+<button id="tmc-fab" class="tmc-fab" type="button" hidden>\\1F4AC Comments</button>
+<div id="tmc-sheet" class="tmc-sheet" hidden><div class="tmc-sheet-panel" id="tmc-sheet-panel"></div></div>
+<script>
+(function(){
+  var token = new URLSearchParams(location.search).get("token");
+  if (!token) return;
+  var byAid = {}, openAnchor = null, openRegion = null;
+  function esc(s){ var d=document.createElement("div"); d.textContent = s==null?"":String(s); return d.innerHTML; }
+  function icon(s){ return s==="applied"||s==="resolved"?"\\u2705":s==="partial"?"\\uD83D\\uDFE1":s==="question"?"\\u2753":""; }
+  function call(method, opts){
+    opts = opts || {};
+    var url = "/api/comments?token=" + encodeURIComponent(token) + (opts.id ? "&id="+encodeURIComponent(opts.id) : "");
+    return fetch(url, { method:method, credentials:"same-origin",
+      headers: opts.body ? {"content-type":"application/json"} : {},
+      body: opts.body ? JSON.stringify(opts.body) : undefined })
+      .then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error||("HTTP "+r.status)); return j; }); });
+  }
+  function group(list){ byAid={}; (list||[]).forEach(function(c){ (byAid[c.aid]=byAid[c.aid]||[]).push(c); }); }
+  function totalCount(){ var n=0; for(var k in byAid) n+=byAid[k].length; return n; }
+  function badges(){
+    document.querySelectorAll("[data-aid]").forEach(function(el){
+      var n=(byAid[el.getAttribute("data-aid")]||[]).length;
+      el.classList.toggle("tmc-has", n>0);
+      if(n>0) el.setAttribute("data-tmc-count", n); else el.removeAttribute("data-tmc-count");
+    });
+    var fab=document.getElementById("tmc-fab"); var t=totalCount();
+    fab.hidden = t===0; fab.textContent = "\\uD83D\\uDCAC " + t;
+  }
+  function load(){ return call("GET").then(function(j){ group(j.comments); badges(); }).catch(function(){}); }
+
+  function renderRegion(anchor){
+    var aid = anchor.getAttribute("data-aid");
+    var region = document.createElement("div");
+    region.className = "tmc-region";
+    var list = byAid[aid] || [];
+    var html = "";
+    list.forEach(function(c){
+      html += '<div class="tmc-c" data-id="'+esc(c.id)+'">'
+        + '<div class="tmc-c-head">'+ (icon(c.status)?('<span>'+icon(c.status)+'</span>'):'')
+        + '<span>'+esc(c.authorEmail||"someone")+'</span>'
+        + (c.owned?'<button class="tmc-del" type="button" data-del="'+esc(c.id)+'">delete</button>':'')
+        + '</div><div class="tmc-c-text">'+esc(c.text)+'</div></div>';
+    });
+    html += '<textarea class="tmc-input" placeholder="Add a comment\\u2026"></textarea>'
+      + '<div class="tmc-actions"><button class="tmc-send" type="button">Send</button>'
+      + '<button class="tmc-cancel" type="button">Close</button></div>'
+      + '<div class="tmc-status"></div>';
+    region.innerHTML = html;
+    var ta = region.querySelector(".tmc-input");
+    var status = region.querySelector(".tmc-status");
+    region.querySelector(".tmc-send").addEventListener("click", function(){
+      var text = ta.value.trim(); if(!text) return;
+      status.textContent = "Sending\\u2026";
+      call("POST", { body:{ aid:aid, text:text } }).then(function(j){
+        (byAid[aid]=byAid[aid]||[]).push(j.comment); ta.value="";
+        status.textContent=""; badges(); reopen(anchor);
+      }).catch(function(e){ status.textContent = e.message || "Failed"; });
+    });
+    region.querySelector(".tmc-cancel").addEventListener("click", close);
+    region.querySelectorAll("[data-del]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var id=btn.getAttribute("data-del");
+        call("DELETE", { id:id }).then(function(){
+          byAid[aid]=(byAid[aid]||[]).filter(function(c){return c.id!==id;});
+          badges(); reopen(anchor);
+        }).catch(function(e){ status.textContent=e.message||"Failed"; });
+      });
+    });
+    anchor.insertAdjacentElement("afterend", region);
+    openAnchor = anchor; openRegion = region; anchor.classList.add("tmc-active");
+    ta.focus();
+  }
+  function close(){
+    if(openRegion){ openRegion.remove(); openRegion=null; }
+    if(openAnchor){ openAnchor.classList.remove("tmc-active"); openAnchor=null; }
+  }
+  function reopen(anchor){ close(); renderRegion(anchor); }
+  function toggle(anchor){ if(openAnchor===anchor){ close(); } else { close(); renderRegion(anchor); } }
+
+  document.body.addEventListener("click", function(ev){
+    var t = ev.target;
+    if (!(t instanceof Element)) return;
+    if (t.closest(".tmc-region") || t.closest(".tmc-fab") || t.closest(".tmc-sheet")) return;
+    if (t.closest("a,button,input,textarea,select,summary,label")) return;
+    var blk = t.closest("[data-aid]");
+    if (!blk) return;
+    toggle(blk);
+  });
+
+  // Bottom FAB → flat list of all comments; tap an item to jump + open its block.
+  var sheet=document.getElementById("tmc-sheet"), panel=document.getElementById("tmc-sheet-panel");
+  document.getElementById("tmc-fab").addEventListener("click", function(){
+    var rows="";
+    document.querySelectorAll("[data-aid]").forEach(function(el){
+      var list=byAid[el.getAttribute("data-aid")]||[]; if(!list.length) return;
+      var snip=(el.textContent||"").replace(/\\s+/g," ").trim().slice(0,60);
+      list.forEach(function(c){
+        rows += '<div class="tmc-sheet-item" data-aid="'+esc(el.getAttribute("data-aid"))+'">'
+          + '<div>'+(icon(c.status)?icon(c.status)+" ":"")+esc(c.text)+'</div>'
+          + '<div class="tmc-sheet-snip">'+esc(snip)+'</div></div>';
+      });
+    });
+    panel.innerHTML = rows || '<div class="tmc-sheet-snip">No comments yet.</div>';
+    sheet.hidden=false;
+  });
+  sheet.addEventListener("click", function(ev){
+    var item=ev.target.closest(".tmc-sheet-item");
+    if(!item){ if(ev.target===sheet) sheet.hidden=true; return; }
+    sheet.hidden=true;
+    var el=document.querySelector('[data-aid="'+CSS.escape(item.getAttribute("data-aid"))+'"]');
+    if(el){ el.scrollIntoView({block:"center"}); reopen(el); }
+  });
+
+  load();
+})();
+</script>`;
 }
 
 // Shared validation + read for the file-serving routes (/api/file, /api/file-raw,
