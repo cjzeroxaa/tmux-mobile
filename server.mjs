@@ -700,6 +700,18 @@ function commentOverlayHtml() {
 
   // Bottom FAB → flat list of all comments; tap an item to jump + open its block.
   var sheet=document.getElementById("tmc-sheet"), panel=document.getElementById("tmc-sheet-panel");
+  var lastPrompt="";
+  function buildPrompt(){
+    var lines=["The following review comments were left on this document. Please address each one and reply with what you changed.",""];
+    document.querySelectorAll("[data-aid]").forEach(function(el){
+      var list=byAid[el.getAttribute("data-aid")]||[]; if(!list.length) return;
+      var snip=(el.textContent||"").replace(/\\s+/g," ").trim().slice(0,120);
+      lines.push("> "+snip);
+      list.forEach(function(c){ lines.push("- "+c.text+(c.status&&c.status!=="open"?(" ["+c.status+"]"):"")); });
+      lines.push("");
+    });
+    return lines.join("\\n");
+  }
   document.getElementById("tmc-fab").addEventListener("click", function(){
     var rows="";
     document.querySelectorAll("[data-aid]").forEach(function(el){
@@ -711,10 +723,20 @@ function commentOverlayHtml() {
           + '<div class="tmc-sheet-snip">'+esc(snip)+'</div></div>';
       });
     });
-    panel.innerHTML = rows || '<div class="tmc-sheet-snip">No comments yet.</div>';
+    lastPrompt = buildPrompt();
+    var header = totalCount()>0
+      ? '<div class="tmc-actions" style="margin-bottom:8px"><button class="tmc-send" type="button" id="tmc-copy-prompt">Copy as prompt</button></div>'
+      : '';
+    panel.innerHTML = header + (rows || '<div class="tmc-sheet-snip">No comments yet.</div>');
     sheet.hidden=false;
   });
   sheet.addEventListener("click", function(ev){
+    if(ev.target.closest("#tmc-copy-prompt")){
+      (navigator.clipboard ? navigator.clipboard.writeText(lastPrompt) : Promise.reject())
+        .then(function(){ ev.target.textContent="Copied \\u2713"; })
+        .catch(function(){ ev.target.textContent="Copy failed"; });
+      return;
+    }
     var item=ev.target.closest(".tmc-sheet-item");
     if(!item){ if(ev.target===sheet) sheet.hidden=true; return; }
     sheet.hidden=true;
