@@ -6,7 +6,7 @@ import {
   createCommandCenterGrace,
   holdCommandCenterSnapshot as holdCommandCenterGraceSnapshot,
 } from "./command-center-grace.mjs";
-import { linkifyEscaped } from "./linkify.js";
+import { linkifyEscaped, linkifyFilesEscaped } from "./linkify.js";
 import { renderMarkdown } from "./markdown.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
 
@@ -1502,7 +1502,10 @@ async function copyTextToClipboard(text) {
 }
 
 function renderSectionContent(text, format) {
-  if (format === "markdown") return renderMarkdown(text);
+  // Markdown renders to HTML, then file paths in it are linkified (tag-safe, so
+  // the markdown's own links/images are untouched) — otherwise a path inside a
+  // rendered response wouldn't be tappable. Plain text gets the full linkifier.
+  if (format === "markdown") return linkifyFilesEscaped(renderMarkdown(text));
   return linkifyEscaped(escapeHtml(text));
 }
 

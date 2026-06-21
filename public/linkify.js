@@ -126,26 +126,43 @@ function linkifyUrls(escaped) {
   });
 }
 
-// Wrap viewable file paths in a span that the client turns into an in-app
-// viewer trigger. Runs AFTER linkifyUrls and skips text already inside an <a>
-// (so it never re-wraps a URL that happens to end in .png). The raw path is
-// stored in a data attribute (un-escaped) for the fetch; the visible text keeps
-// its escaping.
+// Linkify viewable file paths in already-escaped text OR in rendered HTML
+// (e.g. markdown output). Exported so the command-center cards can linkify
+// rendered-markdown responses without also re-running URL linkification (which
+// would corrupt the markdown's own <a href> / <img src> attributes).
+export function linkifyFilesEscaped(html) {
+  return linkifyFiles(String(html));
+}
+
+// Wrap viewable file paths in a span that the client turns into an in-app viewer
+// trigger. Tag-safe: it only rewrites TEXT between tags, never tag internals
+// (so it can't mangle an <img src="x.png"> attribute), and it skips text inside
+// <a>…</a> (so it never re-wraps a URL that happens to end in .png). The raw path
+// is stored in a data attribute (un-escaped) for the fetch; the visible text
+// keeps its escaping.
 function linkifyFiles(html) {
-  // Split on existing anchor tags so we don't touch their contents.
-  const parts = html.split(/(<a\b[^>]*>.*?<\/a>)/gs);
-  return parts
+  // First peel off whole <a>…</a> segments and leave them untouched.
+  return html
+    .split(/(<a\b[^>]*>.*?<\/a>)/gs)
     .map((part, i) => {
       if (i % 2 === 1) return part; // an <a>...</a> segment — leave it
-      return part.replace(FILE_IN_ESCAPED, (match) => {
-        // The match may span a terminal line-wrap (a newline + indentation right
-        // after a "/"). Strip that from the actual path used for the fetch, but
-        // keep `match` (the visible text) intact so the pane still shows the wrap.
-        const joined = match.replace(/\/\n[ \t]*/g, "/");
-        const rawPath = unescapeHtmlEntities(joined);
-        const dataPath = escapeHtml(rawPath).replaceAll('"', "&quot;");
-        return `<span class="pane-file" role="link" tabindex="0" data-file-path="${dataPath}">${match}</span>`;
-      });
+      // Within the rest, split on ANY tag so attribute values are never matched;
+      // only the text tokens between tags get the file-path regex.
+      return part
+        .split(/(<[^>]+>)/)
+        .map((token, j) => {
+          if (j % 2 === 1) return token; // a tag — leave it
+          return token.replace(FILE_IN_ESCAPED, (match) => {
+            // The match may span a terminal line-wrap (a newline + indentation
+            // right after a "/"). Strip that from the path used for the fetch,
+            // but keep `match` (the visible text) so the pane still shows the wrap.
+            const joined = match.replace(/\/\n[ \t]*/g, "/");
+            const rawPath = unescapeHtmlEntities(joined);
+            const dataPath = escapeHtml(rawPath).replaceAll('"', "&quot;");
+            return `<span class="pane-file" role="link" tabindex="0" data-file-path="${dataPath}">${match}</span>`;
+          });
+        })
+        .join("");
     })
     .join("");
 }
