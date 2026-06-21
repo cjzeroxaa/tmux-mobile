@@ -3360,9 +3360,23 @@ async function checkServerRevision() {
   state.serverRevision = revision || state.serverRevision;
 }
 
+// While the user is reading, pause the auto-refresh so a poll-driven re-render
+// doesn't yank the content out from under them: a section is expanded, or the
+// transcript sheet / response-fullscreen overlay is open. The manual refresh
+// button bypasses this (it calls loadAgents directly).
+function isReadingLocked() {
+  if (state.expanded.size > 0) return true;
+  if (els.responseFullscreen && !els.responseFullscreen.hidden) return true;
+  if (els.transcriptSheet && !els.transcriptSheet.hidden) return true;
+  return false;
+}
+
 function startPolling() {
   stopPolling();
-  state.pollTimer = window.setInterval(loadAgents, POLL_MS);
+  state.pollTimer = window.setInterval(() => {
+    if (isReadingLocked()) return;
+    loadAgents();
+  }, POLL_MS);
 }
 function stopPolling() {
   if (state.pollTimer) {
