@@ -231,6 +231,47 @@
   flex: 0 0 auto;
 }
 
+.cc-toast {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 50%;
+  z-index: 140;
+  max-width: min(420px, calc(100vw - 28px));
+  min-height: 36px;
+  padding: 9px 13px;
+  border: 1px solid rgba(35, 131, 226, 0.28);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 14px 38px rgba(15, 23, 42, 0.24);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.35;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -8px);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.cc-toast[hidden] {
+  display: none;
+}
+
+.cc-toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.cc-toast[data-tone="success"] {
+  border-color: rgba(22, 163, 74, 0.32);
+  background: color-mix(in srgb, var(--surface) 88%, #16a34a);
+}
+
+.cc-toast[data-tone="error"] {
+  border-color: rgba(185, 28, 28, 0.36);
+  background: color-mix(in srgb, var(--surface) 88%, #b91c1c);
+}
+
 /* "How to join" + "Who can see what" — the only onboarding block. Sits
  * above the controls when present; dismissed by ✕ (persisted), recovered
  * via the ? in the topbar. Two short blocks in a card; intentionally
@@ -975,6 +1016,16 @@
   background: rgba(22, 163, 74, 0.1);
   color: #15803d;
   opacity: 1;
+}
+
+.cc-section-copy.cc-section-pin {
+  border-color: rgba(15, 118, 110, 0.24);
+  background: rgba(15, 118, 110, 0.08);
+  color: #0f766e;
+}
+
+.cc-section-copy.cc-section-pin:active {
+  background: rgba(15, 118, 110, 0.14);
 }
 
 .cc-section.user .cc-section-text {

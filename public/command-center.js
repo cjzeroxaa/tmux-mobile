@@ -41,6 +41,8 @@ const ICONS = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
   open:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>',
+  pin:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>',
   fullscreen:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>',
   transcript:
@@ -68,6 +70,7 @@ const AGENT_LABELS = {
 const els = {
   list: document.querySelector("#ccList"),
   status: document.querySelector("#ccStatus"),
+  toast: document.querySelector("#ccToast"),
   refresh: document.querySelector("#ccRefresh"),
   filterRow: document.querySelector("#ccFilterRow"),
   sortSelect: document.querySelector("#ccSort"),
@@ -277,6 +280,8 @@ const state = {
   deletingWindows: new Set(),
   sharingWindows: new Set(),
   updatingMachines: new Set(),
+  toastTimer: null,
+  toastHideTimer: null,
   startAgent: {
     machineId: "",
     kind: "codex",
@@ -393,6 +398,23 @@ function relativeTimeLabel(value) {
 
 function setStatus(text) {
   els.status.textContent = text;
+}
+
+function showToast(message, { tone = "info", statusText = message, duration = 2600 } = {}) {
+  setStatus(statusText);
+  if (!els.toast) return;
+  window.clearTimeout(state.toastTimer);
+  window.clearTimeout(state.toastHideTimer);
+  els.toast.textContent = message;
+  els.toast.dataset.tone = tone;
+  els.toast.hidden = false;
+  requestAnimationFrame(() => els.toast?.classList.add("is-visible"));
+  state.toastTimer = window.setTimeout(() => {
+    els.toast?.classList.remove("is-visible");
+    state.toastHideTimer = window.setTimeout(() => {
+      if (els.toast) els.toast.hidden = true;
+    }, 180);
+  }, duration);
 }
 
 function isLocalMachineId(machineId) {
@@ -1620,15 +1642,21 @@ function renderTranscriptTurns(agent, turns) {
   turns.forEach((turn, index) => {
     const role = turn?.role === "assistant" ? "assistant" : "user";
     const label = role === "assistant" ? "Agent response" : "User prompt";
+    const text = turn?.text || "";
     nodes.push(
       renderSection({
         className: role,
         label: `${label} ${index + 1}`,
-        text: turn?.text || "",
+        text,
         timestamp: turn?.t || null,
         expandedKey: `${transcriptKeyForAgent(agent)}::${index}`,
         format: role === "assistant" ? "markdown" : "plain",
         agent,
+        pinnable: true,
+        pinOptions: {
+          label,
+          sourceSuffix: `transcript-${String(index + 1).padStart(3, "0")}-${role}`,
+        },
       }),
     );
   });
@@ -1694,7 +1722,7 @@ function closeAgentTranscript() {
   state.transcriptAgent = null;
 }
 
-function renderSection({ className, label, text, timestamp, expandedKey, format = "plain", fullscreen = false, agent = null, pinnable = false }) {
+function renderSection({ className, label, text, timestamp, expandedKey, format = "plain", fullscreen = false, agent = null, pinnable = false, pinOptions = null }) {
   const wrap = document.createElement("div");
   wrap.className = `cc-section ${className}`;
   if (state.expanded.has(expandedKey)) wrap.classList.add("is-expanded");
@@ -1740,13 +1768,13 @@ function renderSection({ className, label, text, timestamp, expandedKey, format 
 
   if (pinnable) {
     const pinButton = document.createElement("button");
-    pinButton.className = "cc-section-copy";
+    pinButton.className = "cc-section-copy cc-section-pin";
     pinButton.type = "button";
     pinButton.title = "Pin as artifact";
-    pinButton.setAttribute("aria-label", "Pin this response as a shareable artifact");
-    pinButton.textContent = "📌";
+    pinButton.setAttribute("aria-label", `Pin ${label.toLowerCase()} as a shareable artifact`);
+    pinButton.innerHTML = ICONS.pin;
     pinButton.disabled = !text;
-    pinButton.addEventListener("click", () => pinResponseAsArtifact(agent, text));
+    pinButton.addEventListener("click", () => pinResponseAsArtifact(agent, text, pinOptions || {}));
     actions.append(pinButton);
   }
 
@@ -3631,14 +3659,26 @@ function agentForCardKey(key) {
 // even if the agent's machine is offline; the machine id is provenance only.
 // Re-pinning the same window groups as versions of one family (stable
 // sourcePath); identical content dedups.
-async function pinResponseAsArtifact(agent, text) {
+function artifactSlugPart(value, fallback = "response") {
+  const slug = String(value || "")
+    .trim()
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return slug || fallback;
+}
+
+async function pinResponseAsArtifact(agent, text, options = {}) {
   if (!text || !text.trim()) return;
   const machineId = agentMachineKey(agent);
-  const base = String(agent?.windowName || agent?.kind || "response")
-    .replace(/[^\w.-]+/g, "-")
-    .slice(0, 60) || "response";
-  const name = /\.[a-z0-9]+$/i.test(base) ? base : `${base}.md`;
-  const sourcePath = `agent-response/${machineId}/${agent?.windowId || agent?.paneId || base}`;
+  const base = artifactSlugPart(agent?.windowName || agent?.kind || "response").slice(0, 60);
+  const suffix = options.sourceSuffix ? artifactSlugPart(options.sourceSuffix, "") : "";
+  const nameBase = suffix ? `${base}-${suffix}` : base;
+  const name = /\.[a-z0-9]+$/i.test(nameBase) ? nameBase : `${nameBase}.md`;
+  const sourceBase = artifactSlugPart(agent?.windowId || agent?.paneId || base, "window");
+  const sourcePath = suffix
+    ? `agent-response/${machineId}/${sourceBase}/${suffix}`
+    : `agent-response/${machineId}/${sourceBase}`;
   setStatus("Pinning…");
   try {
     const data = await api("/api/pins?inline=1", {
@@ -3647,14 +3687,27 @@ async function pinResponseAsArtifact(agent, text) {
       body: JSON.stringify({ text, name, sourcePath }),
     });
     const link = `${window.location.origin}${data.pin.shareUrl}`;
+    let copied = false;
     try {
-      await navigator.clipboard?.writeText(link);
-      setStatus("Pinned — link copied");
-    } catch {
-      setStatus(link);
+      await copyTextToClipboard(link);
+      copied = true;
+    } catch {}
+    if (copied) {
+      showToast("Pinned artifact. Link copied.", {
+        tone: "success",
+        statusText: "Pinned. Link copied.",
+      });
+    } else {
+      showToast("Pinned artifact. Copy link from Pinned artifacts.", {
+        tone: "success",
+        statusText: link,
+      });
     }
   } catch (error) {
-    setStatus(error.message || "Pin failed");
+    showToast(error.message || "Pin failed.", {
+      tone: "error",
+      statusText: error.message || "Pin failed",
+    });
   }
 }
 
