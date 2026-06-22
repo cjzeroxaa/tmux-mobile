@@ -9,6 +9,12 @@ import {
 import { linkifyEscaped, linkifyFilesEscaped } from "./linkify.js";
 import { renderMarkdown } from "./markdown.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
+import {
+  getSnippets as getStoredSnippets,
+  initSnippets,
+  onSnippetsChanged,
+  setSnippets as setStoredSnippets,
+} from "./snippets.js";
 
 // Command Center — separate top-level page. Polls /api/command-center on
 // a slow cadence, drops non-agent windows, renders one card per agent
@@ -18,7 +24,6 @@ import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
 const POLL_MS = 4000;
 const INTERACT_WAVEFORM_SAMPLES = 40;
 const INTERACT_WAVEFORM_SAMPLE_INTERVAL_MS = 200;
-const SNIPPETS_KEY = "tmux-mobile-snippets";
 const COMPOSER_HISTORY_KEY = "tmux-mobile-composer-history";
 const COMPOSER_HISTORY_MAX = 100;
 const THEME_KEY = "tmux-mobile-theme";
@@ -27,15 +32,6 @@ const CC_FONT_KEY = "tmux-mobile-cc-font-size";
 const CC_FONT_MIN = 10;
 const CC_FONT_MAX = 18;
 const CC_FONT_DEFAULT = 13;
-const DEFAULT_SNIPPETS = [
-  { text: "yes" },
-  { text: "continue" },
-  { text: "/clear" },
-  { text: "/btw " },
-  { text: "claude" },
-  { text: "codex" },
-  { text: "/goal " },
-];
 const ICONS = {
   interact:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/><path d="M8 9h8"/><path d="M8 13h5"/></svg>',
@@ -638,22 +634,11 @@ function logClientEvent(event, details = {}, machineId = "") {
 }
 
 function loadSnippets() {
-  try {
-    const raw = localStorage.getItem(SNIPPETS_KEY);
-    const data = raw ? JSON.parse(raw) : null;
-    const items = Array.isArray(data?.items) ? data.items : DEFAULT_SNIPPETS;
-    return items
-      .map((item) => ({ text: String(item?.text || "") }))
-      .filter((item) => item.text);
-  } catch {
-    return DEFAULT_SNIPPETS;
-  }
+  return getStoredSnippets();
 }
 
 function saveSnippets(items) {
-  try {
-    localStorage.setItem(SNIPPETS_KEY, JSON.stringify({ items }));
-  } catch {}
+  setStoredSnippets(items);
 }
 
 function loadComposerHistory() {
@@ -3976,6 +3961,13 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) stopPolling();
   else { loadAgents(); startPolling(); }
 });
+
+onSnippetsChanged(() => {
+  renderInteractSnippets();
+  if (!els.snippetSheet?.hidden) renderSnippetList();
+});
+renderInteractSnippets();
+initSnippets();
 
 loadAgents();
 startPolling();

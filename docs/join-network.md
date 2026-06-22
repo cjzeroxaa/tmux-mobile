@@ -38,6 +38,8 @@ Use the Google account whose visibility you want:
   domain.
 - Personal Google accounts see only their own machines.
 - Super-admins configured on the controller see every machine.
+- Per-machine special allowlists configured on the controller can grant a
+  specific user access to a specific machine outside those rules.
 
 ## Fresh install
 

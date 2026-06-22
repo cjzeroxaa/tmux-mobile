@@ -47,6 +47,7 @@ ALLOW_ALL_GOOGLE_USERS="1"
 SUPER_ADMIN_EMAILS="sonicgg@gmail.com"
 ALLOWED_GOOGLE_EMAILS=""
 ALLOWED_GOOGLE_DOMAINS=""
+USER_PREFS_DYNAMO_TABLE="${USER_PREFS_DYNAMO_TABLE:-${NAME}-user-preferences}"
 
 # ---------------------- bootstrap ----------------------
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -303,6 +304,41 @@ else
 fi
 state_set TASK_ROLE_ARN "$TASK_ROLE_ARN"
 
+# ---------------------- DynamoDB user preferences ----------------------
+section "DynamoDB user preferences"
+USER_PREFS_DYNAMO_TABLE_ARN="$(aws dynamodb describe-table --region "$AWS_REGION" \
+  --table-name "$USER_PREFS_DYNAMO_TABLE" \
+  --query 'Table.TableArn' --output text 2>/dev/null || true)"
+if [[ -z "$USER_PREFS_DYNAMO_TABLE_ARN" || "$USER_PREFS_DYNAMO_TABLE_ARN" == "None" ]]; then
+  USER_PREFS_DYNAMO_TABLE_ARN="$(aws_run dynamodb create-table --region "$AWS_REGION" \
+    --table-name "$USER_PREFS_DYNAMO_TABLE" \
+    --billing-mode PAY_PER_REQUEST \
+    --attribute-definitions AttributeName=id,AttributeType=S \
+    --key-schema AttributeName=id,KeyType=HASH \
+    --query 'TableDescription.TableArn' --output text)"
+  if ! $PRINT_ONLY; then
+    aws dynamodb wait table-exists --region "$AWS_REGION" --table-name "$USER_PREFS_DYNAMO_TABLE"
+  fi
+  note "created $USER_PREFS_DYNAMO_TABLE"
+else
+  note "exists  $USER_PREFS_DYNAMO_TABLE"
+fi
+state_set USER_PREFS_DYNAMO_TABLE "$USER_PREFS_DYNAMO_TABLE"
+state_set USER_PREFS_DYNAMO_TABLE_ARN "$USER_PREFS_DYNAMO_TABLE_ARN"
+
+USER_PREFS_POLICY_DOC='{
+  "Version":"2012-10-17",
+  "Statement":[{
+    "Effect":"Allow",
+    "Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:DeleteItem"],
+    "Resource":"'"$USER_PREFS_DYNAMO_TABLE_ARN"'"
+  }]
+}'
+aws_run iam put-role-policy --role-name "$TASK_ROLE" \
+  --policy-name user-preferences-dynamodb \
+  --policy-document "$USER_PREFS_POLICY_DOC" >/dev/null
+note "task role can read/write user preferences"
+
 # ---------------------- Secrets Manager (empty placeholders) ----------------------
 section "Secrets Manager entries"
 SECRET_ARNS=()
@@ -503,6 +539,9 @@ ENV_JSON="[
   {\"name\":\"SUPER_ADMIN_EMAILS\",\"value\":\"$SUPER_ADMIN_EMAILS\"},
   {\"name\":\"ALLOWED_GOOGLE_EMAILS\",\"value\":\"$ALLOWED_GOOGLE_EMAILS\"},
   {\"name\":\"ALLOWED_GOOGLE_DOMAINS\",\"value\":\"$ALLOWED_GOOGLE_DOMAINS\"},
+  {\"name\":\"TMUX_MOBILE_SNIPPETS_STORE\",\"value\":\"dynamo\"},
+  {\"name\":\"TMUX_MOBILE_USER_PREFS_DYNAMO_TABLE\",\"value\":\"$USER_PREFS_DYNAMO_TABLE\"},
+  {\"name\":\"TMUX_MOBILE_USER_PREFS_DYNAMO_REGION\",\"value\":\"$AWS_REGION\"},
   {\"name\":\"GOOGLE_OAUTH_REDIRECT_URI\",\"value\":\"https://${DOMAIN}/auth/google/callback\"}
 ]"
 

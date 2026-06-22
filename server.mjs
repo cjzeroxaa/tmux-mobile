@@ -43,6 +43,13 @@ import {
   updateVoiceConfig,
   withVoiceUser,
 } from "./lib/voice-config.mjs";
+import {
+  createMemorySnippetStore,
+  createSnippetStore,
+  describeUserSnippets,
+  resetUserSnippets,
+  updateUserSnippets,
+} from "./lib/user-snippets.mjs";
 import { appRevision } from "./lib/revision.mjs";
 import {
   createAgentRoundNtfyNotifier,
@@ -109,9 +116,16 @@ const DEFAULT_MACHINE_ALIASES = {
   "msb-build-srp": "MSB-SRP",
   "msb-srp": "MSB-SRP",
 };
+const DEFAULT_MACHINE_ACCESS_ALLOWLIST = {
+  "MSB-REBYTE": ["xuc2078@gmail.com"],
+};
 const MACHINE_ALIASES = readMachineAliases(
   process.env.TMUX_MOBILE_MACHINE_ALIASES,
   DEFAULT_MACHINE_ALIASES,
+);
+const MACHINE_ACCESS_ALLOWLIST = readMachineAccessAllowlist(
+  process.env.TMUX_MOBILE_MACHINE_ACCESS_ALLOWLIST,
+  DEFAULT_MACHINE_ACCESS_ALLOWLIST,
 );
 function positiveIntEnv(name, fallback) {
   const value = Number(process.env[name]);
@@ -3072,6 +3086,55 @@ function readMachineAliases(value, defaults = {}) {
   return aliases;
 }
 
+function readMachineAccessAllowlist(value, defaults = {}) {
+  const allowlist = {};
+  for (const [machine, users] of Object.entries(defaults || {})) {
+    const key = String(machine || "").trim();
+    if (key) allowlist[key] = normalizeMachineAccessUsers(users);
+  }
+
+  const raw = String(value || "").trim();
+  if (!raw) return allowlist;
+
+  if (raw.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        for (const [machine, users] of Object.entries(parsed)) {
+          setMachineAccessAllowlist(allowlist, machine, users);
+        }
+        return allowlist;
+      }
+    } catch {
+      // Fall through to the compact entry format below.
+    }
+  }
+
+  // Compact format: "machine=email|email;other-machine=email".
+  for (const item of raw.split(";")) {
+    const [machine, ...rest] = item.split("=");
+    setMachineAccessAllowlist(allowlist, machine, rest.join("="));
+  }
+  return allowlist;
+}
+
+function setMachineAccessAllowlist(allowlist, machine, users) {
+  const key = String(machine || "").trim();
+  const values = normalizeMachineAccessUsers(users);
+  if (key && values.length) allowlist[key] = values;
+}
+
+function normalizeMachineAccessUsers(users) {
+  const raw = Array.isArray(users) ? users : String(users || "").split(/[,\s|]+/);
+  return [
+    ...new Set(
+      raw
+        .map((item) => String(item || "").trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
+}
+
 function setMachineAlias(aliases, key, alias) {
   const normalized = normalizeMachineAliasKey(key);
   const value = String(alias || "").trim();
@@ -4593,6 +4656,21 @@ try {
   console.error(`Pin index hydrate failed (${error.message}); starting empty.`);
 }
 
+// User preferences that are not tied to a machine/pane. Snippets are the first
+// entry here: one authenticated user owns one small record. Local installs use a
+// JSON file by default; prod can set TMUX_MOBILE_SNIPPETS_STORE=dynamo with a
+// dedicated DynamoDB table.
+let SNIPPET_STORE;
+try {
+  SNIPPET_STORE = await createSnippetStore();
+  await SNIPPET_STORE.load();
+} catch (error) {
+  console.error(
+    `Snippet preference store init failed (${error.message}); falling back to in-memory.`,
+  );
+  SNIPPET_STORE = createMemorySnippetStore();
+}
+
 // Comment store — same fall-back-to-memory posture as the pin index so a missing
 // SDK / bad creds degrades comments to ephemeral rather than crashing the boot.
 try {
@@ -4722,6 +4800,35 @@ if (MODE.kind === "register") {
           connectorUpdateScriptUrl: CONNECTOR_UPDATE_SCRIPT_URL,
           connectorBundleUrl: CONNECTOR_BUNDLE_ROUTE,
         });
+        return;
+      }
+
+      // Per-user snippets/preferences. This is deliberately global to the
+      // browser user, not scoped to any machine, mux session, pane, or artifact.
+      if (url.pathname === "/api/snippets") {
+        if (req.method === "GET") {
+          sendJson(res, 200, await describeUserSnippets(SNIPPET_STORE, userId));
+          return;
+        }
+        if (req.method === "PUT" || req.method === "POST") {
+          try {
+            const body = await readJsonBody(req);
+            const items = Array.isArray(body) ? body : body.items;
+            sendJson(res, 200, await updateUserSnippets(SNIPPET_STORE, userId, items));
+          } catch (error) {
+            sendJson(res, error.status || 500, { error: error.message });
+          }
+          return;
+        }
+        if (req.method === "DELETE") {
+          try {
+            sendJson(res, 200, await resetUserSnippets(SNIPPET_STORE, userId));
+          } catch (error) {
+            sendJson(res, error.status || 500, { error: error.message });
+          }
+          return;
+        }
+        sendJson(res, 405, { error: "Method not allowed" });
         return;
       }
 
@@ -5063,6 +5170,7 @@ if (MODE.kind === "register") {
       updateScriptUrl: CONNECTOR_UPDATE_SCRIPT_URL,
       requiredConnectorVersion: CONNECTOR_VERSION,
       machineAliases: MACHINE_ALIASES,
+      machineAccessAllowlist: MACHINE_ACCESS_ALLOWLIST,
     });
   }
   stopAgentRoundWatcher = startAgentRoundNtfyWatcher({ hub });

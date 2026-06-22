@@ -82,8 +82,11 @@ By default, any verified Google account can sign in (`ALLOW_ALL_GOOGLE_USERS=1`)
 Machine visibility is separate from login permission: super-admin emails can
 see every machine, Google Workspace users share machines with users from the
 same `hd` hosted domain, and consumer Google accounts without `hd` only see
-their own machines. Set `ALLOW_ALL_GOOGLE_USERS=0` with `ALLOWED_GOOGLE_EMAILS`
-and/or `ALLOWED_GOOGLE_DOMAINS` for a closed controller.
+their own machines. A deployment can also grant per-machine exceptions with
+`TMUX_MOBILE_MACHINE_ACCESS_ALLOWLIST` (`machine=email|email;other=email`) for
+special shares outside the owner/workspace rules; the built-in special case is
+`MSB-REBYTE -> xuc2078@gmail.com`. Set `ALLOW_ALL_GOOGLE_USERS=0` with
+`ALLOWED_GOOGLE_EMAILS` and/or `ALLOWED_GOOGLE_DOMAINS` for a closed controller.
 
 Controller mode requires `OPENAI_API_KEY` because voice transcription, target
 summaries, and realtime audio reads all call OpenAI from the controller. Store
@@ -425,8 +428,14 @@ recent history all populate the box; you review, then **Send** it to the pane.
   `continue`, `/clear`, `/btw `, `claude`, `codex`, `/goal ` by default). Tapping
   a chip **inserts** its text into the box (it doesn't send). The list icon opens
   the **Insert picker** with two sections: **Snippets** (curated; add/edit/reorder/
-  delete) and **Recent** (auto-collected from what you've sent). Snippets are
-  `{ text }` in localStorage (`tmux-mobile-snippets`).
+  delete) and **Recent** (auto-collected from what you've sent). Snippets are a
+  per-user preference (`{ text }[]`) served by `/api/snippets`: local installs
+  persist to `~/.config/tmux-mobile/snippets.json`, while prod can set
+  `TMUX_MOBILE_SNIPPETS_STORE=dynamo` with
+  `TMUX_MOBILE_USER_PREFS_DYNAMO_TABLE=<table>` for one DynamoDB item per user
+  (record id `snippets#<userId>`).
+  The browser keeps `tmux-mobile-snippets` only as a startup cache and one-time
+  migration source for snippets saved before server-side preferences existed.
 - **History as auto snippets** — every Send is recorded to
   `tmux-mobile-composer-history` (bounded 100, newest-first, deduped) and shown in
   the Insert picker's **Recent** section; tap to insert for edit/resend.

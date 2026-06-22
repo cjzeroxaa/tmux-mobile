@@ -1,6 +1,12 @@
 import { escapeHtml, linkifyEscaped } from "./linkify.js";
 import { playNotifySound, shouldChime } from "./notify-sound.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
+import {
+  getSnippets as getStoredSnippets,
+  initSnippets,
+  onSnippetsChanged,
+  setSnippets as setStoredSnippets,
+} from "./snippets.js";
 import { windowKey, windowStableId, windowDescriptor, windowTitleText, windowHoverDetail, mergeRecent, pruneRecent } from "./window-id.js";
 
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
@@ -56,33 +62,12 @@ const notifySoundAtom = createPersistedAtom("tmux-mobile-notify-sound", {
 });
 const NOTIFY_SOUND_MIN_INTERVAL_MS = 10_000;
 
-// User-customizable snippets: frequently-used sentences shown in the snippet
-// bar. Each is { text, enter } — enter:true presses Return after sending (runs a
-// command), enter:false just inserts the text. Seeded with a few defaults the
-// user can edit or delete.
-// Snippets are reusable text that INSERT into the message box (you then Send).
-// Shape is just { text } — there is no per-snippet "send"/"Enter" behavior
-// anymore (everything funnels through the box). Seeded with common replies +
-// command launchers.
-const snippetsAtom = createPersistedAtom("tmux-mobile-snippets", {
-  items: [
-    { text: "yes" },
-    { text: "continue" },
-    { text: "/clear" },
-    { text: "/btw " },
-    { text: "claude" },
-    { text: "codex" },
-    { text: "/goal " },
-  ],
-});
-
 function getSnippets() {
-  const items = snippetsAtom.get().items;
-  return Array.isArray(items) ? items : [];
+  return getStoredSnippets();
 }
 
 function setSnippets(items) {
-  snippetsAtom.set({ items });
+  setStoredSnippets(items);
 }
 
 // Text-composer send history, oldest-first, persisted in localStorage so it
@@ -5906,7 +5891,12 @@ els.snippetNewText?.addEventListener("keydown", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !els.snippetSheet?.hidden) closeSnippetManager();
 });
+onSnippetsChanged(() => {
+  renderSnippetChips();
+  if (!els.snippetSheet?.hidden) renderSnippetList();
+});
 renderSnippetChips();
+initSnippets();
 
 // Fork this agent into a fresh window (duplicates the agent's launch command in
 // a new worktree). Wired by data-attribute so the trigger can live anywhere.
