@@ -14,7 +14,7 @@ const server = http.createServer();
 const hub = createHub(server, {
   authenticateAgent: () => OWNER,
   machineAliases: {
-    "ip-172-31-7-169.ec2.internal": "MSB-REBYTE",
+    "msb-build-rebyte": "MSB-REBYTE",
   },
   machineAccessAllowlist: {
     "msb rebyte": [SPECIAL.email],
@@ -77,7 +77,7 @@ const { port } = server.address();
 let rebyte;
 let other;
 try {
-  rebyte = await connectMachine(port, "ip-172-31-7-169.ec2.internal", AGENT_ONE);
+  rebyte = await connectMachine(port, "msb-build-rebyte", AGENT_ONE);
   const specialMachine = await waitFor("special viewer sees MSB-REBYTE", () => {
     const machines = hub.listMachines(SPECIAL);
     return machines.length === 1 && machines[0].hostname === "MSB-REBYTE" ? machines[0] : null;

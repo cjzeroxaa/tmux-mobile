@@ -111,6 +111,7 @@ const DEFAULT_MACHINE_ALIASES = {
   "macbook": "MacBook",
   "fulong-mini": "FIN Mini",
   "ip-172-31-7-169.ec2.internal": "MSB-REBYTE",
+  "msb-build-rebyte": "MSB-REBYTE",
   "msbbuild-rebyte": "MSB-REBYTE",
   "msb-build-srp.us-central1-a.c.cj-dev-498907.internal": "MSB-SRP",
   "msb-build-srp": "MSB-SRP",
