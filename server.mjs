@@ -4518,6 +4518,8 @@ const contentTypes = new Map([
   [".mjs", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
   [".webmanifest", "application/manifest+json; charset=utf-8"],
+  [".svg", "image/svg+xml"],
+  [".png", "image/png"],
   [".wav", "audio/wav"], // bundled notification chime (public/sounds/notify.wav)
 ]);
 
