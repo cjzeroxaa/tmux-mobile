@@ -182,6 +182,40 @@ captured pane output comes back through the correct user route.
   `id` stays unambiguous when two visible users register the same hostname. With
   exactly one visible machine online the hub auto-selects it.
 
+### Terminal client
+
+There is also a small terminal client that uses the same browser HTTP API as the
+web app. It does not talk directly to agent WebSockets.
+
+```bash
+npm run terminal
+npm run terminal -- http://127.0.0.1:3737
+npm run terminal -- https://YOUR-CLOUD-RUN-URL
+```
+
+By default this connects to `https://eng.impo.ai`; pass a URL to point it at a
+local server or another controller. In controller mode it starts the same Google
+device-login flow as connector registration, but stores a separate
+browser-session bearer token at `~/.config/tmux-mobile/terminal.json`. Machine
+visibility is the same as the web app: super-admins see every machine,
+Workspace users see their domain's machines, and personal accounts see their own
+machines.
+
+Useful commands inside the terminal client:
+
+```text
+machines      list visible machines
+all           list windows across every visible machine
+use 2         select a machine
+tree          list windows on the selected machine
+open 4        open a window and show its active pane
+send continue paste text and press Enter
+type /btw ... paste text without Enter
+key C-c       send a direct key
+agents        list detected Codex/Claude windows across machines
+agent 1       open an agent window
+```
+
 ### Code layout
 
 - `server.mjs` — entry point and HTTP/API handlers (shared by all modes).
