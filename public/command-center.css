@@ -552,8 +552,18 @@
   }
 
   .cc-sort-select {
-    max-width: 132px;
+    width: 34px;
+    min-width: 34px;
+    max-width: 34px;
+    min-height: 30px;
     padding: 4px 6px;
+    color: transparent;
+    font-size: 0;
+  }
+
+  .cc-sort-select option {
+    color: var(--ink);
+    font-size: 12px;
   }
 }
 
