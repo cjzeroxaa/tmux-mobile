@@ -1331,6 +1331,20 @@
   opacity: 0.45;
 }
 
+.cc-star-button {
+  color: #8b6f2a;
+}
+
+.cc-star-button.is-starred {
+  border-color: rgba(211, 155, 24, 0.46);
+  background: rgba(211, 155, 24, 0.14);
+  color: #b7791f;
+}
+
+.cc-star-button.is-starred svg {
+  fill: currentColor;
+}
+
 .cc-read-button.is-reading {
   border-color: rgba(180, 83, 9, 0.42);
   background: rgba(180, 83, 9, 0.12);

@@ -32,7 +32,10 @@ const CC_FONT_KEY = "tmux-mobile-cc-font-size";
 const CC_FONT_MIN = 10;
 const CC_FONT_MAX = 18;
 const CC_FONT_DEFAULT = 13;
+const STARRED_CARDS_KEY = "tmux-mobile-command-center-starred-cards";
 const ICONS = {
+  star:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.5 2.7a.55.55 0 0 1 1 0l2.8 5.7a.55.55 0 0 0 .42.3l6.3.92a.55.55 0 0 1 .3.94l-4.55 4.43a.55.55 0 0 0-.16.49l1.08 6.26a.55.55 0 0 1-.8.58l-5.63-2.96a.55.55 0 0 0-.51 0l-5.63 2.96a.55.55 0 0 1-.8-.58l1.08-6.26a.55.55 0 0 0-.16-.49L1.68 10.56a.55.55 0 0 1 .3-.94l6.3-.92a.55.55 0 0 0 .42-.3l2.8-5.7Z"/></svg>',
   interact:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/><path d="M8 9h8"/><path d="M8 13h5"/></svg>',
   read:
@@ -175,6 +178,16 @@ function saveJson(key, value) {
   } catch {}
 }
 
+function loadStarredCards() {
+  const data = loadJson(STARRED_CARDS_KEY, { keys: [] });
+  const keys = Array.isArray(data?.keys) ? data.keys : Array.isArray(data) ? data : [];
+  return new Set(keys.map((key) => String(key || "")).filter(Boolean));
+}
+
+function saveStarredCards() {
+  saveJson(STARRED_CARDS_KEY, { keys: [...state.starredCards] });
+}
+
 function systemPrefersDark() {
   return !!(
     window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -271,6 +284,7 @@ const state = {
   // Machine filter is in-memory only. Empty = "show all".
   sortBy: "recent",
   filterMachines: new Set(),
+  starredCards: loadStarredCards(),
   cardSearchQuery: "",
   cardSearchIndex: 0,
   interactAgent: null,
@@ -1388,7 +1402,12 @@ function filterAndSort(agents) {
     out = out.filter((a) => state.filterMachines.has(agentMachineKey(a)));
   }
   const cmp = sortComparator(state.sortBy);
-  return [...out].sort(cmp);
+  return [...out].sort((a, b) => {
+    const sa = isStarredAgent(a) ? 1 : 0;
+    const sb = isStarredAgent(b) ? 1 : 0;
+    if (sa !== sb) return sb - sa;
+    return cmp(a, b);
+  });
 }
 
 function sortComparator(by) {
@@ -2458,6 +2477,24 @@ function readKeyForAgent(agent) {
   return `${agentMachineKey(agent)}::${agentMux(agent) || "tmux"}::${agent.windowId || agent.paneId || agent.agentSessionId || ""}`;
 }
 
+function isStarredAgent(agent) {
+  return state.starredCards.has(readKeyForAgent(agent));
+}
+
+function toggleStarredAgent(agent) {
+  const key = readKeyForAgent(agent);
+  if (!key) return;
+  const nextStarred = !state.starredCards.has(key);
+  if (nextStarred) state.starredCards.add(key);
+  else state.starredCards.delete(key);
+  saveStarredCards();
+  showToast(nextStarred ? "Starred card." : "Removed star.", {
+    statusText: nextStarred ? "Starred card" : "Removed star",
+    duration: 1600,
+  });
+  renderAgents();
+}
+
 function selectedAgentFrom(agents = filterAndSort(state.agents)) {
   if (!state.selectedCardKey) return null;
   return agents.find((agent) => readKeyForAgent(agent) === state.selectedCardKey) || null;
@@ -3311,9 +3348,16 @@ function renderCard(agent) {
   const readDisabled = state.audio.busy && !readingThis;
   const deletingThis = state.deletingWindows.has(deleteKey);
   const sharingThis = state.sharingWindows.has(shareKey);
+  const starredThis = isStarredAgent(agent);
   footer.innerHTML = `
     <span>${agent.turnCount} turn${agent.turnCount === 1 ? "" : "s"} · session <code>${escapeHtml((agent.agentSessionId || "").slice(0, 8))}</code></span>
     <span class="cc-card-actions">
+      ${cardActionButton({
+        className: `cc-star-button${starredThis ? " is-starred" : ""}`,
+        title: starredThis ? "Unstar card" : "Star card",
+        dataAttrs: `data-star-key="${escapeHtml(readKey)}" aria-pressed="${starredThis ? "true" : "false"}"`,
+        icon: ICONS.star,
+      })}
       ${cardActionButton({
         className: "cc-interact-button",
         title: "Interact (R)",
@@ -3761,6 +3805,12 @@ els.list.addEventListener("click", (event) => {
   if (interactButton) {
     const agent = state.agents.find((item) => readKeyForAgent(item) === interactButton.dataset.interactKey);
     if (agent) openInteract(agent);
+    return;
+  }
+  const starButton = target.closest("[data-star-key]");
+  if (starButton) {
+    const agent = state.agents.find((item) => readKeyForAgent(item) === starButton.dataset.starKey);
+    if (agent) toggleStarredAgent(agent);
     return;
   }
   const transcriptButton = target.closest("[data-transcript-key]");
