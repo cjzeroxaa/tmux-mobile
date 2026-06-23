@@ -399,11 +399,12 @@
 
 .cc-welcome-list li { margin: 0; }
 
-/* Sort + filter row between the topbar and the cards. Wraps on narrow
- * viewports so the chips stack cleanly under the sort picker on phones. */
+/* Sort + filter row between the topbar and the cards. Keep it to one physical
+ * row on phones; machine chips scroll horizontally instead of pushing the sort
+ * picker onto a second line. */
 .cc-controls {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -418,13 +419,23 @@
 .cc-filter-row {
   display: flex;
   flex: 1 1 auto;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.cc-filter-row::-webkit-scrollbar {
+  display: none;
 }
 
 .cc-filter-sep {
+  flex: 0 0 auto;
   width: 1px;
   height: 18px;
   background: var(--line);
@@ -433,6 +444,7 @@
 
 .cc-filter-chip {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 6px;
   border: 1px solid var(--line);
@@ -515,6 +527,7 @@
 }
 
 .cc-sort-select {
+  max-width: min(42vw, 176px);
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-soft);
@@ -522,6 +535,26 @@
   padding: 4px 8px;
   font-size: 12px;
   font-weight: 700;
+}
+
+@media (max-width: 520px) {
+  .cc-controls {
+    gap: 6px;
+    padding: 6px 8px;
+  }
+
+  .cc-sort {
+    gap: 4px;
+  }
+
+  .cc-sort span {
+    display: none;
+  }
+
+  .cc-sort-select {
+    max-width: 132px;
+    padding: 4px 6px;
+  }
 }
 
 .cc-list {
