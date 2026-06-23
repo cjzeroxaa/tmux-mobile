@@ -22,7 +22,119 @@ The whole thing is:
 That's it. Don't "improve" this by installing a LaunchAgent, writing a wrapper
 script, or anything similar unless the human explicitly asks. Keep it boring.
 
-## 3. Pinned artifacts (lib/pins.mjs + lib/artifact-storage.mjs)
+## 3. Connector update runbook
+
+Connector updates are production changes. Server deploys and connector deploys
+are related but not the same thing:
+
+- A server-only/UI/static change should not make machines update.
+- A connector/protocol change should bump `CONNECTOR_COMPAT_VERSION` in
+  `lib/protocol.mjs`; Command Center marks machines stale from missing ops or
+  connector-version mismatch, not from raw git revision mismatch alone.
+- Use a super-admin browser session/cookie when checking rollout state. A normal
+  workspace user only sees their own/workspace machines and can miss machines
+  like personal Gmail connectors.
+
+Preferred flow for updating connectors one by one:
+
+1. Deploy the controller first and verify it:
+   ```bash
+   curl -fsS https://eng.impo.ai/api/health | jq .
+   ```
+
+2. Get a super-admin-authenticated view of every machine. Either log in as a
+   super-admin in the browser or create a short-lived cookie from the production
+   `SESSION_SECRET` without printing the secret:
+   ```bash
+   SECRET="$(aws secretsmanager get-secret-value \
+     --region us-east-1 \
+     --secret-id tmux-mobile-controller/SESSION_SECRET \
+     --query SecretString \
+     --output text)"
+
+   node --input-type=module - /tmp/tmux-mobile-prod-super-cookie.txt "$SECRET" <<'NODE'
+   import fs from "node:fs";
+   import { createHmac } from "node:crypto";
+   const [out, secret] = process.argv.slice(2);
+   const now = Math.floor(Date.now() / 1000);
+   const body = Buffer.from(JSON.stringify({
+     type: "session",
+     userId: "sonicgg@gmail.com",
+     email: "sonicgg@gmail.com",
+     hd: "",
+     iat: now,
+     exp: now + 3600,
+   })).toString("base64url");
+   const sig = createHmac("sha256", secret).update(body).digest("base64url");
+   fs.writeFileSync(
+     out,
+     `# Netscape HTTP Cookie File\neng.impo.ai\tFALSE\t/\tTRUE\t${now + 3600}\ttmux_mobile_session\t${body}.${sig}\n`,
+   );
+   NODE
+   unset SECRET
+   ```
+
+3. Inspect all machines before touching anything:
+   ```bash
+   curl -fsS -b /tmp/tmux-mobile-prod-super-cookie.txt \
+     https://eng.impo.ai/api/command-center \
+     | jq -r '.machines[] | [.hostname, .ownerEmail, .agentRevision, .connectorVersion, .expectedConnectorVersion, .stale, .connectorStatus, .agentCwd] | @tsv'
+   ```
+
+4. Update exactly one stale machine at a time. Use the machine's routed `id` as
+   `x-machine-id`; the controller starts a temporary `tmux-mobile-update-*`
+   session on that machine and the bundle updater replaces/restarts the local
+   connector:
+   ```bash
+   MACHINE="MSB-SRP"
+   row="$(curl -fsS -b /tmp/tmux-mobile-prod-super-cookie.txt \
+     https://eng.impo.ai/api/command-center \
+     | jq -c --arg host "$MACHINE" '.machines[] | select(.hostname == $host)')"
+
+   id="$(printf '%s' "$row" | jq -r .id)"
+   body="$(printf '%s' "$row" | jq '{
+     repoDir: (.agentCwd // "~/.local/share/tmux-mobile"),
+     expectedRevision: (.expectedRevision // ""),
+     targetRef: (.updateRef // "main"),
+     updateScriptUrl: (.updateScriptUrl // "https://eng.impo.ai/connector/update.mjs"),
+     nodePath: (.nodePath // "node"),
+     agentMachine: (.machineAlias // .hostname // .machineId // ""),
+     machineLabel: (.hostname // .machineId // ""),
+     mux: (.mux // ""),
+     muxes: "tmux,rmux"
+   }')"
+
+   curl -fsS -b /tmp/tmux-mobile-prod-super-cookie.txt \
+     -H "content-type: application/json" \
+     -H "x-machine-id: $id" \
+     -X POST https://eng.impo.ai/api/connector-update \
+     --data "$body" | jq .
+   ```
+
+5. Poll until that machine reconnects with `stale=false`,
+   `connectorStatus=current`, and `connectorVersion` equal to
+   `expectedConnectorVersion`:
+   ```bash
+   curl -fsS -b /tmp/tmux-mobile-prod-super-cookie.txt \
+     https://eng.impo.ai/api/command-center \
+     | jq -r --arg host "$MACHINE" '.machines[] | select(.hostname == $host) | [.hostname, .agentRevision, .connectorVersion, .expectedConnectorVersion, .stale, .connectorStatus, .agentCwd] | @tsv'
+   ```
+
+Repeat steps 4-5 for the next stale machine. It is normal for a machine to
+briefly disappear while the old connector exits and the new one reconnects.
+After the rollout, this command should show no stale machines:
+
+```bash
+curl -fsS -b /tmp/tmux-mobile-prod-super-cookie.txt \
+  https://eng.impo.ai/api/command-center \
+  | jq '[.machines[] | select(.stale == true)]'
+```
+
+Do not use raw `agentRevision` alone as the decision to update. For example,
+after a server-only deploy some machines may report an older `agentRevision` but
+still be healthy if `connectorVersion` is current and `stale=false`.
+
+## 4. Pinned artifacts (lib/pins.mjs + lib/artifact-storage.mjs)
 
 Tapping a viewable file (image/markdown/HTML/media) in the pane snapshot opens a
 viewer page that can **pin** the artifact: its current bytes are snapshotted into
