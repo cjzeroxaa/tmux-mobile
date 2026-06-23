@@ -208,6 +208,7 @@ async function loginBrowser(baseUrl, email) {
 async function requestJson(baseUrl, pathName, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (options.cookie) headers.cookie = options.cookie;
+  if (options.bearer) headers.authorization = `Bearer ${options.bearer}`;
   if (options.machineId) headers["x-machine-id"] = options.machineId;
   if (options.body !== undefined) headers["content-type"] = "application/json";
 
@@ -229,6 +230,18 @@ async function requestJson(baseUrl, pathName, options = {}) {
   } catch {
     return { text };
   }
+}
+
+async function loginDeviceSession(baseUrl) {
+  const start = await requestJson(baseUrl, "/auth/device/start", { method: "POST", body: {} });
+  const body = await requestJson(baseUrl, "/auth/device/poll", {
+    method: "POST",
+    body: { id: start.id },
+  });
+  assert.ok(body.token, "device login returns an agent token");
+  assert.ok(body.sessionToken, "device login returns a terminal session token");
+  assert.equal(body.sessionExpiresIn, 7 * 24 * 60 * 60);
+  return body;
 }
 
 function startAgent(baseUrl, email, machineName, configDir) {
@@ -406,7 +419,7 @@ let fakeGoogle;
 let tmpDir;
 
 try {
-  fakeGoogle = await startFakeGoogle([ALICE, ALICE, BOB, CONSUMER]);
+  fakeGoogle = await startFakeGoogle([ALICE, ALICE, ALICE, BOB, CONSUMER]);
   tmpDir = await mkdtemp(path.join(tmpdir(), "tmux-mobile-e2e-"));
   const port = await getFreePort();
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -446,6 +459,15 @@ try {
   const bobCookie = await loginBrowser(baseUrl, BOB);
   const consumerCookie = await loginBrowser(baseUrl, CONSUMER);
   const adminCookie = await loginBrowser(baseUrl, ADMIN);
+  const terminalLogin = await loginDeviceSession(baseUrl);
+  const terminalRuntime = await requestJson(baseUrl, "/api/runtime", {
+    bearer: terminalLogin.sessionToken,
+  });
+  assert.equal(terminalRuntime.mode, "hub", "terminal session bearer authenticates API");
+  await requestJson(baseUrl, "/api/runtime", {
+    bearer: terminalLogin.token,
+    status: 401,
+  });
 
   const aliceOne = `alice-one-${process.pid}`;
   const aliceTwo = `alice-two-${process.pid}`;

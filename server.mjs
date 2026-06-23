@@ -3242,7 +3242,10 @@ function clearSessionCookie(req, res) {
 }
 
 function authenticateBrowser(req) {
-  return verifySignedToken(parseCookies(req)[SESSION_COOKIE], "session");
+  return (
+    verifySignedToken(parseCookies(req)[SESSION_COOKIE], "session") ||
+    verifySignedToken(bearerToken(req), "session")
+  );
 }
 
 function bearerToken(req) {
@@ -3524,6 +3527,16 @@ async function handleAuthRoute(req, res, url) {
       process.env.GOOGLE_DEVICE_CLIENT_ID || "",
     );
     deviceSessions.delete(id);
+    const sessionToken = issueSignedToken(
+      {
+        type: "session",
+        userId: user.userId,
+        email: user.email,
+        hd: user.hd || "",
+        sub: user.sub,
+      },
+      SESSION_TTL_SECONDS,
+    );
     sendJson(res, 200, {
       token: issueSignedToken(
         {
@@ -3535,8 +3548,10 @@ async function handleAuthRoute(req, res, url) {
         },
         AGENT_TOKEN_TTL_SECONDS,
       ),
+      sessionToken,
       user: { email: user.email, userId: user.userId, hd: user.hd || "" },
       expiresIn: AGENT_TOKEN_TTL_SECONDS,
+      sessionExpiresIn: SESSION_TTL_SECONDS,
     });
     return true;
   }
