@@ -1785,9 +1785,10 @@ async function getSessionWindowActivity(sessionId) {
   return result;
 }
 
-// cwd-keyed TTL cache for expensive window metadata (repo, branch). Lives for
-// the process; shared across sessions/windows with the same cwd.
-const windowMetadataCache = createMetadataCache();
+// cwd/tty-keyed TTL caches for expensive window metadata (repo, branch, pane
+// command). They are scoped per backend+runtime so identical cwd/tty values on
+// different machines or muxes cannot leak metadata into each other.
+const windowMetadataCaches = new Map(); // scope -> createMetadataCache()
 
 // Short-TTL memoization for the WHOLE per-session metadata computation, which is
 // the dominant request cost: it brokers listPanes + capturePane for every window
@@ -1804,21 +1805,74 @@ const SESSION_METADATA_TTL_MS = parsePositiveInteger(
   process.env.TMUX_MOBILE_SESSION_METADATA_TTL_MS,
   2500,
 );
-const sessionMetadataCache = new Map(); // sessionId -> { at, promise }
+const sessionMetadataCache = new Map(); // `${backend+mux}\0${sessionId}` -> { at, promise }
+const backendMetadataIds = new WeakMap();
+let nextBackendMetadataId = 0;
+
+function backendMetadataScope(backend) {
+  if (backend && typeof backend.metadataCacheKey === "function") {
+    const explicit = String(backend.metadataCacheKey() || "").trim();
+    if (explicit) return explicit;
+  }
+  if (backend === localBackend) return `local:${os.hostname()}`;
+  if (!backend || (typeof backend !== "object" && typeof backend !== "function")) {
+    return "backend:unknown";
+  }
+  let key = backendMetadataIds.get(backend);
+  if (!key) {
+    nextBackendMetadataId += 1;
+    key = `backend:${nextBackendMetadataId}`;
+    backendMetadataIds.set(backend, key);
+  }
+  return key;
+}
+
+function currentMetadataMuxKey(backend) {
+  const requested = currentRequestMux();
+  if (requested) return requested;
+  try {
+    const kind = normalizeMuxName(backend?.muxKind?.());
+    if (kind) return kind;
+  } catch {}
+  try {
+    const command = normalizeMuxName(backend?.muxCommand?.());
+    if (command) return command;
+  } catch {}
+  return "tmux";
+}
+
+function currentMetadataScope() {
+  const backend = currentBackend();
+  return `${backendMetadataScope(backend)}\0${currentMetadataMuxKey(backend)}`;
+}
+
+function windowMetadataCacheFor(scope) {
+  let cache = windowMetadataCaches.get(scope);
+  if (!cache) {
+    cache = createMetadataCache();
+    windowMetadataCaches.set(scope, cache);
+  }
+  if (windowMetadataCaches.size > 256) {
+    const first = windowMetadataCaches.keys().next().value;
+    if (first) windowMetadataCaches.delete(first);
+  }
+  return cache;
+}
 
 async function getSessionWindowMetadata(sessionId) {
   const now = Date.now();
-  const cached = sessionMetadataCache.get(sessionId);
+  const cacheKey = `${currentMetadataScope()}\0${sessionId}`;
+  const cached = sessionMetadataCache.get(cacheKey);
   if (cached && now - cached.at < SESSION_METADATA_TTL_MS) {
     return cached.promise;
   }
   const promise = computeSessionWindowMetadata(sessionId);
-  sessionMetadataCache.set(sessionId, { at: now, promise });
+  sessionMetadataCache.set(cacheKey, { at: now, promise });
   // On failure, drop the entry so the next caller retries instead of being
   // pinned to a rejected promise for the TTL window.
   promise.catch(() => {
-    if (sessionMetadataCache.get(sessionId)?.promise === promise) {
-      sessionMetadataCache.delete(sessionId);
+    if (sessionMetadataCache.get(cacheKey)?.promise === promise) {
+      sessionMetadataCache.delete(cacheKey);
     }
   });
   // Opportunistic prune so the map can't grow unbounded across closed sessions.
@@ -1837,10 +1891,11 @@ async function getSessionWindowMetadata(sessionId) {
 // detection) need pane content, computed here for windows that have an agent.
 async function computeSessionWindowMetadata(sessionId) {
   const windows = await listWindows(sessionId);
+  const backend = currentBackend();
   const base = await computeWindowMetadata(
     windows,
-    currentBackend(),
-    windowMetadataCache,
+    backend,
+    windowMetadataCacheFor(currentMetadataScope()),
     Date.now(),
   );
   // Enrich with turn + contentHash. We capture the active pane once per window
