@@ -3614,7 +3614,33 @@ async function jumpToFirstAttention() {
   }
 }
 
-async function loadWindowMetadata() {
+// Coalesce concurrent loadWindowMetadata() calls. The poll tick, the target
+// picker, and several post-action handlers all call this; each call fans out one
+// /api/window-metadata request PER SESSION, and those are slow (brokered to the
+// agent). Without a guard, overlapping calls multiply into a burst that saturates
+// the single controller instance and gets 429'd. So: if a load is already in
+// flight, callers await the SAME promise; a request that arrives mid-flight sets
+// a "rerun" flag so exactly one more load runs after the current one settles
+// (capturing any state that changed during it), then collapses again.
+let metadataLoadInFlight = null;
+let metadataRerunQueued = false;
+
+function loadWindowMetadata() {
+  if (metadataLoadInFlight) {
+    metadataRerunQueued = true;
+    return metadataLoadInFlight;
+  }
+  metadataLoadInFlight = loadWindowMetadataOnce().finally(() => {
+    metadataLoadInFlight = null;
+    if (metadataRerunQueued) {
+      metadataRerunQueued = false;
+      loadWindowMetadata();
+    }
+  });
+  return metadataLoadInFlight;
+}
+
+async function loadWindowMetadataOnce() {
   if (state.windows.length === 0) return;
   try {
     const prevRepo = JSON.stringify(activeWindowRepo());

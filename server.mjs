@@ -1789,12 +1789,53 @@ async function getSessionWindowActivity(sessionId) {
 // the process; shared across sessions/windows with the same cwd.
 const windowMetadataCache = createMetadataCache();
 
+// Short-TTL memoization for the WHOLE per-session metadata computation, which is
+// the dominant request cost: it brokers listPanes + capturePane for every window
+// to the agent (dozens of round-trips for a big session), taking many seconds.
+//
+// Two endpoints hit it on every client poll — /api/window-metadata directly, and
+// /api/attention via collectMachineAttention — and the client fires both ~every
+// 5s, so without this the same expensive sweep runs 2x per poll per session.
+// Caching the in-flight PROMISE also collapses those concurrent callers onto a
+// single computation. The TTL is short so contentHash (used for unread) stays
+// fresh; 2.5s is well under the 5s poll cadence, so a poll still sees ~live data
+// while back-to-back/overlapping calls within a tick are served from cache.
+const SESSION_METADATA_TTL_MS = parsePositiveInteger(
+  process.env.TMUX_MOBILE_SESSION_METADATA_TTL_MS,
+  2500,
+);
+const sessionMetadataCache = new Map(); // sessionId -> { at, promise }
+
+async function getSessionWindowMetadata(sessionId) {
+  const now = Date.now();
+  const cached = sessionMetadataCache.get(sessionId);
+  if (cached && now - cached.at < SESSION_METADATA_TTL_MS) {
+    return cached.promise;
+  }
+  const promise = computeSessionWindowMetadata(sessionId);
+  sessionMetadataCache.set(sessionId, { at: now, promise });
+  // On failure, drop the entry so the next caller retries instead of being
+  // pinned to a rejected promise for the TTL window.
+  promise.catch(() => {
+    if (sessionMetadataCache.get(sessionId)?.promise === promise) {
+      sessionMetadataCache.delete(sessionId);
+    }
+  });
+  // Opportunistic prune so the map can't grow unbounded across closed sessions.
+  if (sessionMetadataCache.size > 256) {
+    for (const [key, entry] of sessionMetadataCache) {
+      if (now - entry.at >= SESSION_METADATA_TTL_MS) sessionMetadataCache.delete(key);
+    }
+  }
+  return promise;
+}
+
 // Returns per-window metadata for a session:
 //   { agentType, repo, git, turn, contentHash }
 // Live (agentType) + cwd-scoped (repo, git) come from computeWindowMetadata.
 // turn (working/idle, agent-specific) and contentHash (for client "unread"
 // detection) need pane content, computed here for windows that have an agent.
-async function getSessionWindowMetadata(sessionId) {
+async function computeSessionWindowMetadata(sessionId) {
   const windows = await listWindows(sessionId);
   const base = await computeWindowMetadata(
     windows,
