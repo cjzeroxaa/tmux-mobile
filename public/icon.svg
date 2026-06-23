@@ -1,17 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="tmux Mobile icon">
-  <!-- Source icon for both Kami (light) and dark mode. iOS rounds it on the
-       homescreen; Android maskable safe area is the inner 80%, so all the
-       meaningful marks live well inside that. -->
-  <rect width="512" height="512" rx="0" ry="0" fill="#efe8d7"/>
-  <!-- Inner soft frame so the icon reads as a "terminal window" silhouette. -->
-  <rect x="64" y="96" width="384" height="320" rx="36" ry="36" fill="none" stroke="#2c2823" stroke-width="14"/>
-  <!-- "Window chrome" dots in the top-left of the inner frame. -->
-  <circle cx="108" cy="138" r="10" fill="#b5432f"/>
-  <circle cx="144" cy="138" r="10" fill="#d9a441"/>
-  <circle cx="180" cy="138" r="10" fill="#5a8a6b"/>
-  <!-- Prompt + cursor: the universal "this is a CLI" signal. -->
-  <text x="100" y="312"
-        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
-        font-size="160" font-weight="900" fill="#2c2823">$</text>
-  <rect x="220" y="208" width="86" height="120" fill="#35597a"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AMUX icon">
+  <defs>
+    <linearGradient id="amux-bg" x1="88" y1="64" x2="424" y2="456" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#172124"/>
+      <stop offset="1" stop-color="#0b1012"/>
+    </linearGradient>
+    <linearGradient id="amux-stroke" x1="150" y1="144" x2="356" y2="362" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f8fbf7"/>
+      <stop offset="1" stop-color="#dce7df"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="#f7faf8"/>
+  <rect x="48" y="48" width="416" height="416" rx="92" fill="url(#amux-bg)"/>
+  <circle cx="128" cy="132" r="12" fill="#ff6b5f"/>
+  <circle cx="168" cy="132" r="12" fill="#f2c14e"/>
+  <circle cx="208" cy="132" r="12" fill="#19c2a3"/>
+  <path d="M128 352 228 166c13-24 47-24 60 0l100 186" fill="none" stroke="url(#amux-stroke)" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M196 280h120" fill="none" stroke="#19c2a3" stroke-width="36" stroke-linecap="round"/>
+  <path d="M356 154v132c0 37-30 66-66 66h-16" fill="none" stroke="#f2c14e" stroke-width="28" stroke-linecap="round"/>
+  <rect x="334" y="332" width="54" height="28" rx="14" fill="#ff6b5f"/>
 </svg>

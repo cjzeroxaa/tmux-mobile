@@ -54,9 +54,25 @@
 .cc-title-block {
   flex: 1 1 auto;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   min-width: 0;
+}
+
+.cc-brand {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cc-logo-mark {
+  display: block;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
 }
 
 .cc-title {
