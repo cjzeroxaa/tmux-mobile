@@ -146,6 +146,9 @@ const RMUX_WEB_SHARE_TTL_SECONDS = Number(process.env.RMUX_WEB_SHARE_TTL_SECONDS
 const RMUX_WEB_SHARE_TUNNEL_PROVIDER = String(
   process.env.RMUX_WEB_SHARE_TUNNEL_PROVIDER || "localhost-run",
 ).trim();
+const RMUX_WEB_SHARE_FRONTEND_URL = String(
+  process.env.RMUX_WEB_SHARE_FRONTEND_URL || "https://rmux-share.pages.dev",
+).trim();
 const muxStore = new AsyncLocalStorage();
 // Voice models (transcription / realtime / TTS) are now runtime-configurable
 // via lib/voice-config.mjs and the web app's Settings panel; read them at call
@@ -1342,6 +1345,7 @@ async function createRmuxWebShare({ paneId, windowId, ttlSeconds } = {}) {
     target,
     ttlSeconds: Number.isFinite(ttl) && ttl > 0 ? ttl : RMUX_WEB_SHARE_TTL_SECONDS,
     tunnelProvider: RMUX_WEB_SHARE_TUNNEL_PROVIDER,
+    frontendUrl: RMUX_WEB_SHARE_FRONTEND_URL,
   });
 }
 
