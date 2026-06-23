@@ -2,7 +2,7 @@
 // shipped module so the test is bound to the actual implementation app.js uses.
 
 import assert from "node:assert/strict";
-import { escapeHtml, linkifyEscaped } from "../public/linkify.js";
+import { escapeHtml, filePathFromLocalHref, linkifyEscaped } from "../public/linkify.js";
 
 const render = (t) => linkifyEscaped(escapeHtml(t));
 
@@ -164,5 +164,14 @@ assert.equal(dp, "~/worktrees/kernel/main/AGENTS.md", `25 ~ wrapped: ${dp}`);
 // 26. a "/" at end of a line followed by unrelated text must NOT glue
 out = render("cd some/dir/\nsome random words here");
 assert.ok(!out.includes("pane-file"), `26 no false glue: ${out}`);
+
+// 27. local markdown hrefs can be routed through the pane-scoped file viewer
+assert.equal(filePathFromLocalHref("docs/DATASET_WORKLOG.md"), "docs/DATASET_WORKLOG.md");
+assert.equal(filePathFromLocalHref("./docs/DATASET_WORKLOG.md#intro"), "./docs/DATASET_WORKLOG.md");
+assert.equal(filePathFromLocalHref("/home/homo/financial/docs/DATASET_WORKLOG.md"), "/home/homo/financial/docs/DATASET_WORKLOG.md");
+assert.equal(filePathFromLocalHref("docs/My%20Report.md"), "docs/My Report.md");
+assert.equal(filePathFromLocalHref("https://example.com/docs/DATASET_WORKLOG.md"), "");
+assert.equal(filePathFromLocalHref("#section"), "");
+assert.equal(filePathFromLocalHref("/api/pins"), "");
 
 console.log("linkify unit tests passed");

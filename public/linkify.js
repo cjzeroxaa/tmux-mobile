@@ -32,6 +32,7 @@ export const URL_IN_ESCAPED = /(\bhttps?:\/\/|\bwww\.)[^\s<>"']+/gi;
 // browser plays audio with native <audio> controls).
 const VIEWABLE_FILE_EXTS =
   "png|jpe?g|gif|svg|webp|bmp|ico|md|markdown|mdown|mkd|webm|mp4|m4v|mov|wav|mp3|ogg|m4a|aac|flac|html?";
+const VIEWABLE_FILE_EXT_RE = new RegExp(String.raw`\.(?:${VIEWABLE_FILE_EXTS})$`, "i");
 
 // Matches file paths ending in a viewable extension, in already-escaped text.
 // Requires either a path separator or a leading ./ ../ ~/ so a bare word like
@@ -132,6 +133,19 @@ function linkifyUrls(escaped) {
 // would corrupt the markdown's own <a href> / <img src> attributes).
 export function linkifyFilesEscaped(html) {
   return linkifyFiles(String(html));
+}
+
+export function filePathFromLocalHref(href) {
+  const raw = String(href || "").trim();
+  if (!raw || raw.startsWith("#") || raw.startsWith("//")) return "";
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return "";
+  const pathPart = raw.split(/[?#]/, 1)[0];
+  if (!VIEWABLE_FILE_EXT_RE.test(pathPart)) return "";
+  try {
+    return decodeURI(pathPart);
+  } catch {
+    return pathPart;
+  }
 }
 
 // Wrap viewable file paths in a span that the client turns into an in-app viewer

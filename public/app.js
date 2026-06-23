@@ -1,4 +1,4 @@
-import { escapeHtml, linkifyEscaped } from "./linkify.js";
+import { escapeHtml, filePathFromLocalHref, linkifyEscaped } from "./linkify.js";
 import { playNotifySound, shouldChime } from "./notify-sound.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
 import {
@@ -5264,6 +5264,14 @@ function openFileViewer(filePath) {
   }
 }
 
+function filePathFromSnapshotTarget(target) {
+  const fileSpan = target?.closest?.(".pane-file");
+  if (fileSpan?.dataset?.filePath) return fileSpan.dataset.filePath;
+  const link = target?.closest?.("a[href]");
+  if (!link) return "";
+  return filePathFromLocalHref(link.getAttribute("href"));
+}
+
 // Pin a pane-referenced file directly (the fallback path for raw media, whose
 // viewer tab can't host the in-page Pin overlay, and a right-click/long-press
 // affordance on any file chip). POSTs the file's current bytes to /api/pins and,
@@ -5351,7 +5359,7 @@ function setupSnapshotLongPress() {
     fired = false;
     // Don't hijack a press that starts on a link/file — those have their own tap
     // actions and shouldn't be shadowed by the overlay.
-    if (target?.closest?.("a.pane-link, .pane-file")) return;
+    if (target?.closest?.("a.pane-link, .pane-file, a[href]")) return;
     startX = x;
     startY = y;
     clear();
@@ -5443,10 +5451,10 @@ els.snapshot.addEventListener("click", (event) => {
   // for the pane input (which would pop the mobile keyboard).
   if (event.target.closest("a.pane-link")) return;
   // A click on a detected file path opens the in-app content viewer.
-  const fileSpan = event.target.closest(".pane-file");
-  if (fileSpan) {
+  const filePath = filePathFromSnapshotTarget(event.target);
+  if (filePath) {
     event.preventDefault();
-    openFileViewer(fileSpan.dataset.filePath);
+    openFileViewer(filePath);
     return;
   }
   if (state.snapshotFullscreen && isWideViewport()) focusPaneInput();
@@ -5466,20 +5474,20 @@ document.addEventListener("selectionchange", () => {
 // Keyboard activation for the file-path spans (they're role="link" tabindex=0).
 els.snapshot.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
-  const fileSpan = event.target.closest?.(".pane-file");
-  if (!fileSpan) return;
+  const filePath = filePathFromSnapshotTarget(event.target);
+  if (!filePath) return;
   event.preventDefault();
-  openFileViewer(fileSpan.dataset.filePath);
+  openFileViewer(filePath);
 });
 
 // Right-click / long-press context menu on a file chip pins it directly. This is
 // the pin path for raw media (whose viewer tab can't host the overlay) and a
 // quick shortcut for any artifact.
 els.snapshot.addEventListener("contextmenu", (event) => {
-  const fileSpan = event.target.closest?.(".pane-file");
-  if (!fileSpan) return;
+  const filePath = filePathFromSnapshotTarget(event.target);
+  if (!filePath) return;
   event.preventDefault();
-  pinArtifact(fileSpan.dataset.filePath);
+  pinArtifact(filePath);
 });
 
 els.paneInput.addEventListener("beforeinput", (event) => {

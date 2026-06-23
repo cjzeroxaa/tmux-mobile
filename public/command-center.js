@@ -6,7 +6,7 @@ import {
   createCommandCenterGrace,
   holdCommandCenterSnapshot as holdCommandCenterGraceSnapshot,
 } from "./command-center-grace.mjs";
-import { linkifyEscaped, linkifyFilesEscaped } from "./linkify.js";
+import { filePathFromLocalHref, linkifyEscaped, linkifyFilesEscaped } from "./linkify.js";
 import { renderMarkdown } from "./markdown.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
 import {
@@ -3693,6 +3693,14 @@ function openFileViewer(agent, filePath) {
   }
 }
 
+function filePathFromClickTarget(target) {
+  const fileSpan = target?.closest?.(".pane-file");
+  if (fileSpan?.dataset?.filePath) return fileSpan.dataset.filePath;
+  const link = target?.closest?.("a[href]");
+  if (!link) return "";
+  return filePathFromLocalHref(link.getAttribute("href"));
+}
+
 function agentForCardKey(key) {
   if (!key) return null;
   return state.agents.find((agent) => readKeyForAgent(agent) === key) || null;
@@ -3761,11 +3769,11 @@ async function pinResponseAsArtifact(agent, text, options = {}) {
 function fileSpanClickHandler(getAgent) {
   return (event) => {
     const target = event.target instanceof Element ? event.target : null;
-    const span = target?.closest(".pane-file");
-    if (!span) return;
+    const filePath = filePathFromClickTarget(target);
+    if (!filePath) return;
     event.preventDefault();
     const agent = getAgent();
-    if (agent) openFileViewer(agent, span.dataset.filePath);
+    if (agent) openFileViewer(agent, filePath);
   };
 }
 els.transcriptBody?.addEventListener("click", fileSpanClickHandler(() => state.transcriptAgent));
@@ -3785,11 +3793,11 @@ els.list.addEventListener("click", (event) => {
   if (card) updateSelectedCard(card.dataset.cardKey, { focus: !interactive });
 
   // A detected file path opens the artifact viewer, scoped to this card's agent.
-  const fileSpan = target.closest(".pane-file");
-  if (fileSpan && card) {
+  const filePath = filePathFromClickTarget(target);
+  if (filePath && card) {
     event.preventDefault();
     const agent = agentForCardKey(card.dataset.cardKey);
-    if (agent) openFileViewer(agent, fileSpan.dataset.filePath);
+    if (agent) openFileViewer(agent, filePath);
     return;
   }
 
