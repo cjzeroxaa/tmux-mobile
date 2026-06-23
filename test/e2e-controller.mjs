@@ -525,7 +525,7 @@ try {
   assert.equal(runtime.connectorUpdateRef, "test-release");
   assert.match(
     runtime.connectorUpdateScriptUrl,
-    /\/test-release\/scripts\/update-connector\.mjs$/,
+    /\/connector\/update\.mjs$/,
   );
   assert.equal(bobCommandCenter.machines[0].expectedRevision, "test-revision");
   assert.equal(bobCommandCenter.machines[0].updateRef, "test-release");

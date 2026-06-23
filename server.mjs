@@ -839,7 +839,6 @@ const CONNECTOR_CLONE_URL =
   "https://github.com/cjzeroxaa/tmux-mobile.git";
 const DEFAULT_CONTROLLER_URL =
   process.env.TMUX_MOBILE_CONTROLLER_URL || "https://eng.impo.ai";
-const CONNECTOR_UPDATE_SCRIPT_PATH = "scripts/update-connector.mjs";
 const CONNECTOR_UPDATE_REF =
   safeUpdateToken(process.env.TMUX_MOBILE_UPDATE_REF) || "main";
 const CONNECTOR_EXPECTED_REVISION =
@@ -848,7 +847,7 @@ const CONNECTOR_EXPECTED_REVISION =
   "";
 const CONNECTOR_UPDATE_SCRIPT_URL =
   process.env.TMUX_MOBILE_UPDATE_SCRIPT_URL ||
-  defaultConnectorUpdateScriptUrl(CONNECTOR_CLONE_URL, CONNECTOR_UPDATE_REF);
+  `${DEFAULT_CONTROLLER_URL}${CONNECTOR_UPDATE_BUNDLE_ROUTE}`;
 const WINDOW_BRIEFING_MODEL =
   process.env.OPENAI_WINDOW_BRIEFING_MODEL || "gpt-5.4-mini";
 const configuredSubmitNudgeDelayMs = Number(
@@ -919,24 +918,6 @@ function parseRealtimeOutputTokenLimit(value) {
 function parsePositiveInteger(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
-}
-
-function defaultConnectorUpdateScriptUrl(cloneUrl, revision) {
-  const ref = safeUpdateToken(revision) || "main";
-  const repo = githubRepoPath(cloneUrl);
-  if (!repo) {
-    return `https://raw.githubusercontent.com/cjzeroxaa/tmux-mobile/${ref}/${CONNECTOR_UPDATE_SCRIPT_PATH}`;
-  }
-  return `https://raw.githubusercontent.com/${repo}/${ref}/${CONNECTOR_UPDATE_SCRIPT_PATH}`;
-}
-
-function githubRepoPath(cloneUrl) {
-  const url = String(cloneUrl || "").trim();
-  const https = url.match(/^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+?)(?:\.git)?$/i);
-  if (https) return `${https[1]}/${https[2]}`;
-  const ssh = url.match(/^git@github\.com:([^/\s]+)\/([^/\s]+?)(?:\.git)?$/i);
-  if (ssh) return `${ssh[1]}/${ssh[2]}`;
-  return "";
 }
 
 function safeUpdateToken(value) {
@@ -1511,7 +1492,18 @@ async function startConnectorUpdate(options = {}) {
 
   const paneId = (
     await runtime.tmux(
-      ["new-session", "-d", "-P", "-F", "#{pane_id}", "-s", sessionName, "-n", windowName],
+      [
+        "new-session",
+        "-d",
+        "-P",
+        "-F",
+        "#{pane_id}",
+        "-s",
+        sessionName,
+        "-n",
+        windowName,
+        command,
+      ],
       { timeout: 5000 },
     )
   ).trim();
@@ -1520,7 +1512,6 @@ async function startConnectorUpdate(options = {}) {
     error.status = 500;
     throw error;
   }
-  await sendTextToPane(paneId, command, { enter: true });
   return {
     ok: true,
     sessionName,

@@ -24,11 +24,29 @@ const logPath =
   process.env.TMUX_MOBILE_UPDATE_LOG || path.join(os.tmpdir(), "tmux-mobile-connector-update.log");
 const bundleUrl = `${controllerUrl}/connector/tmux-mobile-connector.mjs`;
 const manifestUrl = `${controllerUrl}/connector/tmux-mobile-connector.json`;
+const savedEnv = readEnvFile(envFile);
+const agentMachine =
+  process.env.TMUX_MOBILE_UPDATE_AGENT_MACHINE || savedEnv.AGENT_MACHINE || "";
+const targetMux = normalizeMux(
+  process.env.TMUX_MOBILE_UPDATE_MUX ||
+    process.env.TMUX_MOBILE_MUX ||
+    savedEnv.TMUX_MOBILE_MUX ||
+    "",
+);
+const targetMuxes = normalizeMuxes(
+  process.env.TMUX_MOBILE_UPDATE_MUXES ||
+    process.env.TMUX_MOBILE_MUXES ||
+    savedEnv.TMUX_MOBILE_MUXES ||
+    "",
+);
 
 async function main() {
   log("tmux-mobile connector bundle-update started");
   log(`controller=${controllerUrl}`);
   log(`installDir=${installDir}`);
+  if (agentMachine) log(`agentMachine=${agentMachine}`);
+  if (targetMux) log(`mux=${targetMux}`);
+  if (targetMuxes) log(`muxes=${targetMuxes}`);
 
   mkdirSync(installDir, { recursive: true });
 
@@ -49,15 +67,17 @@ async function main() {
   }
 
   run(process.execPath, ["--check", bundlePath]);
-  await restartConnector();
+  writeConnectorEnv({
+    AGENT_MACHINE: agentMachine,
+    TMUX_MOBILE_MUX: targetMux,
+    TMUX_MOBILE_MUXES: targetMuxes,
+  });
+  await restartConnector(installedRevision);
 
   log("tmux-mobile connector bundle-update finished");
 }
 
-const agentMachine =
-  process.env.TMUX_MOBILE_UPDATE_AGENT_MACHINE || readEnvFile(envFile).AGENT_MACHINE || "";
-
-async function restartConnector() {
+async function restartConnector(installedRevision = "") {
   const oldPids = connectorPids();
   const logFile = path.join(installDir, "connector.log");
   const fd = openSync(logFile, "a");
@@ -67,7 +87,10 @@ async function restartConnector() {
     stdio: ["ignore", fd, fd],
     env: {
       ...process.env,
+      ...(installedRevision ? { TMUX_MOBILE_REVISION: installedRevision } : {}),
       ...(agentMachine ? { AGENT_MACHINE: agentMachine } : {}),
+      ...(targetMux ? { TMUX_MOBILE_MUX: targetMux } : {}),
+      ...(targetMuxes ? { TMUX_MOBILE_MUXES: targetMuxes } : {}),
     },
   });
   child.unref();
@@ -136,6 +159,29 @@ function readEnvFile(filePath) {
     }
   } catch {}
   return out;
+}
+
+function writeConnectorEnv(values) {
+  const lines = [];
+  for (const [key, value] of Object.entries(values)) {
+    if (value) lines.push(`${key}=${value}`);
+  }
+  if (lines.length === 0) return;
+  writeFileSync(envFile, `${lines.join("\n")}\n`, "utf8");
+  log(`wrote connector env ${envFile}`);
+}
+
+function normalizeMux(value) {
+  const mux = String(value || "").trim().toLowerCase();
+  return mux === "tmux" || mux === "rmux" ? mux : "";
+}
+
+function normalizeMuxes(value) {
+  const muxes = String(value || "")
+    .split(",")
+    .map(normalizeMux)
+    .filter(Boolean);
+  return [...new Set(muxes)].join(",");
 }
 
 function run(command, args, { cwd = process.cwd(), check = true } = {}) {
