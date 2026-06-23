@@ -50,6 +50,13 @@ import {
   resetUserSnippets,
   updateUserSnippets,
 } from "./lib/user-snippets.mjs";
+import {
+  createCardStarStore,
+  createMemoryCardStarStore,
+  describeUserCardStars,
+  resetUserCardStars,
+  updateUserCardStars,
+} from "./lib/user-card-stars.mjs";
 import { appRevision } from "./lib/revision.mjs";
 import {
   createAgentRoundNtfyNotifier,
@@ -4669,10 +4676,10 @@ try {
   console.error(`Pin index hydrate failed (${error.message}); starting empty.`);
 }
 
-// User preferences that are not tied to a machine/pane. Snippets are the first
-// entry here: one authenticated user owns one small record. Local installs use a
-// JSON file by default; prod can set TMUX_MOBILE_SNIPPETS_STORE=dynamo with a
-// dedicated DynamoDB table.
+// User preferences that are not tied to a machine/pane. One authenticated user
+// owns one small record per preference. Local installs use JSON files by default;
+// prod can set TMUX_MOBILE_SNIPPETS_STORE=dynamo with the shared user prefs
+// DynamoDB table.
 let SNIPPET_STORE;
 try {
   SNIPPET_STORE = await createSnippetStore();
@@ -4682,6 +4689,17 @@ try {
     `Snippet preference store init failed (${error.message}); falling back to in-memory.`,
   );
   SNIPPET_STORE = createMemorySnippetStore();
+}
+
+let CARD_STAR_STORE;
+try {
+  CARD_STAR_STORE = await createCardStarStore();
+  await CARD_STAR_STORE.load();
+} catch (error) {
+  console.error(
+    `Card-star preference store init failed (${error.message}); falling back to in-memory.`,
+  );
+  CARD_STAR_STORE = createMemoryCardStarStore();
 }
 
 // Comment store — same fall-back-to-memory posture as the pin index so a missing
@@ -4836,6 +4854,33 @@ if (MODE.kind === "register") {
         if (req.method === "DELETE") {
           try {
             sendJson(res, 200, await resetUserSnippets(SNIPPET_STORE, userId));
+          } catch (error) {
+            sendJson(res, error.status || 500, { error: error.message });
+          }
+          return;
+        }
+        sendJson(res, 405, { error: "Method not allowed" });
+        return;
+      }
+
+      if (url.pathname === "/api/card-stars") {
+        if (req.method === "GET") {
+          sendJson(res, 200, await describeUserCardStars(CARD_STAR_STORE, userId));
+          return;
+        }
+        if (req.method === "PUT" || req.method === "POST") {
+          try {
+            const body = await readJsonBody(req);
+            const keys = Array.isArray(body) ? body : body.keys;
+            sendJson(res, 200, await updateUserCardStars(CARD_STAR_STORE, userId, keys));
+          } catch (error) {
+            sendJson(res, error.status || 500, { error: error.message });
+          }
+          return;
+        }
+        if (req.method === "DELETE") {
+          try {
+            sendJson(res, 200, await resetUserCardStars(CARD_STAR_STORE, userId));
           } catch (error) {
             sendJson(res, error.status || 500, { error: error.message });
           }

@@ -1,4 +1,5 @@
 import { buildAgentAppUrl } from "./agent-link.mjs";
+import { cardStarKey } from "./card-stars.js";
 import {
   clearCommandCenterGrace,
   commandCenterGraceActive,
@@ -33,6 +34,8 @@ const CC_FONT_MIN = 10;
 const CC_FONT_MAX = 18;
 const CC_FONT_DEFAULT = 13;
 const STARRED_CARDS_KEY = "tmux-mobile-command-center-starred-cards";
+const STARRED_CARDS_MIGRATED_KEY = "tmux-mobile-command-center-starred-cards-server-migrated-v1";
+const STARRED_CARDS_DIRTY_KEY = "tmux-mobile-command-center-starred-cards-server-dirty-v1";
 const ICONS = {
   star:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.5 2.7a.55.55 0 0 1 1 0l2.8 5.7a.55.55 0 0 0 .42.3l6.3.92a.55.55 0 0 1 .3.94l-4.55 4.43a.55.55 0 0 0-.16.49l1.08 6.26a.55.55 0 0 1-.8.58l-5.63-2.96a.55.55 0 0 0-.51 0l-5.63 2.96a.55.55 0 0 1-.8-.58l1.08-6.26a.55.55 0 0 0-.16-.49L1.68 10.56a.55.55 0 0 1 .3-.94l6.3-.92a.55.55 0 0 0 .42-.3l2.8-5.7Z"/></svg>',
@@ -178,14 +181,133 @@ function saveJson(key, value) {
   } catch {}
 }
 
-function loadStarredCards() {
+function readLocalStarredCards() {
   const data = loadJson(STARRED_CARDS_KEY, { keys: [] });
   const keys = Array.isArray(data?.keys) ? data.keys : Array.isArray(data) ? data : [];
-  return new Set(keys.map((key) => String(key || "")).filter(Boolean));
+  return {
+    exists: Array.isArray(data?.keys) || Array.isArray(data),
+    keys: new Set(keys.map((key) => String(key || "")).filter(Boolean)),
+  };
+}
+
+function loadStarredCards() {
+  return readLocalStarredCards().keys;
+}
+
+function writeLocalStarredCards(keys = state.starredCards) {
+  saveJson(STARRED_CARDS_KEY, { keys: [...keys] });
+}
+
+function markStarredCardsMigrated() {
+  try {
+    localStorage.setItem(STARRED_CARDS_MIGRATED_KEY, "1");
+  } catch {}
+}
+
+function hasMigratedStarredCards() {
+  try {
+    return localStorage.getItem(STARRED_CARDS_MIGRATED_KEY) === "1";
+  } catch {
+    return true;
+  }
+}
+
+function markStarredCardsDirty() {
+  try {
+    localStorage.setItem(STARRED_CARDS_DIRTY_KEY, "1");
+  } catch {}
+}
+
+function clearStarredCardsDirty() {
+  try {
+    localStorage.removeItem(STARRED_CARDS_DIRTY_KEY);
+  } catch {}
+}
+
+function hasDirtyStarredCards() {
+  try {
+    return localStorage.getItem(STARRED_CARDS_DIRTY_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function normalizeStarredCardKeys(keys) {
+  if (!Array.isArray(keys)) return [];
+  return [...new Set(keys.map((key) => String(key || "")).filter(Boolean))];
+}
+
+async function fetchServerStarredCards() {
+  const response = await fetch("/api/card-stars", {
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(`card stars load failed: ${response.status}`);
+  return response.json();
+}
+
+async function persistServerStarredCards(keys = [...state.starredCards]) {
+  const response = await fetch("/api/card-stars", {
+    method: "PUT",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ keys: normalizeStarredCardKeys(keys) }),
+  });
+  if (!response.ok) throw new Error(`card stars save failed: ${response.status}`);
+  return response.json();
 }
 
 function saveStarredCards() {
-  saveJson(STARRED_CARDS_KEY, { keys: [...state.starredCards] });
+  starredCardsTouched = true;
+  writeLocalStarredCards();
+  persistServerStarredCards()
+    .then(() => {
+      markStarredCardsMigrated();
+      clearStarredCardsDirty();
+    })
+    .catch(() => {
+      markStarredCardsDirty();
+    });
+}
+
+let starredCardsInitPromise = null;
+let starredCardsTouched = false;
+function initStarredCards() {
+  if (starredCardsInitPromise) return starredCardsInitPromise;
+  starredCardsInitPromise = (async () => {
+    const local = readLocalStarredCards();
+    try {
+      const remote = await fetchServerStarredCards();
+      const remoteKeys = normalizeStarredCardKeys(remote?.keys);
+      const localKeys = [...local.keys];
+      const shouldMigrateLocal =
+        !hasMigratedStarredCards() &&
+        local.exists &&
+        remote?.customized === false &&
+        localKeys.length > 0;
+      const shouldPushLocal = hasDirtyStarredCards() || shouldMigrateLocal;
+
+      if (starredCardsTouched) return;
+      if (shouldPushLocal && local.exists) {
+        state.starredCards = new Set(localKeys);
+        writeLocalStarredCards();
+        const saved = await persistServerStarredCards(localKeys);
+        if (!starredCardsTouched) {
+          state.starredCards = new Set(normalizeStarredCardKeys(saved?.keys));
+        }
+        clearStarredCardsDirty();
+      } else {
+        state.starredCards = new Set(remoteKeys);
+      }
+      writeLocalStarredCards();
+      markStarredCardsMigrated();
+      renderAgents();
+    } catch {
+      if (!starredCardsTouched) {
+        state.starredCards = readLocalStarredCards().keys;
+        renderAgents();
+      }
+    }
+  })();
+  return starredCardsInitPromise;
 }
 
 function systemPrefersDark() {
@@ -2477,22 +2599,53 @@ function readKeyForAgent(agent) {
   return `${agentMachineKey(agent)}::${agentMux(agent) || "tmux"}::${agent.windowId || agent.paneId || agent.agentSessionId || ""}`;
 }
 
+function starKeyForAgent(agent) {
+  return cardStarKey({
+    machineId: agentMachineKey(agent),
+    mux: agentMux(agent) || "tmux",
+    sessionName: agent.sessionName || agent.sessionId || "",
+    windowIndex: agent.windowIndex ?? agent.index ?? "",
+    windowId: agent.windowId,
+    paneId: agent.paneId,
+    agentSessionId: agent.agentSessionId,
+  });
+}
+
+function starKeysForAgent(agent) {
+  return [...new Set([starKeyForAgent(agent), readKeyForAgent(agent)].filter(Boolean))];
+}
+
 function isStarredAgent(agent) {
-  return state.starredCards.has(readKeyForAgent(agent));
+  return starKeysForAgent(agent).some((key) => state.starredCards.has(key));
 }
 
 function toggleStarredAgent(agent) {
-  const key = readKeyForAgent(agent);
+  const key = starKeyForAgent(agent);
   if (!key) return;
-  const nextStarred = !state.starredCards.has(key);
+  const keys = starKeysForAgent(agent);
+  const nextStarred = !keys.some((candidate) => state.starredCards.has(candidate));
   if (nextStarred) state.starredCards.add(key);
-  else state.starredCards.delete(key);
+  else keys.forEach((candidate) => state.starredCards.delete(candidate));
   saveStarredCards();
   showToast(nextStarred ? "Starred card." : "Removed star.", {
     statusText: nextStarred ? "Starred card" : "Removed star",
     duration: 1600,
   });
   renderAgents();
+}
+
+function reconcileVisibleStarredCards() {
+  let changed = false;
+  for (const agent of state.agents) {
+    const stable = starKeyForAgent(agent);
+    const legacy = readKeyForAgent(agent);
+    if (stable && legacy && stable !== legacy && state.starredCards.has(legacy)) {
+      state.starredCards.add(stable);
+      state.starredCards.delete(legacy);
+      changed = true;
+    }
+  }
+  if (changed) saveStarredCards();
 }
 
 function selectedAgentFrom(agents = filterAndSort(state.agents)) {
@@ -3409,6 +3562,7 @@ function renderCard(agent) {
 function renderAgents() {
   const priorFocusedCardKey = focusedCardKey();
   const scrollSnapshot = captureCommandCenterScroll();
+  reconcileVisibleStarredCards();
   if (state.machines.length === 0 && state.agents.length === 0) {
     state.selectedCardKey = "";
     const loads = machineLoadCounts();
@@ -4079,6 +4233,7 @@ onSnippetsChanged(() => {
 });
 renderInteractSnippets();
 initSnippets();
+initStarredCards();
 
 loadAgents();
 startPolling();
