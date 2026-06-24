@@ -1,0 +1,16 @@
+[package]
+name = "tmux-mobile-tui"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1.0.102"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+crossterm = "0.29.0"
+ratatui = "0.30.2"
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+textwrap = "0.16.2"
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "time"] }

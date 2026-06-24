@@ -219,6 +219,25 @@ agents        list detected Codex/Claude windows across machines
 agent 1       open an agent window
 ```
 
+For a card-style terminal dashboard, use the Rust TUI:
+
+```bash
+npm run terminal:tui
+npm run terminal:tui -- https://YOUR-CLOUD-RUN-URL
+npm run terminal:tui -- --login
+```
+
+It uses the same device-login session file as the plain terminal client
+(`~/.config/tmux-mobile/terminal.json`) and renders the Command Center feed as
+keyboard-navigable cards, ordered like the web Command Center: starred cards
+first, then most-recent activity. Use `h/j/k/l` or arrow keys to move, `s` to
+star/unstar the selected card, `r` to interact/send text, `t` to list the
+selected transcript, `c` for a compact conversation list, `m` to filter by
+machine, `/` to filter by text, `d` to toggle dark/light, `u` to refresh, `?`
+for the full shortcut list, and `q` to quit. Stars persist in the same session
+file. Dark mode is the default; use
+`npm run terminal:tui -- --theme light` to start in light mode.
+
 ### Code layout
 
 - `server.mjs` — entry point and HTTP/API handlers (shared by all modes).
