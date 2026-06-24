@@ -1357,9 +1357,24 @@ async function createSession(name) {
   return currentWindowRuntime().createSession({ name });
 }
 
+// Agents are launched in full-autonomy / permission-bypass mode so a phone user
+// never gets stranded on an interactive approval prompt they can't easily answer:
+//   - Claude:  --dangerously-skip-permissions  (skip all permission prompts)
+//   - Codex:   --dangerously-bypass-approvals-and-sandbox  (no approvals, no sandbox)
+//              --dangerously-bypass-hook-trust  (run hooks without the trust prompt;
+//              without it a phone user can still get stranded on a hook-trust confirm)
+// The window name stays the bare agent name; detection keys off the pane command
+// line (flags included), so the extra flags don't change how the agent is labeled.
 const START_AGENT_COMMANDS = {
-  codex: { command: "codex", windowName: "codex" },
-  claude: { command: "claude", windowName: "claude" },
+  codex: {
+    command:
+      "codex --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust",
+    windowName: "codex",
+  },
+  claude: {
+    command: "claude --dangerously-skip-permissions",
+    windowName: "claude",
+  },
 };
 
 function requireStartAgentKind(value) {
@@ -2348,6 +2363,9 @@ async function safeAgentTranscript(pane) {
     const result = await backend.agentTranscript({
       rootPid: pane.pid,
       cwd: pane.cwd || "",
+      // The pane's foreground command breaks codex/claude ties so a backgrounded
+      // codex doesn't shadow the foreground agent (see locateAgentTranscript).
+      foregroundCommand: pane.command || "",
     });
     if (
       exactClaudeSession &&
