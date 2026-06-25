@@ -27,6 +27,11 @@ const INTERACT_WAVEFORM_SAMPLES = 40;
 const INTERACT_WAVEFORM_SAMPLE_INTERVAL_MS = 200;
 const COMPOSER_HISTORY_KEY = "tmux-mobile-composer-history";
 const COMPOSER_HISTORY_MAX = 100;
+// Unsent Interact-composer drafts, keyed per agent so typing for one agent and
+// dismissing the sheet doesn't lose the text on reopen. Bounded so we never
+// accumulate drafts for long-gone agents.
+const INTERACT_DRAFTS_KEY = "tmux-mobile-interact-drafts";
+const INTERACT_DRAFTS_MAX = 50;
 const THEME_KEY = "tmux-mobile-theme";
 const THEME_OPTIONS = ["kami", "dark", "auto"];
 const CC_FONT_KEY = "tmux-mobile-cc-font-size";
@@ -826,6 +831,55 @@ function pushComposerHistory(text) {
   saveComposerHistory(items);
 }
 
+function interactDraftKey(agent) {
+  return agent ? readKeyForAgent(agent) : "";
+}
+
+function loadInteractDrafts() {
+  try {
+    const raw = localStorage.getItem(INTERACT_DRAFTS_KEY);
+    const data = raw ? JSON.parse(raw) : null;
+    return data && typeof data === "object" && !Array.isArray(data) ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+function loadInteractDraft(agent) {
+  const key = interactDraftKey(agent);
+  if (!key) return "";
+  return String(loadInteractDrafts()[key] || "");
+}
+
+// Persist (or clear, when empty) the draft for one agent. Keeps at most
+// INTERACT_DRAFTS_MAX entries, evicting the oldest insertion first.
+function saveInteractDraft(agent, text) {
+  const key = interactDraftKey(agent);
+  if (!key) return;
+  const drafts = loadInteractDrafts();
+  const value = String(text || "");
+  if (value.trim().length === 0) {
+    if (!(key in drafts)) return;
+    delete drafts[key];
+  } else {
+    delete drafts[key]; // re-insert so this key becomes the most-recent
+    drafts[key] = value;
+    const keys = Object.keys(drafts);
+    if (keys.length > INTERACT_DRAFTS_MAX) {
+      for (const stale of keys.slice(0, keys.length - INTERACT_DRAFTS_MAX)) {
+        delete drafts[stale];
+      }
+    }
+  }
+  try {
+    localStorage.setItem(INTERACT_DRAFTS_KEY, JSON.stringify(drafts));
+  } catch {}
+}
+
+function clearInteractDraft(agent) {
+  saveInteractDraft(agent, "");
+}
+
 function interactGetText() {
   return els.interactInput?.innerText || "";
 }
@@ -870,6 +924,7 @@ function interactAppendText(text) {
   const current = interactGetText();
   const sep = current && !/\s$/.test(current) ? " " : "";
   interactSetText(current + sep + add);
+  saveInteractDraft(state.interactAgent, interactGetText());
   interactFocus();
 }
 
@@ -1075,7 +1130,8 @@ function openInteract(agent) {
   els.interactSend.disabled = false;
   setInteractStatus("");
   renderInteractSnippets();
-  interactClear();
+  // Restore any unsent draft for this agent (kept across dismiss/reopen).
+  interactSetText(loadInteractDraft(agent));
   els.interactSheet.hidden = false;
   interactFocus();
 }
@@ -1112,10 +1168,12 @@ async function sendInteractText({ keepFocus = true } = {}) {
   pushComposerHistory(text);
   try {
     await sendTextToAgent(agent, text);
+    clearInteractDraft(agent);
     setInteractStatus("Sent");
     window.setTimeout(loadAgents, 700);
   } catch (error) {
     interactSetText(text);
+    saveInteractDraft(agent, text);
     setInteractStatus(`Send failed: ${error.message}`);
     interactFocus();
   } finally {
@@ -4113,6 +4171,7 @@ els.cardSearchInput?.addEventListener("keydown", (event) => {
 });
 els.interactInput?.addEventListener("input", () => {
   els.interactInput.classList.toggle("empty", interactGetText().trim().length === 0);
+  saveInteractDraft(state.interactAgent, interactGetText());
 });
 els.interactInput?.addEventListener("keydown", (event) => {
   if (event.isComposing) return;
