@@ -58,6 +58,14 @@ assert.equal(
   "claude",
   "command center recognizes a newly started claude process before transcript exists",
 );
+assert.equal(
+  detectCommandCenterAgentType([
+    "zsh",
+    "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 claude --dangerously-skip-permissions",
+  ]),
+  "claude",
+  "command center recognizes claude launched with native-scrollback env",
+);
 assert.equal(detectCommandCenterAgentType(["/usr/bin/gemini chat"]), null, "command center is codex/claude only");
 
 // computeWindowMetadata uses backend.paneCommand to resolve interpreter windows,

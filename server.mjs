@@ -1360,11 +1360,14 @@ async function createSession(name) {
 // Agents are launched in full-autonomy / permission-bypass mode so a phone user
 // never gets stranded on an interactive approval prompt they can't easily answer:
 //   - Claude:  --dangerously-skip-permissions  (skip all permission prompts)
+//              CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1  (force native scrollback;
+//              fullscreen/alternate-screen hides most history from tmux capture)
 //   - Codex:   --dangerously-bypass-approvals-and-sandbox  (no approvals, no sandbox)
 //              --dangerously-bypass-hook-trust  (run hooks without the trust prompt;
 //              without it a phone user can still get stranded on a hook-trust confirm)
 // The window name stays the bare agent name; detection keys off the pane command
 // line (flags included), so the extra flags don't change how the agent is labeled.
+const CLAUDE_CLASSIC_RENDER_ENV = "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1";
 const START_AGENT_COMMANDS = {
   codex: {
     command:
@@ -1372,7 +1375,7 @@ const START_AGENT_COMMANDS = {
     windowName: "codex",
   },
   claude: {
-    command: "claude --dangerously-skip-permissions",
+    command: `${CLAUDE_CLASSIC_RENDER_ENV} claude --dangerously-skip-permissions`,
     windowName: "claude",
   },
 };
@@ -2197,7 +2200,7 @@ function detectForkableAgent(pane, processes) {
   if (commands.some((command) => commandHasExecutable(command, "claude"))) {
     return {
       agent: "claude",
-      command: "claude --continue --fork-session",
+      command: `${CLAUDE_CLASSIC_RENDER_ENV} claude --continue --fork-session`,
       windowName: "claude-fork",
     };
   }

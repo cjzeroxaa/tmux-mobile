@@ -349,8 +349,10 @@ Window actions:
 - Fork agent.
 
 Fork agent detects a forkable Claude process and opens an adjacent tmux window in
-the same cwd with `claude --continue --fork-session`. If the active pane is not
-forkable, the action reports that no fork was made.
+the same cwd with `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 claude --continue --fork-session`
+so Claude Code stays in native scrollback instead of fullscreen/alternate-screen
+rendering. If the active pane is not forkable, the action reports that no fork was
+made.
 
 New branch is shown only when the current window is a linked worktree backed by a
 bare repo. It creates a new git worktree and branch at the authoritative worktree
