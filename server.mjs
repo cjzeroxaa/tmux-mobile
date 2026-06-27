@@ -284,6 +284,7 @@ function pinOverlayHtml(managePin) {
       </select>
     </label>
     <input id="tm-pin-users" class="tm-pin-users" placeholder="emails, comma-separated" hidden />
+    <button id="tm-pin-copy-comments" class="tm-pin-copy-comments" type="button" hidden>Copy comments</button>
     <button id="tm-pin-unpin" class="tm-pin-unpin" type="button" hidden>Unpin</button>
     <div id="tm-pin-status" class="tm-pin-status"></div>
   </div>
@@ -309,6 +310,9 @@ function pinOverlayHtml(managePin) {
   .tm-pin-users { margin-top: 6px; width: 100%; box-sizing: border-box; padding: 4px 6px;
     border: 1px solid rgba(127,127,127,.4); border-radius: 6px; background: transparent;
     color: inherit; }
+  .tm-pin-copy-comments { margin-top: 8px; width: 100%; cursor: pointer;
+    border: 1px solid rgba(35,131,226,.45); background: rgba(35,131,226,.1);
+    color: #1a6cbd; border-radius: 8px; padding: 6px 12px; font-weight: 600; }
   .tm-pin-unpin { margin-top: 8px; cursor: pointer; border: 1px solid rgba(235,93,76,.5);
     background: transparent; color: #eb5d4c; border-radius: 8px; padding: 5px 12px;
     font-weight: 600; }
@@ -324,6 +328,7 @@ function pinOverlayHtml(managePin) {
   var copyEl = document.getElementById("tm-pin-copy");
   var shareEl = document.getElementById("tm-pin-share");
   var usersEl = document.getElementById("tm-pin-users");
+  var copyCommentsEl = document.getElementById("tm-pin-copy-comments");
   var unpinEl = document.getElementById("tm-pin-unpin");
   var statusEl = document.getElementById("tm-pin-status");
 
@@ -362,8 +367,20 @@ function pinOverlayHtml(managePin) {
   if (manageMode) {
     btn.textContent = "Manage";
     unpinEl.hidden = false;
+    if (copyCommentsEl && typeof window.tmuxMobileCopyPinComments === "function") {
+      copyCommentsEl.hidden = false;
+    }
     showShareState(MANAGE.share.scope, MANAGE.share.users, location.origin + MANAGE.shareUrl);
     btn.addEventListener("click", function () { panel.hidden = !panel.hidden; });
+    copyCommentsEl.addEventListener("click", function () {
+      if (typeof window.tmuxMobileCopyPinComments !== "function") return;
+      statusEl.textContent = "Copying comments…";
+      window.tmuxMobileCopyPinComments()
+        .then(function (result) {
+          statusEl.textContent = result.count > 0 ? "Comments copied." : "No comments to copy.";
+        })
+        .catch(function (e) { statusEl.textContent = "Copy failed: " + (e.message || e); });
+    });
     unpinEl.addEventListener("click", function () {
       if (!window.confirm("Unpin this artifact? The share link will stop working.")) return;
       statusEl.textContent = "Unpinning…";
@@ -587,7 +604,7 @@ function renderMarkdownPage(name, markdown, truncated, managePin) {
 ${note}
 ${body}
 ${mermaidScript}
-${commentOverlayHtml()}
+${commentOverlayHtml(managePin)}
 ${pinOverlayHtml(managePin)}
 </body></html>`;
 }
@@ -598,7 +615,10 @@ ${pinOverlayHtml(managePin)}
 // commented blocks get a left highlight + a 💬n marker; a bottom FAB opens a flat
 // list of all comments. Talks to /api/comments?token=… (token from the page URL,
 // auth via the session cookie). Self-contained vanilla JS.
-function commentOverlayHtml() {
+function commentOverlayHtml(managePin) {
+  const manageJson = managePin
+    ? JSON.stringify(managePin).replace(/</g, "\\u003c")
+    : "null";
   return `<style>
   [data-aid] { scroll-margin-top: 56px; }
   [data-aid].tmc-has { position: relative; box-shadow: inset 3px 0 0 rgba(35,131,226,.55); }
@@ -643,7 +663,9 @@ function commentOverlayHtml() {
 <div id="tmc-sheet" class="tmc-sheet" hidden><div class="tmc-sheet-panel" id="tmc-sheet-panel"></div></div>
 <script>
 (function(){
-  var token = new URLSearchParams(location.search).get("token");
+  var PIN = ${manageJson};
+  var params = new URLSearchParams(location.search);
+  var token = params.get("token");
   if (!token) return;
   var byAid = {}, openAnchor = null, openRegion = null;
   function esc(s){ var d=document.createElement("div"); d.textContent = s==null?"":String(s); return d.innerHTML; }
@@ -658,6 +680,81 @@ function commentOverlayHtml() {
   }
   function group(list){ byAid={}; (list||[]).forEach(function(c){ (byAid[c.aid]=byAid[c.aid]||[]).push(c); }); }
   function totalCount(){ var n=0; for(var k in byAid) n+=byAid[k].length; return n; }
+  function normalizeText(s){
+    return String(s||"")
+      .replace(/\\r\\n?/g,"\\n")
+      .replace(/[ \\t]+\\n/g,"\\n")
+      .replace(/\\n{4,}/g,"\\n\\n\\n")
+      .trim();
+  }
+  function clipText(text, max){
+    text = normalizeText(text);
+    if(text.length <= max) return text;
+    return text.slice(0, max).trimEnd() + "\\n[truncated " + (text.length - max) + " chars]";
+  }
+  function blockText(el){ return clipText(el ? (el.innerText || el.textContent || "") : "", 6000); }
+  function pinUrl(){
+    if(PIN && PIN.shareUrl) return location.origin + PIN.shareUrl;
+    var u = new URL(location.href);
+    u.searchParams.delete("raw"); u.searchParams.delete("dl");
+    return u.toString();
+  }
+  function rawUrl(){
+    var u = new URL(pinUrl());
+    u.searchParams.set("raw", "1");
+    return u.toString();
+  }
+  function formatDate(ts){
+    if(!ts) return "";
+    try { return new Date(ts).toISOString(); } catch(e) { return ""; }
+  }
+  function commentMeta(c){
+    var bits = [];
+    if(c.authorEmail) bits.push("author: " + c.authorEmail);
+    if(c.status && c.status !== "open") bits.push("status: " + c.status);
+    var created = formatDate(c.createdAt);
+    if(created) bits.push("created: " + created);
+    return bits.length ? "(" + bits.join(", ") + ")" : "";
+  }
+  function promptGroups(){
+    var seen = {}, groups = [];
+    document.querySelectorAll("[data-aid]").forEach(function(el){
+      var aid = el.getAttribute("data-aid");
+      var list = byAid[aid] || [];
+      if(!list.length) return;
+      seen[aid] = true;
+      groups.push({ aid: aid, reference: blockText(el), comments: list });
+    });
+    Object.keys(byAid).forEach(function(aid){
+      if(seen[aid] || !(byAid[aid]||[]).length) return;
+      groups.push({ aid: aid, reference: "", comments: byAid[aid] });
+    });
+    return groups;
+  }
+  function copyText(text){
+    if(navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function(resolve, reject){
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      ta.style.top = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try {
+        if(document.execCommand("copy")) resolve();
+        else reject(new Error("Clipboard unavailable"));
+      } catch(e) {
+        reject(e);
+      } finally {
+        ta.remove();
+      }
+    });
+  }
   function badges(){
     document.querySelectorAll("[data-aid]").forEach(function(el){
       var n=(byAid[el.getAttribute("data-aid")]||[]).length;
@@ -732,23 +829,58 @@ function commentOverlayHtml() {
   var sheet=document.getElementById("tmc-sheet"), panel=document.getElementById("tmc-sheet-panel");
   var lastPrompt="";
   function buildPrompt(){
-    var lines=["The following review comments were left on this document. Please address each one and reply with what you changed.",""];
-    document.querySelectorAll("[data-aid]").forEach(function(el){
-      var list=byAid[el.getAttribute("data-aid")]||[]; if(!list.length) return;
-      var snip=(el.textContent||"").replace(/\\s+/g," ").trim().slice(0,120);
-      lines.push("> "+snip);
-      list.forEach(function(c){ lines.push("- "+c.text+(c.status&&c.status!=="open"?(" ["+c.status+"]"):"")); });
+    var groups = promptGroups();
+    var lines=[
+      "Pinned artifact review comments",
+      "",
+      "Artifact:",
+      "- Title: " + (PIN && PIN.name ? PIN.name : document.title || "pinned artifact"),
+      "- Pin URL: " + pinUrl(),
+      "- Raw URL: " + rawUrl()
+    ];
+    if(PIN && PIN.sourcePath) lines.push("- Source path: " + PIN.sourcePath);
+    if(PIN && PIN.sourceMachineId) lines.push("- Source machine: " + PIN.sourceMachineId);
+    if(PIN && PIN.version) lines.push("- Pin version: " + PIN.version);
+    lines.push("");
+    if(!groups.length){
+      lines.push("No comments are currently saved for this artifact.");
+      return lines.join("\\n") + "\\n";
+    }
+    lines.push("For each review item, the referenced content is listed first, followed by the comment that should be addressed.","");
+    groups.forEach(function(group, index){
+      lines.push("## Review " + (index + 1));
+      if(group.aid) lines.push("Anchor: " + group.aid);
+      lines.push("Reference:");
+      if(group.reference){
+        lines.push("\`\`\`text");
+        lines.push(group.reference);
+        lines.push("\`\`\`");
+      } else {
+        lines.push("(The referenced block is not present in this rendered version.)");
+      }
+      group.comments.forEach(function(c, ci){
+        var meta = commentMeta(c);
+        lines.push("");
+        lines.push(group.comments.length === 1 ? "Comment:" : ("Comment " + (ci + 1) + ":"));
+        if(meta) lines.push(meta);
+        lines.push(clipText(c.text || "", 4000));
+      });
       lines.push("");
     });
-    return lines.join("\\n");
+    return lines.join("\\n").replace(/\\n{4,}/g,"\\n\\n\\n").trim() + "\\n";
   }
+  window.tmuxMobileCopyPinComments = function(){
+    return load().then(function(){
+      lastPrompt = buildPrompt();
+      return copyText(lastPrompt).then(function(){ return { count: totalCount(), text: lastPrompt }; });
+    });
+  };
   document.getElementById("tmc-fab").addEventListener("click", function(){
-    var rows="";
-    document.querySelectorAll("[data-aid]").forEach(function(el){
-      var list=byAid[el.getAttribute("data-aid")]||[]; if(!list.length) return;
-      var snip=(el.textContent||"").replace(/\\s+/g," ").trim().slice(0,60);
-      list.forEach(function(c){
-        rows += '<div class="tmc-sheet-item" data-aid="'+esc(el.getAttribute("data-aid"))+'">'
+    var rows="", groups=promptGroups();
+    groups.forEach(function(group){
+      var snip=(group.reference || "(reference unavailable)").replace(/\\s+/g," ").trim().slice(0,80);
+      group.comments.forEach(function(c){
+        rows += '<div class="tmc-sheet-item" data-aid="'+esc(group.aid)+'">'
           + '<div>'+(icon(c.status)?icon(c.status)+" ":"")+esc(c.text)+'</div>'
           + '<div class="tmc-sheet-snip">'+esc(snip)+'</div></div>';
       });
@@ -761,10 +893,11 @@ function commentOverlayHtml() {
     sheet.hidden=false;
   });
   sheet.addEventListener("click", function(ev){
-    if(ev.target.closest("#tmc-copy-prompt")){
-      (navigator.clipboard ? navigator.clipboard.writeText(lastPrompt) : Promise.reject())
-        .then(function(){ ev.target.textContent="Copied \\u2713"; })
-        .catch(function(){ ev.target.textContent="Copy failed"; });
+    var copyBtn = ev.target.closest("#tmc-copy-prompt");
+    if(copyBtn){
+      window.tmuxMobileCopyPinComments()
+        .then(function(result){ copyBtn.textContent = result.count > 0 ? "Copied \\u2713" : "No comments"; })
+        .catch(function(){ copyBtn.textContent="Copy failed"; });
       return;
     }
     var item=ev.target.closest(".tmc-sheet-item");

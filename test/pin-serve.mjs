@@ -110,6 +110,9 @@ const now = () => clock++;
   assert.match(rendered.body.toString(), /<!--OWNER-->/, "owner gets owned=true descriptor");
   assert.equal(lastManage.id, pin.id);
   assert.equal(lastManage.share.scope, "all");
+  assert.equal(lastManage.sourcePath, "/p/doc.md");
+  assert.equal(lastManage.sourceMachineId, "m1");
+  assert.equal(lastManage.version, 1);
 
   // A NON-owner viewer (pin is scope:all so bob can see it) → still renders, but
   // the descriptor is NOT owned (overlay hides its controls for them).
