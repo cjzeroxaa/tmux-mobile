@@ -2653,8 +2653,19 @@ async function submitStartAgent() {
   }
 }
 
-function readKeyForAgent(agent) {
+function legacyReadKeyForAgent(agent) {
   return `${agentMachineKey(agent)}::${agentMux(agent) || "tmux"}::${agent.windowId || agent.paneId || agent.agentSessionId || ""}`;
+}
+
+function readKeyForAgent(agent) {
+  return [
+    agentMachineKey(agent),
+    agentMux(agent) || "tmux",
+    agent.sessionId || agent.sessionName || "",
+    agent.windowId || "",
+    agent.paneId || "",
+    agent.agentSessionId || "",
+  ].join("::");
 }
 
 function starKeyForAgent(agent) {
@@ -2670,7 +2681,7 @@ function starKeyForAgent(agent) {
 }
 
 function starKeysForAgent(agent) {
-  return [...new Set([starKeyForAgent(agent), readKeyForAgent(agent)].filter(Boolean))];
+  return [...new Set([starKeyForAgent(agent), readKeyForAgent(agent), legacyReadKeyForAgent(agent)].filter(Boolean))];
 }
 
 function isStarredAgent(agent) {
@@ -3312,7 +3323,10 @@ function handleCardShortcuts(event) {
   }
 
   const key = event.key.toLowerCase();
-  if (key === "r") {
+  if (key === "u") {
+    event.preventDefault();
+    loadAgents();
+  } else if (key === "r") {
     const agent = selectedAgentFrom();
     if (agent) {
       event.preventDefault();
@@ -3344,11 +3358,22 @@ function handleCardShortcuts(event) {
 }
 
 function deleteKeyForAgent(agent) {
-  return `${agentMachineKey(agent)}::${agentMux(agent) || "tmux"}::${agent.windowId || ""}`;
+  return [
+    agentMachineKey(agent),
+    agentMux(agent) || "tmux",
+    agent.sessionId || agent.sessionName || "",
+    agent.windowId || "",
+  ].join("::");
 }
 
 function shareKeyForAgent(agent) {
-  return `${agentMachineKey(agent)}::${agentMux(agent) || "tmux"}::${agent.paneId || agent.windowId || ""}`;
+  return [
+    agentMachineKey(agent),
+    agentMux(agent) || "tmux",
+    agent.sessionId || agent.sessionName || "",
+    agent.paneId || "",
+    agent.windowId || "",
+  ].join("::");
 }
 
 function openRmuxShareUrl(url) {
@@ -3918,6 +3943,13 @@ function agentForCardKey(key) {
   return state.agents.find((agent) => readKeyForAgent(agent) === key) || null;
 }
 
+function agentForReadActionKey(actionKey, cardKey = "") {
+  const key = String(actionKey || "");
+  if (!key) return null;
+  if (cardKey && key !== cardKey) return null;
+  return agentForCardKey(key);
+}
+
 // Pin an agent response as a standalone markdown artifact (shareable link +
 // comments). The text is sent inline — no file/live-machine read — so it works
 // even if the agent's machine is offline; the machine id is provenance only.
@@ -3999,16 +4031,17 @@ els.list.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
   const card = target.closest(".cc-card[data-card-key]");
+  const cardKey = card?.dataset.cardKey || "";
   const interactive = target.closest(
     "button, a, select, input, textarea, summary, [contenteditable='true']",
   );
-  if (card) updateSelectedCard(card.dataset.cardKey, { focus: !interactive });
+  if (card) updateSelectedCard(cardKey, { focus: !interactive });
 
   // A detected file path opens the artifact viewer, scoped to this card's agent.
   const filePath = filePathFromClickTarget(target);
   if (filePath && card) {
     event.preventDefault();
-    const agent = agentForCardKey(card.dataset.cardKey);
+    const agent = agentForCardKey(cardKey);
     if (agent) openFileViewer(agent, filePath);
     return;
   }
@@ -4023,14 +4056,16 @@ els.list.addEventListener("click", (event) => {
   }
   const interactButton = target.closest("[data-interact-key]");
   if (interactButton) {
-    const agent = state.agents.find((item) => readKeyForAgent(item) === interactButton.dataset.interactKey);
+    const agent = agentForReadActionKey(interactButton.dataset.interactKey, cardKey);
     if (agent) openInteract(agent);
+    else setStatus("Card changed. Refresh and try again.");
     return;
   }
   const starButton = target.closest("[data-star-key]");
   if (starButton) {
-    const agent = state.agents.find((item) => readKeyForAgent(item) === starButton.dataset.starKey);
+    const agent = agentForReadActionKey(starButton.dataset.starKey, cardKey);
     if (agent) toggleStarredAgent(agent);
+    else setStatus("Card changed. Refresh and try again.");
     return;
   }
   const transcriptButton = target.closest("[data-transcript-key]");
@@ -4057,8 +4092,9 @@ els.list.addEventListener("click", (event) => {
   }
   const button = target.closest("[data-read-key]");
   if (!button) return;
-  const agent = state.agents.find((item) => readKeyForAgent(item) === button.dataset.readKey);
+  const agent = agentForReadActionKey(button.dataset.readKey, cardKey);
   if (agent) readAgent(agent);
+  else setStatus("Card changed. Refresh and try again.");
 });
 els.interactSend?.addEventListener("click", () =>
   sendInteractText({ keepFocus: false }),
