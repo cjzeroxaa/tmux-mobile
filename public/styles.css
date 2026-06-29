@@ -1065,6 +1065,10 @@ input {
   font-weight: 800;
 }
 
+.input-clear {
+  min-height: 40px;
+}
+
 /* Listening state: swap mic→Keep/Discard, glow the box, animate the waveform. */
 .voice-action.listen-only {
   display: none;
@@ -1078,6 +1082,7 @@ input {
 
 .input-area.listening .voice-button,
 .input-area.listening .input-submit,
+.input-area.listening .input-clear,
 .input-area.listening .attach-button {
   display: none;
 }

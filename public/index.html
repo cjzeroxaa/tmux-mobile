@@ -291,6 +291,7 @@
               </div>
               <!-- Right-aligned cluster: mic + send (and the listening swaps). -->
               <div class="input-actions-right">
+                <button id="clearText" class="small-button input-clear" type="button" title="Clear input" aria-label="Clear input">Clear</button>
                 <button id="voiceButton" class="voice-button" type="button" title="Dictate" aria-label="Dictate into the message box">
                   <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg>
                   <span id="voiceTitle" class="sr-only">Dictate</span>
@@ -314,6 +315,8 @@
             <button type="button" data-key="Enter" class="direct-key" title="Enter" aria-label="Enter">Ent</button>
             <button type="button" data-key="Escape" class="direct-key" title="Escape" aria-label="Escape">Esc</button>
             <button type="button" data-key="C-c" class="direct-key danger" title="Control-C" aria-label="Control-C">^C</button>
+            <button type="button" data-key="C-z" class="direct-key danger" title="Control-Z" aria-label="Control-Z">^Z</button>
+            <button type="button" data-command="fg" class="direct-key" title="Run fg" aria-label="Run fg">fg</button>
             <button type="button" data-key="Tab" class="direct-key" title="Tab" aria-label="Tab">Tab</button>
             <button type="button" data-key="Up" class="direct-key" title="Up" aria-label="Up">↑</button>
             <button type="button" data-key="BSpace" class="direct-key" title="Backspace (delete one char)" aria-label="Backspace">⌫</button>

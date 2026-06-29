@@ -607,6 +607,7 @@ const els = {
   effortOptions: document.querySelector("#effortOptions"),
   modeStatus: document.querySelector("#modeStatus"),
   textInput: document.querySelector("#textInput"),
+  clearText: document.querySelector("#clearText"),
   submitText: document.querySelector("#submitText"),
   voiceWaveform: document.querySelector("#voiceWaveform"),
   submitVoice: document.querySelector("#submitVoice"),
@@ -5809,6 +5810,10 @@ els.voiceButton.addEventListener("click", toggleVoiceRecording);
 els.submitText.addEventListener("click", (event) =>
   submitTextComposer(event, { keepFocus: false }),
 );
+els.clearText?.addEventListener("click", () => {
+  composerClear();
+  composerFocus();
+});
 els.textInput.addEventListener("input", () => {
   if (!composerEditor) {
     els.textInput.classList.toggle("empty", els.textInput.innerText.trim().length === 0);
@@ -5893,6 +5898,16 @@ for (const button of document.querySelectorAll("[data-key]")) {
   button.addEventListener("click", async () => {
     try {
       await sendKey(button.dataset.key);
+    } catch (error) {
+      addChat("system", error.message, "error");
+    }
+  });
+}
+
+for (const button of document.querySelectorAll("[data-command]")) {
+  button.addEventListener("click", async () => {
+    try {
+      await sendMessage(button.dataset.command || "", true);
     } catch (error) {
       addChat("system", error.message, "error");
     }
