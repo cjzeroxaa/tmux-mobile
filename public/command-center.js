@@ -32,6 +32,8 @@ const COMPOSER_HISTORY_MAX = 100;
 // accumulate drafts for long-gone agents.
 const INTERACT_DRAFTS_KEY = "tmux-mobile-interact-drafts";
 const INTERACT_DRAFTS_MAX = 50;
+const INTERACT_CONFIRM_TIMEOUT_MS = 4500;
+const INTERACT_CONFIRM_POLL_MS = 650;
 const THEME_KEY = "tmux-mobile-theme";
 const THEME_OPTIONS = ["kami", "dark", "auto"];
 const CC_FONT_KEY = "tmux-mobile-cc-font-size";
@@ -416,6 +418,7 @@ const state = {
   cardSearchIndex: 0,
   interactAgent: null,
   interactSending: false,
+  interactSendId: 0,
   deleteAgent: null,
   deleteBusy: false,
   deletingWindows: new Set(),
@@ -775,6 +778,72 @@ async function sendTextToAgent(agent, text) {
   });
 }
 
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function normalizeInteractConfirmText(text) {
+  return String(text || "").replace(/\r\n?/g, "\n").trim();
+}
+
+async function refreshInteractTarget(agent) {
+  if (!agent?.paneId) throw new Error("No target");
+  const targetKey = readKeyForAgent(agent);
+  const data = await api("/api/command-center", {
+    machineId: agentMachineKey(agent),
+    mux: agentMux(agent),
+  });
+  const agents = Array.isArray(data.agents) ? data.agents : [];
+  const current = agents.find((item) => readKeyForAgent(item) === targetKey);
+  if (!current?.paneId) {
+    throw new Error("Target changed. Refresh and try again.");
+  }
+  return current;
+}
+
+async function fetchAgentTranscript(agent) {
+  if (!agent?.paneId) return null;
+  const params = new URLSearchParams({ paneId: agent.paneId });
+  const data = await api(`/api/agent-transcript?${params}`, {
+    machineId: agentMachineKey(agent),
+    mux: agentMux(agent),
+  });
+  return data.result || null;
+}
+
+function transcriptUserTextCount(result, text) {
+  const expected = normalizeInteractConfirmText(text);
+  if (!expected) return 0;
+  const turns = Array.isArray(result?.turns) ? result.turns : [];
+  return turns
+    .filter((turn) => turn?.role === "user" && normalizeInteractConfirmText(turn.text) === expected)
+    .length;
+}
+
+async function currentTranscriptUserTextCount(agent, text) {
+  try {
+    return transcriptUserTextCount(await fetchAgentTranscript(agent), text);
+  } catch {
+    return 0;
+  }
+}
+
+async function waitForInteractConfirmation(agent, text, priorCount = 0) {
+  const deadline = Date.now() + INTERACT_CONFIRM_TIMEOUT_MS;
+  let sawTranscript = false;
+  while (Date.now() <= deadline) {
+    try {
+      const transcript = await fetchAgentTranscript(agent);
+      if (transcript) {
+        sawTranscript = true;
+        if (transcriptUserTextCount(transcript, text) > priorCount) return "confirmed";
+      }
+    } catch {}
+    await wait(INTERACT_CONFIRM_POLL_MS);
+  }
+  return sawTranscript ? "unconfirmed" : "unavailable";
+}
+
 async function sendKeyToAgent(agent, key) {
   if (!agent?.paneId) throw new Error("No target");
   const machineId = agentMachineKey(agent);
@@ -1125,6 +1194,7 @@ function openInteract(agent) {
   if (state.interactSending) return;
   state.interactAgent = agent;
   state.interactSending = false;
+  state.interactSendId += 1;
   resetInteractVoice();
   els.interactTarget.textContent = interactAgentLabel(agent);
   els.interactSend.disabled = false;
@@ -1139,11 +1209,27 @@ function openInteract(agent) {
 function closeInteract() {
   if (state.interactSending || state.interactVoice.status === "transcribing") return;
   resetInteractVoice();
+  state.interactSendId += 1;
   state.interactAgent = null;
   if (els.snippetSheet) els.snippetSheet.hidden = true;
   els.interactSheet.hidden = true;
   setInteractStatus("");
   interactClear();
+}
+
+async function confirmInteractSubmission(agent, text, sendId, priorCount = 0) {
+  const result = await waitForInteractConfirmation(agent, text, priorCount);
+  if (sendId !== state.interactSendId) return "stale";
+  if (!state.interactAgent) return "stale";
+  if (readKeyForAgent(state.interactAgent) !== readKeyForAgent(agent)) return "stale";
+  return result;
+}
+
+function interactUnconfirmedStatus(result) {
+  if (result === "unavailable") {
+    return "Send not confirmed: transcript unavailable.";
+  }
+  return "Send not confirmed.";
 }
 
 async function sendInteractText({ keepFocus = true } = {}) {
@@ -1160,16 +1246,30 @@ async function sendInteractText({ keepFocus = true } = {}) {
   }
 
   state.interactSending = true;
+  const sendId = ++state.interactSendId;
   setInteractVoiceStatus(state.interactVoice.status, "");
   setInteractStatus("Sending...");
-  interactClear();
   if (keepFocus) interactFocus();
   else els.interactInput?.blur();
-  pushComposerHistory(text);
   try {
-    await sendTextToAgent(agent, text);
-    clearInteractDraft(agent);
-    setInteractStatus("Sent");
+    const target = await refreshInteractTarget(agent);
+    const priorCount = await currentTranscriptUserTextCount(target, text);
+    state.interactAgent = target;
+    await sendTextToAgent(target, text);
+    setInteractStatus("Confirming...");
+    const confirmed = await confirmInteractSubmission(target, text, sendId, priorCount);
+    if (confirmed === "confirmed") {
+      clearInteractDraft(agent);
+      clearInteractDraft(target);
+      pushComposerHistory(text);
+      interactClear();
+      setInteractStatus("Sent");
+    } else if (confirmed !== "stale") {
+      interactSetText(text);
+      saveInteractDraft(target, text);
+      setInteractStatus(interactUnconfirmedStatus(confirmed));
+      interactFocus();
+    }
     window.setTimeout(loadAgents, 700);
   } catch (error) {
     interactSetText(text);
@@ -3875,10 +3975,13 @@ async function checkServerRevision() {
 
 // While the user is reading, pause the auto-refresh so a poll-driven re-render
 // doesn't yank the content out from under them: a section is expanded, or the
-// transcript sheet / response-fullscreen overlay is open. The manual refresh
+// transcript sheet / response-fullscreen overlay is open. Interact is also
+// locked: the target is validated explicitly at send time instead of letting a
+// background poll change state while the user is composing. The manual refresh
 // button bypasses this (it calls loadAgents directly).
 function isReadingLocked() {
   if (state.expanded.size > 0) return true;
+  if (els.interactSheet && !els.interactSheet.hidden) return true;
   if (els.responseFullscreen && !els.responseFullscreen.hidden) return true;
   if (els.transcriptSheet && !els.transcriptSheet.hidden) return true;
   return false;
