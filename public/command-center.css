@@ -1401,6 +1401,12 @@
   max-width: none;
 }
 
+@media (max-width: 560px) {
+  .cc-interact-keys {
+    width: 84px;
+  }
+}
+
 .cc-interact-status {
   flex: 1 1 auto;
   min-width: 0;
