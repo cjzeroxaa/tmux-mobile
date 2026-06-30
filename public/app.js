@@ -607,6 +607,8 @@ const els = {
   effortOptions: document.querySelector("#effortOptions"),
   modeStatus: document.querySelector("#modeStatus"),
   textInput: document.querySelector("#textInput"),
+  directKeysToggle: document.querySelector("#directKeysToggle"),
+  directKeysMenu: document.querySelector("#directKeysMenu"),
   clearText: document.querySelector("#clearText"),
   submitText: document.querySelector("#submitText"),
   voiceWaveform: document.querySelector("#voiceWaveform"),
@@ -5127,6 +5129,30 @@ document.addEventListener("click", (event) => {
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !els.moreActionsMenu.hidden) setMoreActionsOpen(false);
+});
+
+function setDirectKeysOpen(open) {
+  if (!els.directKeysMenu || !els.directKeysToggle) return;
+  els.directKeysMenu.hidden = !open;
+  els.directKeysToggle.setAttribute("aria-expanded", String(open));
+}
+els.directKeysToggle?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  setDirectKeysOpen(els.directKeysMenu.hidden);
+});
+els.directKeysMenu?.addEventListener("click", (event) => {
+  if (event.target.closest(".direct-key")) setDirectKeysOpen(false);
+});
+document.addEventListener("click", (event) => {
+  if (!els.directKeysMenu || els.directKeysMenu.hidden) return;
+  if (els.directKeysMenu.contains(event.target)) return;
+  if (els.directKeysToggle?.contains(event.target)) return;
+  setDirectKeysOpen(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && els.directKeysMenu && !els.directKeysMenu.hidden) {
+    setDirectKeysOpen(false);
+  }
 });
 
 // Snapshot font-size A−/A+ inside the More menu. These intentionally do NOT

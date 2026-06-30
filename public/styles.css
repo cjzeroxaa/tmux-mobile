@@ -1069,6 +1069,31 @@ input {
   min-height: 40px;
 }
 
+.direct-key-picker {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.direct-key-toggle {
+  min-height: 40px;
+}
+
+.direct-keys-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  display: grid;
+  width: min(320px, calc(100vw - 24px));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.24);
+}
+
 /* Listening state: swap mic→Keep/Discard, glow the box, animate the waveform. */
 .voice-action.listen-only {
   display: none;
@@ -1083,6 +1108,7 @@ input {
 .input-area.listening .voice-button,
 .input-area.listening .input-submit,
 .input-area.listening .input-clear,
+.input-area.listening .direct-key-picker,
 .input-area.listening .attach-button {
   display: none;
 }
@@ -1280,17 +1306,6 @@ input {
   filter: brightness(0.97);
 }
 
-/* Direct keys: raw terminal signals, high-contrast, sent straight to the pane.
-   Mobile auto-fits into multiple rows; desktop pins all keys into one row. */
-.direct-keys {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
-  gap: 5px;
-  width: 100%; /* never exceed the composer; lets auto-fit wrap on narrow widths */
-  max-width: 780px;
-  margin-inline: auto;
-}
-
 .direct-key {
   display: grid;
   min-width: 0;
@@ -1456,10 +1471,6 @@ input {
 @media (min-width: 600px) {
   .app-shell {
     width: 100vw;
-  }
-
-  .direct-keys {
-    grid-template-columns: repeat(10, minmax(0, 1fr));
   }
 }
 
