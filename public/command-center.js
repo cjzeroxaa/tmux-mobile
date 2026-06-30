@@ -114,6 +114,7 @@ const els = {
   snippetNewText: document.querySelector("#ccSnippetNewText"),
   snippetAdd: document.querySelector("#ccSnippetAdd"),
   historyList: document.querySelector("#ccHistoryList"),
+  interactKeysToggle: document.querySelector("#ccInteractKeysToggle"),
   interactKeys: document.querySelector("#ccInteractKeys"),
   interactVoiceButton: document.querySelector("#ccInteractVoiceButton"),
   interactVoiceWaveform: document.querySelector("#ccInteractVoiceWaveform"),
@@ -1115,6 +1116,12 @@ function setInteractStatus(text) {
   els.interactStatus.textContent = text;
 }
 
+function setInteractKeysOpen(open) {
+  if (!els.interactKeys || !els.interactKeysToggle) return;
+  els.interactKeys.hidden = !open;
+  els.interactKeysToggle.setAttribute("aria-expanded", String(open));
+}
+
 function interactAgentLabel(agent) {
   const machine = agent.machineHostname ? `${agent.machineHostname} · ` : "";
   const windowLabel = agent.windowName || "(unnamed)";
@@ -1130,6 +1137,7 @@ function openInteract(agent) {
   els.interactTarget.textContent = interactAgentLabel(agent);
   els.interactSend.disabled = false;
   setInteractStatus("");
+  setInteractKeysOpen(false);
   renderInteractSnippets();
   // Restore any unsent draft for this agent (kept across dismiss/reopen).
   interactSetText(loadInteractDraft(agent));
@@ -1140,6 +1148,7 @@ function openInteract(agent) {
 function closeInteract() {
   if (state.interactSending || state.interactVoice.status === "transcribing") return;
   resetInteractVoice();
+  setInteractKeysOpen(false);
   state.interactAgent = null;
   if (els.snippetSheet) els.snippetSheet.hidden = true;
   els.interactSheet.hidden = true;
@@ -4124,6 +4133,10 @@ els.interactClear?.addEventListener("click", () => {
   clearInteractDraft(state.interactAgent);
   interactFocus();
 });
+els.interactKeysToggle?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  setInteractKeysOpen(Boolean(els.interactKeys?.hidden));
+});
 if (els.interactAttachButton && els.interactFileInput) {
   els.interactAttachButton.addEventListener("click", () => els.interactFileInput.click());
   els.interactFileInput.addEventListener("change", async () => {
@@ -4137,10 +4150,20 @@ els.interactKeys?.addEventListener("click", (event) => {
   const keyButton = target?.closest("[data-interact-key]");
   if (keyButton) {
     sendInteractKey(keyButton.dataset.interactKey);
+    setInteractKeysOpen(false);
     return;
   }
   const commandButton = target?.closest("[data-interact-command]");
-  if (commandButton) sendInteractCommand(commandButton.dataset.interactCommand);
+  if (commandButton) {
+    sendInteractCommand(commandButton.dataset.interactCommand);
+    setInteractKeysOpen(false);
+  }
+});
+document.addEventListener("click", (event) => {
+  if (!els.interactKeys || els.interactKeys.hidden) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (target && (els.interactKeys.contains(target) || els.interactKeysToggle?.contains(target))) return;
+  setInteractKeysOpen(false);
 });
 els.interactSnippetChips?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
@@ -4313,6 +4336,10 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape" && !els.snippetSheet?.hidden) {
     closeSnippetManager();
+    return;
+  }
+  if (event.key === "Escape" && els.interactKeys && !els.interactKeys.hidden) {
+    setInteractKeysOpen(false);
     return;
   }
   if (event.key === "Escape" && !els.interactSheet?.hidden) closeInteract();

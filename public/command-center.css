@@ -1397,6 +1397,7 @@
 }
 
 .cc-interact-keys {
+  width: min(288px, calc(100vw - 24px));
   max-width: none;
 }
 
