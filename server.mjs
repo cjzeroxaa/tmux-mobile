@@ -124,7 +124,6 @@ const DEFAULT_MACHINE_ALIASES = {
   "msb-build-srp.us-central1-a.c.cj-dev-498907.internal": "MSB-SRP",
   "msb-build-srp": "MSB-SRP",
   "msb-srp": "MSB-SRP",
-  "rust-build": "cj-srp",
   "rust-dash-bill": "cj-srp",
 };
 const DEFAULT_MACHINE_ACCESS_ALLOWLIST = {
