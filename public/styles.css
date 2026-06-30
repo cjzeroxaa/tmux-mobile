@@ -1281,15 +1281,13 @@ input {
 }
 
 /* Direct keys: raw terminal signals, high-contrast, sent straight to the pane.
-   auto-fit packs as many keys per row as fit at >=72px each, so a wide screen
-   gets all 8 on ONE row and a narrow phone wraps to fewer columns (4, then 2).
-   Capped + centered so they don't stretch to absurd widths. */
+   Mobile auto-fits into multiple rows; desktop pins all keys into one row. */
 .direct-keys {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
   gap: 5px;
   width: 100%; /* never exceed the composer; lets auto-fit wrap on narrow widths */
-  max-width: 640px;
+  max-width: 780px;
   margin-inline: auto;
 }
 
@@ -1306,6 +1304,7 @@ input {
   font-size: 13px;
   font-weight: 800;
   line-height: 1;
+  white-space: nowrap;
 }
 
 .direct-key:active {
@@ -1457,6 +1456,10 @@ input {
 @media (min-width: 600px) {
   .app-shell {
     width: 100vw;
+  }
+
+  .direct-keys {
+    grid-template-columns: repeat(10, minmax(0, 1fr));
   }
 }
 
