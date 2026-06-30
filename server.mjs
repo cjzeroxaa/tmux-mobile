@@ -88,7 +88,6 @@ import {
   setCommentIndex,
 } from "./lib/comments.mjs";
 import { createCommentIndex } from "./lib/comment-index.mjs";
-import { buildAgentLaunchCommand } from "./lib/agent-launch-command.mjs";
 import { stampAids } from "./lib/anchor-stamp.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -124,7 +123,6 @@ const DEFAULT_MACHINE_ALIASES = {
   "msb-build-srp.us-central1-a.c.cj-dev-498907.internal": "MSB-SRP",
   "msb-build-srp": "MSB-SRP",
   "msb-srp": "MSB-SRP",
-  "rust-dash-bill": "cj-srp",
 };
 const DEFAULT_MACHINE_ACCESS_ALLOWLIST = {
   "MSB-REBYTE": ["xuc2078@gmail.com"],
@@ -1502,26 +1500,15 @@ async function createSession(name) {
 //              without it a phone user can still get stranded on a hook-trust confirm)
 // The window name stays the bare agent name; detection keys off the pane command
 // line (flags included), so the extra flags don't change how the agent is labeled.
-const CLAUDE_CLASSIC_RENDER_ENV = { CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1" };
-const CODEX_REQUIRED_FLAGS = [
-  "--dangerously-bypass-approvals-and-sandbox",
-  "--dangerously-bypass-hook-trust",
-];
-const CLAUDE_REQUIRED_FLAGS = ["--dangerously-skip-permissions"];
+const CLAUDE_CLASSIC_RENDER_ENV = "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1";
 const START_AGENT_COMMANDS = {
   codex: {
-    command: buildAgentLaunchCommand({
-      executable: "codex",
-      requiredFlags: CODEX_REQUIRED_FLAGS,
-    }),
+    command:
+      "codex --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust",
     windowName: "codex",
   },
   claude: {
-    command: buildAgentLaunchCommand({
-      executable: "claude",
-      requiredFlags: CLAUDE_REQUIRED_FLAGS,
-      env: CLAUDE_CLASSIC_RENDER_ENV,
-    }),
+    command: `${CLAUDE_CLASSIC_RENDER_ENV} claude --dangerously-skip-permissions`,
     windowName: "claude",
   },
 };
@@ -2339,23 +2326,14 @@ function detectForkableAgent(pane, processes) {
   if (commands.some((command) => commandHasExecutable(command, "codex"))) {
     return {
       agent: "codex",
-      command: buildAgentLaunchCommand({
-        executable: "codex",
-        args: ["fork", "--last"],
-        requiredFlags: CODEX_REQUIRED_FLAGS,
-      }),
+      command: "codex fork --last",
       windowName: "codex-fork",
     };
   }
   if (commands.some((command) => commandHasExecutable(command, "claude"))) {
     return {
       agent: "claude",
-      command: buildAgentLaunchCommand({
-        executable: "claude",
-        args: ["--continue", "--fork-session"],
-        requiredFlags: CLAUDE_REQUIRED_FLAGS,
-        env: CLAUDE_CLASSIC_RENDER_ENV,
-      }),
+      command: `${CLAUDE_CLASSIC_RENDER_ENV} claude --continue --fork-session`,
       windowName: "claude-fork",
     };
   }
