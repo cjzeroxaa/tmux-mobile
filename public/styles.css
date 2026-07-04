@@ -791,6 +791,9 @@ input {
 
 .control-panel {
   display: block;
+  position: relative;
+  z-index: 10;
+  overflow: visible;
   padding: 8px;
   padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
 }
@@ -1082,7 +1085,7 @@ input {
   position: absolute;
   right: 0;
   bottom: calc(100% + 8px);
-  z-index: 30;
+  z-index: 90;
   display: grid;
   width: min(320px, calc(100vw - 24px));
   grid-template-columns: repeat(5, minmax(0, 1fr));

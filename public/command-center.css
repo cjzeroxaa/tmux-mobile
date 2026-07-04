@@ -1372,6 +1372,9 @@
 
 .cc-interact-panel {
   gap: 10px;
+  /* The mobile keys menu is a tall dropup. Let it escape the short bottom
+     sheet instead of clipping to the sheet's scroll box. */
+  overflow: visible;
 }
 
 .cc-interact-target {
