@@ -708,6 +708,8 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  min-height: 32px;
+  padding-left: 38px;
 }
 
 .cc-card-title {
@@ -723,8 +725,8 @@
 }
 
 .cc-card-window-name {
-  flex: 0 1 auto;
-  min-width: 2ch;
+  flex: 1 1 auto;
+  min-width: 4ch;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: calc(var(--cc-card-title-size) + 0.5px);
@@ -739,8 +741,8 @@
 }
 
 .cc-card-session-name {
-  flex: 1 1 auto;
-  min-width: 4ch;
+  flex: 0 1 auto;
+  min-width: 2ch;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: calc(var(--cc-card-title-size) + 1.5px);
@@ -1342,6 +1344,10 @@
 }
 
 .cc-star-button {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
   color: #8b6f2a;
 }
 

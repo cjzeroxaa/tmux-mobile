@@ -58,6 +58,8 @@ const ICONS = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>',
   transcript:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>',
+  rename:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
   share:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 0 20"/><path d="M12 2a15.3 15.3 0 0 0 0 20"/></svg>',
   copy:
@@ -422,6 +424,7 @@ const state = {
   deleteBusy: false,
   deletingWindows: new Set(),
   sharingWindows: new Set(),
+  renamingWindows: new Set(),
   updatingMachines: new Set(),
   toastTimer: null,
   toastHideTimer: null,
@@ -726,14 +729,24 @@ function findStartAgentMachine(machineId, machines = startAgentMachineChoices())
   return machines.find((machine) => machineKey(machine) === key) || null;
 }
 
-function contextStartAgentMachine(machines = startAgentMachineChoices()) {
+function selectedStartAgentContext(machines = startAgentMachineChoices()) {
+  const selectedAgent = selectedAgentFrom(filterAndSort(state.agents));
+  if (selectedAgent) {
+    const selectedMachine = findStartAgentMachine(agentMachineKey(selectedAgent), machines);
+    if (selectedMachine) {
+      return { agent: selectedAgent, machine: selectedMachine };
+    }
+  }
   if (state.filterMachines.size === 1) {
     const [machineId] = [...state.filterMachines];
     const filteredMachine = findStartAgentMachine(machineId, machines);
-    if (filteredMachine) return filteredMachine;
+    if (filteredMachine) return { agent: null, machine: filteredMachine };
   }
-  const selectedAgent = selectedAgentFrom(filterAndSort(state.agents));
-  return findStartAgentMachine(agentMachineKey(selectedAgent), machines);
+  return { agent: null, machine: null };
+}
+
+function contextStartAgentMachine(machines = startAgentMachineChoices()) {
+  return selectedStartAgentContext(machines).machine;
 }
 
 async function api(path, options = {}) {
@@ -2374,6 +2387,12 @@ function defaultStartAgentDirectory(machine) {
   return machineHomeDirectory(machine) || "/";
 }
 
+function startAgentDirectoryForContext(machine, agent) {
+  const cwd = String(agent?.cwd || "").trim();
+  if (cwd && machine && agentMachineKey(agent) === machineKey(machine)) return cwd;
+  return machine ? defaultStartAgentDirectory(machine) : "";
+}
+
 function setStartAgentStatus(text, { error = false } = {}) {
   if (!els.startAgentStatus) return;
   els.startAgentStatus.textContent = text || "";
@@ -2568,10 +2587,13 @@ async function loadStartAgentDirectories({ path: targetPath } = {}) {
 
 function openStartAgent() {
   closeMoreMenu();
-  const machine = selectedStartAgentMachine({ preferContext: true });
+  const machines = startAgentMachineChoices();
+  const { agent, machine } = selectedStartAgentContext(machines);
+  const contextKind = normalizedAgentKind(agent?.kind || agent?.agentType);
+  if (contextKind) state.startAgent.kind = contextKind;
   state.startAgent.machineId = machine ? machineKey(machine) : "";
-  state.startAgent.mux = resolveStartAgentMux(machine, state.startAgent.mux);
-  state.startAgent.cwd = machine ? defaultStartAgentDirectory(machine) : "";
+  state.startAgent.mux = resolveStartAgentMux(machine, agentMux(agent) || state.startAgent.mux);
+  state.startAgent.cwd = startAgentDirectoryForContext(machine, agent);
   state.startAgent.directories = {
     cwd: state.startAgent.cwd,
     parent: "",
@@ -3395,6 +3417,10 @@ function deleteKeyForAgent(agent) {
   ].join("::");
 }
 
+function renameKeyForAgent(agent) {
+  return deleteKeyForAgent(agent);
+}
+
 function shareKeyForAgent(agent) {
   return [
     agentMachineKey(agent),
@@ -3403,6 +3429,39 @@ function shareKeyForAgent(agent) {
     agent.paneId || "",
     agent.windowId || "",
   ].join("::");
+}
+
+async function renameAgentWindow(agent) {
+  if (!agent?.windowId) {
+    setStatus("No mux window target.");
+    return;
+  }
+  const currentName = String(agent.windowName || "").trim();
+  const next = window.prompt("Rename window", currentName);
+  if (next === null) return;
+  const name = next.trim();
+  if (!name || name === currentName) return;
+
+  const key = renameKeyForAgent(agent);
+  if (state.renamingWindows.has(key)) return;
+  state.renamingWindows.add(key);
+  setStatus(`Renaming ${currentName || "window"}...`);
+  renderAgents();
+  try {
+    await api("/api/windows", {
+      method: "PATCH",
+      machineId: agentMachineKey(agent),
+      mux: agentMux(agent),
+      body: JSON.stringify({ windowId: agent.windowId, name }),
+    });
+    setStatus(`Renamed window: ${name}`);
+    window.setTimeout(loadAgents, 250);
+  } catch (error) {
+    setStatus(`Rename failed: ${error.message}`);
+  } finally {
+    state.renamingWindows.delete(key);
+    renderAgents();
+  }
 }
 
 function openRmuxShareUrl(url) {
@@ -3538,6 +3597,17 @@ function renderCard(agent) {
   card.dataset.cardKey = cardKey;
   card.tabIndex = selected ? 0 : -1;
   card.setAttribute("aria-selected", String(selected));
+  const readKey = cardKey;
+  const starredThis = isStarredAgent(agent);
+  card.insertAdjacentHTML(
+    "beforeend",
+    cardActionButton({
+      className: `cc-star-button${starredThis ? " is-starred" : ""}`,
+      title: starredThis ? "Unstar card" : "Star card",
+      dataAttrs: `data-star-key="${escapeHtml(readKey)}" aria-pressed="${starredThis ? "true" : "false"}"`,
+      icon: ICONS.star,
+    }),
+  );
 
   const header = document.createElement("div");
   header.className = "cc-card-header";
@@ -3556,12 +3626,12 @@ function renderCard(agent) {
   const windowName = agentWindowName(agent);
   const windowNameClass = `cc-card-window-name${windowName.logo ? " is-logo" : ""}`;
   const sessionTitle = agent.sessionName
-    ? `<span class="cc-card-session-name">${escapeHtml(agent.sessionName || "")}</span><span class="cc-card-title-separator"> · </span>`
+    ? `<span class="cc-card-title-separator"> · </span><span class="cc-card-session-name">${escapeHtml(agent.sessionName || "")}</span>`
     : "";
   header.innerHTML = `
     <span class="cc-card-title">
-      ${sessionTitle}
       <span class="${windowNameClass}">${windowName.html}</span>
+      ${sessionTitle}
     </span>
     ${machineChip}
     ${ownerChip}
@@ -3605,24 +3675,18 @@ function renderCard(agent) {
 
   const footer = document.createElement("div");
   footer.className = "cc-card-footer";
-  const readKey = readKeyForAgent(agent);
   const deleteKey = deleteKeyForAgent(agent);
+  const renameKey = renameKeyForAgent(agent);
   const transcriptKey = transcriptKeyForAgent(agent);
   const shareKey = shareKeyForAgent(agent);
   const readingThis = state.audio.busy && state.readingKey === readKey;
   const readDisabled = state.audio.busy && !readingThis;
   const deletingThis = state.deletingWindows.has(deleteKey);
+  const renamingThis = state.renamingWindows.has(renameKey);
   const sharingThis = state.sharingWindows.has(shareKey);
-  const starredThis = isStarredAgent(agent);
   footer.innerHTML = `
     <span>${agent.turnCount} turn${agent.turnCount === 1 ? "" : "s"} · session <code>${escapeHtml((agent.agentSessionId || "").slice(0, 8))}</code></span>
     <span class="cc-card-actions">
-      ${cardActionButton({
-        className: `cc-star-button${starredThis ? " is-starred" : ""}`,
-        title: starredThis ? "Unstar card" : "Star card",
-        dataAttrs: `data-star-key="${escapeHtml(readKey)}" aria-pressed="${starredThis ? "true" : "false"}"`,
-        icon: ICONS.star,
-      })}
       ${cardActionButton({
         className: "cc-interact-button",
         title: "Interact (R)",
@@ -3635,6 +3699,14 @@ function renderCard(agent) {
         dataAttrs: `data-transcript-key="${escapeHtml(transcriptKey)}"`,
         disabled: !agent.paneId,
         icon: ICONS.transcript,
+      })}
+      ${cardActionButton({
+        className: "cc-rename-button",
+        title: "Rename window",
+        dataAttrs: `data-rename-window-key="${escapeHtml(renameKey)}"`,
+        disabled: renamingThis || !agent.windowId,
+        busy: renamingThis,
+        icon: ICONS.rename,
       })}
       ${agentMux(agent) === "rmux" ? cardActionButton({
         className: "cc-rmux-share-button",
@@ -4111,6 +4183,12 @@ els.list.addEventListener("click", (event) => {
       (item) => shareKeyForAgent(item) === shareButton.dataset.rmuxShareKey,
     );
     if (agent) shareRmuxAgent(agent);
+    return;
+  }
+  const renameButton = target.closest("[data-rename-window-key]");
+  if (renameButton) {
+    const agent = state.agents.find((item) => renameKeyForAgent(item) === renameButton.dataset.renameWindowKey);
+    if (agent) renameAgentWindow(agent);
     return;
   }
   const deleteButton = target.closest("[data-delete-window-key]");
