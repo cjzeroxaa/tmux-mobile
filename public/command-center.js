@@ -10,6 +10,7 @@ import {
 import { filePathFromLocalHref, linkifyEscaped, linkifyFilesEscaped } from "./linkify.js";
 import { renderMarkdown } from "./markdown.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
+import { openViewerUrl } from "./viewer-navigation.js";
 import {
   getSnippets as getStoredSnippets,
   initSnippets,
@@ -3144,7 +3145,7 @@ function renderPinRow(pin) {
   open.className = "cc-pin-action";
   open.type = "button";
   open.textContent = "Open";
-  open.addEventListener("click", () => window.open(pin.shareUrl, "_blank", "noopener"));
+  open.addEventListener("click", () => openViewerUrl(pin.shareUrl));
   actions.append(open);
   const copy = document.createElement("button");
   copy.className = "cc-pin-action";
@@ -4021,14 +4022,7 @@ function openFileViewer(agent, filePath) {
   const mux = agentMux(agent);
   if (mux) params.set("mux", mux);
   const url = `${endpoint}?${params}`;
-  const tab = window.open(url, "_blank", "noopener");
-  if (!tab) {
-    const a = document.createElement("a");
-    a.href = url;
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.click();
-  }
+  openViewerUrl(url);
 }
 
 function filePathFromClickTarget(target) {

@@ -1,6 +1,7 @@
 import { escapeHtml, filePathFromLocalHref, linkifyEscaped } from "./linkify.js";
 import { playNotifySound, shouldChime } from "./notify-sound.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
+import { openViewerUrl } from "./viewer-navigation.js";
 import {
   getSnippets as getStoredSnippets,
   initSnippets,
@@ -1727,7 +1728,7 @@ function renderPinRow(pin) {
   open.textContent = "Open";
   open.addEventListener("click", () => {
     // Markdown renders by default on the share link now; no &view needed.
-    window.open(pin.shareUrl, "_blank", "noopener");
+    openViewerUrl(pin.shareUrl);
   });
   actions.append(open);
 
@@ -5306,15 +5307,7 @@ function openFileViewer(filePath) {
       ? "/api/file-page"
       : "/api/file-raw";
   const url = fileUrl(endpoint, filePath);
-  const tab = window.open(url, "_blank", "noopener");
-  if (!tab) {
-    // Popup blocked — fall back to a same-tab navigation via a temporary link.
-    const a = document.createElement("a");
-    a.href = url;
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.click();
-  }
+  openViewerUrl(url);
 }
 
 function filePathFromSnapshotTarget(target) {
