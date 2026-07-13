@@ -5143,32 +5143,66 @@ if (MODE.kind === "register") {
     console.error("usage: node server.mjs --register <hubUrl>");
     process.exit(2);
   }
-  const { agentAuthState, loginAgent, runAgent } = await import("./lib/agent.mjs");
-  let authState = agentAuthState(MODE.hubUrl);
-  const shouldLogin = MODE.login || !authState.hasAuth;
-  logServerEvent("agent_starting", {
-    controller: new URL(MODE.hubUrl).origin,
-    machine: process.env.AGENT_MACHINE || os.hostname(),
-    login: shouldLogin,
-    authSource: authState.source,
-    message: shouldLogin
-      ? "No agent token is available, or re-login was requested; starting Google device login before registration."
-      : "Starting agent with existing credentials; this machine will register with the controller.",
-  });
-  if (shouldLogin) {
-    await loginAgent(MODE.hubUrl);
-    authState = agentAuthState(MODE.hubUrl);
-    logServerEvent("agent_login_ready", {
+  const { acquireConnectorLock } = await import("./lib/connector-lock.mjs");
+  const { agentAuthState, agentIdForController, loginAgent, runAgent } =
+    await import("./lib/agent.mjs");
+  const agentId = agentIdForController(MODE.hubUrl);
+  const connectorLock = acquireConnectorLock(MODE.hubUrl, { agentId });
+  if (!connectorLock.acquired) {
+    logServerEvent("agent_duplicate_start_blocked", {
       controller: new URL(MODE.hubUrl).origin,
       machine: process.env.AGENT_MACHINE || os.hostname(),
+      agentId,
+      existingPid: connectorLock.owner?.pid || undefined,
+      reason: connectorLock.reason,
+      message: "Connector not started: another local process already owns this controller.",
+    });
+  } else {
+    let agent = null;
+    let stopping = false;
+    const releaseConnectorLock = () => connectorLock.release();
+    const stopConnector = (signal) => {
+      if (stopping) return;
+      stopping = true;
+      logServerEvent("agent_shutdown", {
+        controller: new URL(MODE.hubUrl).origin,
+        machine: process.env.AGENT_MACHINE || os.hostname(),
+        signal,
+      });
+      agent?.stop();
+      releaseConnectorLock();
+      process.exit(0);
+    };
+    process.once("exit", releaseConnectorLock);
+    process.once("SIGINT", () => stopConnector("SIGINT"));
+    process.once("SIGTERM", () => stopConnector("SIGTERM"));
+
+    let authState = agentAuthState(MODE.hubUrl);
+    const shouldLogin = MODE.login || !authState.hasAuth;
+    logServerEvent("agent_starting", {
+      controller: new URL(MODE.hubUrl).origin,
+      machine: process.env.AGENT_MACHINE || os.hostname(),
+      login: shouldLogin,
       authSource: authState.source,
-      message: "Agent login is ready; connecting to the controller.",
+      message: shouldLogin
+        ? "No agent token is available, or re-login was requested; starting Google device login before registration."
+        : "Starting agent with existing credentials; this machine will register with the controller.",
+    });
+    if (shouldLogin) {
+      await loginAgent(MODE.hubUrl);
+      authState = agentAuthState(MODE.hubUrl);
+      logServerEvent("agent_login_ready", {
+        controller: new URL(MODE.hubUrl).origin,
+        machine: process.env.AGENT_MACHINE || os.hostname(),
+        authSource: authState.source,
+        message: "Agent login is ready; connecting to the controller.",
+      });
+    }
+    agent = runAgent(MODE.hubUrl, localBackend, {
+      logEvent: logServerEvent,
+      inventoryProvider: listAgentSessions,
     });
   }
-  runAgent(MODE.hubUrl, localBackend, {
-    logEvent: logServerEvent,
-    inventoryProvider: listAgentSessions,
-  });
 } else {
   let hub = null;
   let stopAgentRoundWatcher = () => {};

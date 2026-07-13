@@ -98,6 +98,8 @@ async function restartConnector(installedRevision = "", options = {}) {
   const restartSystemdImpl = options.restartSystemdImpl || restartSystemdConnector;
   const stopOldConnectorPidsImpl =
     options.stopOldConnectorPidsImpl || stopOldConnectorPids;
+  const startDetachedConnectorImpl =
+    options.startDetachedConnectorImpl || startDetachedConnector;
   const oldPids = connectorPidsImpl();
 
   const launchd = await restartLaunchdImpl();
@@ -111,6 +113,14 @@ async function restartConnector(installedRevision = "", options = {}) {
     return;
   }
 
+  // The Connector now owns a per-controller + agent-identity singleton lock.
+  // A detached replacement cannot acquire it while the old process is still
+  // alive, so complete shutdown before spawning the replacement.
+  await stopOldConnectorPidsImpl(oldPids);
+  await startDetachedConnectorImpl(installedRevision);
+}
+
+async function startDetachedConnector(installedRevision = "") {
   const logFile = path.join(installDir, "connector.log");
   const fd = openSync(logFile, "a");
   const child = spawn(process.execPath, [bundlePath, "--register", controllerUrl], {
@@ -127,7 +137,6 @@ async function restartConnector(installedRevision = "", options = {}) {
   });
   child.unref();
   closeSync(fd);
-  await stopOldConnectorPidsImpl(oldPids, { exclude: [child.pid] });
   log(`started connector pid=${child.pid} machine=${agentMachine || "(hostname)"} log=${logFile}`);
 }
 

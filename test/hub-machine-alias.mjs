@@ -9,8 +9,12 @@ const AGENT_ONE = "00000000-0000-4000-8000-000000000001";
 const AGENT_TWO = "00000000-0000-4000-8000-000000000002";
 const viewer = { userId: OWNER, email: OWNER, hd: "" };
 const server = http.createServer();
+const events = [];
 const hub = createHub(server, {
   authenticateAgent: () => viewer,
+  logEvent(event, details = {}) {
+    events.push({ event, details });
+  },
   machineAliases: {
     "macbook-pro-15.local": "MacBook",
     macbook: "MacBook",
@@ -103,6 +107,16 @@ try {
   assert.equal(secondMachine.hostname, "MacBook");
   assert.equal(secondMachine.agentId, AGENT_ONE);
   assert.equal(secondMachine.agentRevision, "new");
+  assert.ok(
+    events.some(
+      (entry) =>
+        entry.event === "agent_connection_replaced" &&
+        entry.details.agentId === AGENT_ONE &&
+        entry.details.previousMachineId === "MacBook-Pro-15.local" &&
+        entry.details.machineId === "MacBook",
+    ),
+    "same-agent replacement is explicitly observable",
+  );
 
   third = await connectMachine(port, "MacBook", "other", AGENT_TWO);
   const twoMachines = await waitFor("same-name different UUID MacBooks", () => {

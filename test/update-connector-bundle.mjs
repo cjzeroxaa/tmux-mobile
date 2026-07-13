@@ -206,6 +206,23 @@ try {
       options: { exclude: [402] },
     });
 
+    const detachedOrder = [];
+    await restartConnector("revision", {
+      connectorPidsImpl: () => [451],
+      restartLaunchdImpl: async () => false,
+      restartSystemdImpl: async () => false,
+      stopOldConnectorPidsImpl: async (pids) => {
+        detachedOrder.push(["stop", pids]);
+      },
+      startDetachedConnectorImpl: async (revision) => {
+        detachedOrder.push(["start", revision]);
+      },
+    });
+    assert.deepEqual(detachedOrder, [
+      ["stop", [451]],
+      ["start", "revision"],
+    ]);
+
     const signals = [];
     await stopOldConnectorPids([501, 502, 503], {
       currentPid: 501,

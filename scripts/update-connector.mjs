@@ -237,6 +237,10 @@ function systemdQuoteEnv(value) {
 
 async function restartDetachedProcess(oldPids = connectorPids()) {
   log("restart=detached-process");
+  // A replacement must wait until the old Connector has released its
+  // per-controller + agent-identity singleton lock. Manager-backed restarts
+  // already stop first; keep the detached fallback consistent with that order.
+  await stopOldConnectorPids(oldPids);
   const logFile = path.join(os.tmpdir(), "tmux-mobile-agent.log");
   const fd = openSync(logFile, "a");
   const child = spawn(process.execPath, ["server.mjs", "--register", controllerUrl], {
@@ -252,8 +256,6 @@ async function restartDetachedProcess(oldPids = connectorPids()) {
   });
   child.unref();
   closeSync(fd);
-
-  await stopOldConnectorPids(oldPids, { exclude: [child.pid] });
   log(`started connector pid=${child.pid} log=${logFile}`);
 }
 
