@@ -20,11 +20,27 @@ assert.equal(
   false,
   "a wide touch-capable desktop can keep new-tab behavior",
 );
+assert.equal(
+  shouldUseSameTabForViewer({ mobileBrowser: true }),
+  true,
+  "mobile Safari stays in the authenticated tab even when pointer media is unavailable",
+);
 
-function fakeWindow({ standalone = false, coarse = false, compact = false, popup = null } = {}) {
+function fakeWindow({
+  standalone = false,
+  coarse = false,
+  compact = false,
+  mobile = false,
+  touchPoints = 0,
+  popup = null,
+} = {}) {
   const calls = { assigned: [], opened: [] };
   const win = {
-    navigator: { standalone },
+    navigator: {
+      standalone,
+      maxTouchPoints: touchPoints,
+      userAgent: mobile ? "Mozilla/5.0 (iPhone) Mobile/15E148 Safari/604.1" : "Desktop",
+    },
     location: { assign: (url) => calls.assigned.push(url) },
     matchMedia(query) {
       if (query === "(display-mode: standalone)") return { matches: standalone };
@@ -46,10 +62,19 @@ function fakeWindow({ standalone = false, coarse = false, compact = false, popup
     standalone: false,
     coarsePointer: true,
     compactViewport: true,
+    mobileBrowser: false,
+    touchCapable: false,
   });
   assert.equal(openViewerUrl("/api/file-view?x=1", win), "same-tab");
   assert.deepEqual(calls.assigned, ["/api/file-view?x=1"]);
   assert.deepEqual(calls.opened, [], "mobile does not attempt a popup first");
+}
+
+{
+  const { win, calls } = fakeWindow({ mobile: true, compact: true });
+  assert.equal(openViewerUrl("/api/file-view?mobile=1", win), "same-tab");
+  assert.deepEqual(calls.assigned, ["/api/file-view?mobile=1"]);
+  assert.deepEqual(calls.opened, []);
 }
 
 {

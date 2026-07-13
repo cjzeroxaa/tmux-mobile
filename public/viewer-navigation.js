@@ -7,8 +7,14 @@ export function shouldUseSameTabForViewer({
   standalone = false,
   coarsePointer = false,
   compactViewport = false,
+  mobileBrowser = false,
+  touchCapable = false,
 } = {}) {
-  return Boolean(standalone || (coarsePointer && compactViewport));
+  return Boolean(
+    standalone ||
+      mobileBrowser ||
+      (compactViewport && (coarsePointer || touchCapable)),
+  );
 }
 
 function mediaMatches(win, query) {
@@ -20,12 +26,15 @@ function mediaMatches(win, query) {
 }
 
 export function viewerNavigationContext(win = globalThis.window) {
+  const userAgent = String(win?.navigator?.userAgent || "");
   return {
     standalone:
       win?.navigator?.standalone === true ||
       mediaMatches(win, "(display-mode: standalone)"),
     coarsePointer: mediaMatches(win, "(pointer: coarse)"),
     compactViewport: mediaMatches(win, "(max-width: 1023px)"),
+    mobileBrowser: /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent),
+    touchCapable: Number(win?.navigator?.maxTouchPoints || 0) > 0,
   };
 }
 
