@@ -67,6 +67,7 @@ import {
   createArtifactStorage,
   createLocalArtifactStorage,
 } from "./lib/artifact-storage.mjs";
+import { artifactPathCandidates } from "./lib/artifact-path.mjs";
 import { createTranscriptArchive } from "./lib/transcript-archive.mjs";
 import {
   createPin,
@@ -919,13 +920,16 @@ function commentOverlayHtml(managePin) {
 // success, or null after sending the appropriate error response.
 async function readFileForServing(req, res, url) {
   const paneId = requireId(url.searchParams.get("paneId"), "pane");
-  const requestedPath = String(url.searchParams.get("path") || "");
-  if (!requestedPath) {
+  const rawRequestedPath = String(url.searchParams.get("path") || "");
+  if (!rawRequestedPath) {
     sendJson(res, 400, { error: "path is required" });
     return null;
   }
-  const kind = fileKind(requestedPath);
-  if (kind === "other") {
+  const candidates = artifactPathCandidates(rawRequestedPath);
+  const viewableCandidates = candidates
+    .map((candidate) => ({ path: candidate, kind: fileKind(candidate) }))
+    .filter((candidate) => candidate.kind !== "other");
+  if (viewableCandidates.length === 0) {
     sendJson(res, 415, { error: "Unsupported file type" });
     return null;
   }
@@ -938,34 +942,50 @@ async function readFileForServing(req, res, url) {
     return null;
   }
   const cwd = await getPaneCwd(paneId);
-  const isAbsoluteOrHome = path.isAbsolute(requestedPath) || requestedPath.startsWith("~");
-  if (!cwd && !isAbsoluteOrHome) {
+  const hasAbsoluteOrHome = viewableCandidates.some(
+    (candidate) => path.isAbsolute(candidate.path) || candidate.path.startsWith("~"),
+  );
+  if (!cwd && !hasAbsoluteOrHome) {
     sendJson(res, 404, { error: "Pane has no working directory" });
     return null;
   }
-  try {
-    const result = await backend.readfile(requestedPath, {
-      baseDir: cwd,
-      maxBytes: kind === "external" ? FILE_EXTERNAL_MAX_BYTES : FILE_VIEWER_MAX_BYTES,
-    });
-    return {
-      requestedPath,
-      name: path.basename(requestedPath),
-      kind,
-      contentType: fileContentType(requestedPath),
-      result,
-    };
-  } catch (error) {
-    if (/unknown op/i.test(error.message) || error instanceof TypeError) {
-      sendJson(res, 501, {
-        error: "This machine's connector is out of date — restart it to view files.",
+
+  let lastNotFound = null;
+  for (const candidate of viewableCandidates) {
+    try {
+      const result = await backend.readfile(candidate.path, {
+        baseDir: cwd,
+        maxBytes: candidate.kind === "external" ? FILE_EXTERNAL_MAX_BYTES : FILE_VIEWER_MAX_BYTES,
       });
+      return {
+        requestedPath: candidate.path,
+        originalPath: rawRequestedPath,
+        name: path.basename(candidate.path),
+        kind: candidate.kind,
+        contentType: fileContentType(candidate.path),
+        result,
+      };
+    } catch (error) {
+      if (/unknown op/i.test(error.message) || error instanceof TypeError) {
+        sendJson(res, 501, {
+          error: "This machine's connector is out of date — restart it to view files.",
+        });
+        return null;
+      }
+      if (error.code === "EACCES") {
+        sendJson(res, 403, { error: error.message || "Could not read file" });
+        return null;
+      }
+      if (error.code === "ENOENT" || error.code === "ENOTDIR") {
+        lastNotFound = error;
+        continue;
+      }
+      sendJson(res, 404, { error: error.message || "Could not read file" });
       return null;
     }
-    const status = error.code === "EACCES" ? 403 : 404;
-    sendJson(res, status, { error: error.message || "Could not read file" });
-    return null;
   }
+  sendJson(res, 404, { error: lastNotFound?.message || "Could not read file" });
+  return null;
 }
 
 // Sanitize a voice-send prefix (e.g. "/btw "). Allow a leading-slash command
