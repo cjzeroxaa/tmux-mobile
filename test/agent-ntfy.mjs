@@ -32,6 +32,11 @@ assert.equal(
   "recent first-seen completion window is configurable",
 );
 assert.equal(
+  createNtfyConfig({ NTFY_TOPIC: " Unified Team Channel " }).topic,
+  "unified-team-channel",
+  "an explicit unified topic is normalized",
+);
+assert.equal(
   buildAgentAppUrl(
     {
       machineId: "m-fin",
@@ -441,5 +446,49 @@ await failingNotifier.observeAgents({
 assert.equal(failingPosts.length, 1, "failed notifications are attempted once");
 assert.equal(failingClock.pendingTimers().length, 0, "failed notifications are not retried");
 assert.equal(failingLogs[0].event, "ntfy_agent_round_failed");
+
+const unifiedPosts = [];
+const unifiedNotifier = createAgentRoundNtfyNotifier(
+  {
+    enabled: true,
+    baseUrl: "https://ntfy.example",
+    topic: "unified-team-channel",
+  },
+  {
+    fetchImpl: async (url, options) => {
+      unifiedPosts.push({ url, options });
+      return { ok: true, status: 200 };
+    },
+    now: clock.now,
+    setTimeoutImpl: clock.setTimeout,
+    clearTimeoutImpl: clock.clearTimeout,
+  },
+);
+const unifiedAgents = [
+  { ...baseAgent, machineId: "m-fin", agentSessionId: "unified-fin" },
+  { ...baseAgent, machineId: "m-air", agentSessionId: "unified-air" },
+];
+await unifiedNotifier.observeAgents({
+  machines: [machine, otherMachine],
+  agents: unifiedAgents.map((agent) => ({
+    ...agent,
+    status: "running",
+    lastAssistantText: "",
+    turnCount: 0,
+  })),
+});
+await unifiedNotifier.observeAgents({
+  machines: [machine, otherMachine],
+  agents: unifiedAgents.map((agent, index) => ({
+    ...agent,
+    status: "idle",
+    lastAssistantText: index === 0 ? "fin complete" : "air complete",
+    turnCount: 1,
+  })),
+});
+assert.equal(unifiedPosts.length, 1, "cross-machine completions share one batch");
+assert.equal(unifiedPosts[0].url, "https://ntfy.example/unified-team-channel");
+assert.match(unifiedPosts[0].options.body, /FIN Mini codex/);
+assert.match(unifiedPosts[0].options.body, /Air codex/);
 
 console.log("agent-ntfy unit tests passed");
