@@ -1697,12 +1697,16 @@ input {
   margin-left: auto;
 }
 
-.fullscreen-only {
+/* The fullscreen exit lives in the composer, not over the terminal. */
+.fullscreen-composer-only {
   display: none;
 }
 
-.snapshot-fullscreen .fullscreen-only {
-  display: inline-flex;
+.snapshot-fullscreen .fullscreen-composer-only {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  color: var(--accent-dark);
 }
 
 #fullscreenSnapshot .icon-busy {
@@ -1718,46 +1722,67 @@ input {
 }
 
 .snapshot-fullscreen .app-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
   width: 100vw;
+  height: 100dvh;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0;
+  margin: 0;
   padding: 0;
+  background: var(--bg);
 }
 
-.snapshot-fullscreen .mobile-topbar,
-.snapshot-fullscreen .control-panel {
+.snapshot-fullscreen .mobile-topbar {
   display: none;
 }
 
 .snapshot-fullscreen .snapshot-panel {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
+  position: relative;
+  inset: auto;
+  z-index: auto;
   border: 0;
   border-radius: 0;
+  background: var(--code-bg);
+  box-shadow: none;
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 .snapshot-fullscreen .toolbar {
-  background: var(--surface);
+  display: none;
 }
 
-.snapshot-fullscreen .line-picker {
+.snapshot-fullscreen .snippet-bar,
+.snapshot-fullscreen #attachButton,
+.snapshot-fullscreen #modeBar,
+.snapshot-fullscreen #clearText {
   display: none;
 }
 
 .snapshot-fullscreen .snapshot {
-  padding: 14px;
+  padding: 12px calc(12px + env(safe-area-inset-right, 0px)) 12px
+    calc(12px + env(safe-area-inset-left, 0px));
   font-size: 14px;
   line-height: 1.5;
 }
 
-.pane-input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
+.snapshot-fullscreen .control-panel {
+  display: block;
+  z-index: 31;
+  overflow: visible;
   border: 0;
-  opacity: 0;
-  pointer-events: none;
-  z-index: -1;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
+  box-shadow: none;
+  padding: 8px calc(8px + env(safe-area-inset-right, 0px))
+    calc(8px + env(safe-area-inset-bottom, 0px))
+    calc(8px + env(safe-area-inset-left, 0px));
+}
+
+.snapshot-fullscreen .composer {
+  gap: 0;
 }
 
 .muted {
