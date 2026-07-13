@@ -6,7 +6,18 @@
 // the controller serves at /connector/tmux-mobile-connector.mjs instead of
 // pulling a git repo.
 
-import { existsSync, mkdirSync, openSync, closeSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { appendFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -81,11 +92,25 @@ async function main() {
   log("tmux-mobile connector bundle-update finished");
 }
 
-async function restartConnector(installedRevision = "") {
-  if (await restartLaunchdConnector()) return;
-  if (restartSystemdConnector()) return;
+async function restartConnector(installedRevision = "", options = {}) {
+  const connectorPidsImpl = options.connectorPidsImpl || connectorPids;
+  const restartLaunchdImpl = options.restartLaunchdImpl || restartLaunchdConnector;
+  const restartSystemdImpl = options.restartSystemdImpl || restartSystemdConnector;
+  const stopOldConnectorPidsImpl =
+    options.stopOldConnectorPidsImpl || stopOldConnectorPids;
+  const oldPids = connectorPidsImpl();
 
-  const oldPids = connectorPids();
+  const launchd = await restartLaunchdImpl();
+  if (launchd) {
+    await stopOldConnectorPidsImpl(oldPids, { exclude: [launchd.pid] });
+    return;
+  }
+  const systemd = await restartSystemdImpl();
+  if (systemd) {
+    await stopOldConnectorPidsImpl(oldPids, { exclude: [systemd.pid] });
+    return;
+  }
+
   const logFile = path.join(installDir, "connector.log");
   const fd = openSync(logFile, "a");
   const child = spawn(process.execPath, [bundlePath, "--register", controllerUrl], {
@@ -102,82 +127,188 @@ async function restartConnector(installedRevision = "") {
   });
   child.unref();
   closeSync(fd);
-  await stopOldConnectorPids(oldPids, { exclude: [child.pid] });
+  await stopOldConnectorPidsImpl(oldPids, { exclude: [child.pid] });
   log(`started connector pid=${child.pid} machine=${agentMachine || "(hostname)"} log=${logFile}`);
 }
 
-async function restartLaunchdConnector() {
-  if (process.platform !== "darwin" || typeof process.getuid !== "function") return false;
-  const domain = `gui/${process.getuid()}`;
+async function restartLaunchdConnector(options = {}) {
+  const platform = options.platform || process.platform;
+  const getuid = options.getuid || process.getuid;
+  const runCommand = options.runCommand || run;
+  const exists = options.exists || existsSync;
+  const configurePlist =
+    options.configurePlist ||
+    ((plistPath) => configureLaunchdPlist(plistPath, { runCommand }));
+  const sleepImpl = options.sleepImpl || sleep;
+  if (platform !== "darwin" || typeof getuid !== "function") return false;
+  const domain = `gui/${getuid()}`;
   const target = `${domain}/${launchdLabel}`;
-  const printed = run("launchctl", ["print", target], { check: false });
+  const printed = runCommand("launchctl", ["print", target], { check: false });
   const plistPath =
     parseLaunchdPlistPath(printed.stdout) ||
     path.join(os.homedir(), "Library", "LaunchAgents", `${launchdLabel}.plist`);
-  if (!existsSync(plistPath)) return false;
-
-  configureLaunchdPlist(plistPath);
-  log(`restart=launchd target=${target} plist=${plistPath}`);
-  let stopped = run("launchctl", ["bootout", domain, plistPath], { check: false });
-  if (stopped.status !== 0) {
-    stopped = run("launchctl", ["bootout", target], { check: false });
-  }
-
-  for (let attempt = 1; attempt <= 8; attempt += 1) {
-    const bootstrap = run("launchctl", ["bootstrap", domain, plistPath], {
-      check: false,
-    });
-    if (bootstrap.status === 0) {
-      run("launchctl", ["kickstart", "-k", target], { check: false });
-      log(`started connector through launchd target=${target}`);
-      return true;
+  if (!exists(plistPath)) {
+    if (printed.status === 0) {
+      throw new Error(`loaded launchd connector has no readable plist at ${plistPath}`);
     }
-    if (attempt < 8) await sleep(250);
+    return false;
   }
-  throw new Error(`could not restart launchd connector ${target}`);
+
+  const wasLoaded = printed.status === 0;
+  const plistUpdate = configurePlist(plistPath);
+  try {
+    log(`restart=launchd target=${target} plist=${plistPath}`);
+    if (wasLoaded) {
+      let stopped = runCommand("launchctl", ["bootout", domain, plistPath], {
+        check: false,
+      });
+      if (stopped.status !== 0) {
+        stopped = runCommand("launchctl", ["bootout", target], { check: false });
+      }
+      if (!(await waitForLaunchdUnloaded(target, { runCommand, sleepImpl }))) {
+        throw new Error(`launchd connector ${target} did not unload`);
+      }
+    }
+
+    const started = await startAndVerifyLaunchdService(domain, target, plistPath, {
+      runCommand,
+      sleepImpl,
+    });
+    if (!started) throw new Error(`could not start launchd connector ${target}`);
+    log(`started connector through launchd target=${target} pid=${started.pid}`);
+    return { manager: "launchd", pid: started.pid };
+  } catch (error) {
+    let recoveryError = null;
+    try {
+      const partiallyLoaded = runCommand("launchctl", ["print", target], {
+        check: false,
+      });
+      if (partiallyLoaded.status === 0) {
+        runCommand("launchctl", ["bootout", target], { check: false });
+        const unloaded = await waitForLaunchdUnloaded(target, {
+          runCommand,
+          sleepImpl,
+        });
+        if (!unloaded) {
+          // Restore the on-disk plist below, but do not claim that the original
+          // job was recovered while launchd still has the replacement loaded.
+          plistUpdate.restore();
+          throw new Error(`could not unload failed launchd connector ${target}`);
+        }
+      }
+      plistUpdate.restore();
+      if (wasLoaded) {
+        const recovered = await startAndVerifyLaunchdService(
+          domain,
+          target,
+          plistPath,
+          { runCommand, sleepImpl },
+        );
+        if (!recovered) {
+          throw new Error(`could not restore original launchd connector ${target}`);
+        }
+        log(`restored original launchd connector target=${target} pid=${recovered.pid}`);
+      }
+    } catch (restoreError) {
+      recoveryError = restoreError;
+    }
+    if (recoveryError) {
+      throw new Error(
+        `${error.message}; launchd recovery also failed: ${recoveryError.message}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 }
 
-function configureLaunchdPlist(plistPath) {
+let atomicPlistSequence = 0;
+
+function configureLaunchdPlist(plistPath, { runCommand = run } = {}) {
+  const original = readFileSync(plistPath);
+  const originalMode = statSync(plistPath).mode & 0o7777;
+  const tempPath = `${plistPath}.tmp-${process.pid}-${++atomicPlistSequence}`;
+  writeFileSync(tempPath, original, { flag: "wx", mode: originalMode });
+  chmodSync(tempPath, originalMode);
+
   const plistBuddy = "/usr/libexec/PlistBuddy";
   const logFile = path.join(installDir, "connector.log");
-  run(plistBuddy, ["-c", "Delete :ProgramArguments", plistPath], { check: false });
-  run(plistBuddy, ["-c", "Add :ProgramArguments array", plistPath]);
-  for (const [index, value] of [
-    process.execPath,
-    bundlePath,
-    "--register",
-    controllerUrl,
-  ].entries()) {
-    run(plistBuddy, ["-c", `Add :ProgramArguments:${index} string ${value}`, plistPath]);
-  }
-  setPlistString(plistBuddy, plistPath, "WorkingDirectory", installDir);
-  setPlistString(plistBuddy, plistPath, "StandardOutPath", logFile);
-  setPlistString(plistBuddy, plistPath, "StandardErrorPath", logFile);
+  try {
+    runCommand(plistBuddy, ["-c", "Delete :ProgramArguments", tempPath], {
+      check: false,
+    });
+    runCommand(plistBuddy, ["-c", "Add :ProgramArguments array", tempPath]);
+    for (const [index, value] of [
+      process.execPath,
+      bundlePath,
+      "--register",
+      controllerUrl,
+    ].entries()) {
+      runCommand(plistBuddy, [
+        "-c",
+        `Add :ProgramArguments:${index} string ${value}`,
+        tempPath,
+      ]);
+    }
+    setPlistString(plistBuddy, tempPath, "WorkingDirectory", installDir, runCommand);
+    setPlistString(plistBuddy, tempPath, "StandardOutPath", logFile, runCommand);
+    setPlistString(plistBuddy, tempPath, "StandardErrorPath", logFile, runCommand);
 
-  const environmentExists = run(
-    plistBuddy,
-    ["-c", "Print :EnvironmentVariables", plistPath],
-    { check: false },
-  );
-  if (environmentExists.status !== 0) {
-    run(plistBuddy, ["-c", "Add :EnvironmentVariables dict", plistPath]);
+    const environmentExists = runCommand(
+      plistBuddy,
+      ["-c", "Print :EnvironmentVariables", tempPath],
+      { check: false },
+    );
+    if (environmentExists.status !== 0) {
+      runCommand(plistBuddy, ["-c", "Add :EnvironmentVariables dict", tempPath]);
+    }
+    for (const [key, value] of Object.entries({
+      AGENT_MACHINE: agentMachine,
+      TMUX_MOBILE_MUX: targetMux,
+      TMUX_MOBILE_MUXES: targetMuxes,
+    })) {
+      if (value) {
+        setPlistString(
+          plistBuddy,
+          tempPath,
+          `EnvironmentVariables:${key}`,
+          value,
+          runCommand,
+        );
+      }
+    }
+    runCommand("plutil", ["-lint", tempPath]);
+    renameSync(tempPath, plistPath);
+  } catch (error) {
+    rmSync(tempPath, { force: true });
+    throw error;
   }
-  for (const [key, value] of Object.entries({
-    AGENT_MACHINE: agentMachine,
-    TMUX_MOBILE_MUX: targetMux,
-    TMUX_MOBILE_MUXES: targetMuxes,
-  })) {
-    if (value) setPlistString(plistBuddy, plistPath, `EnvironmentVariables:${key}`, value);
-  }
-  run("plutil", ["-lint", plistPath]);
+
+  let restored = false;
+  return {
+    restore() {
+      if (restored) return;
+      const restorePath = `${plistPath}.restore-${process.pid}-${++atomicPlistSequence}`;
+      try {
+        writeFileSync(restorePath, original, { flag: "wx", mode: originalMode });
+        chmodSync(restorePath, originalMode);
+        runCommand("plutil", ["-lint", restorePath]);
+        renameSync(restorePath, plistPath);
+        restored = true;
+      } catch (error) {
+        rmSync(restorePath, { force: true });
+        throw error;
+      }
+    },
+  };
 }
 
-function setPlistString(plistBuddy, plistPath, key, value) {
-  const set = run(plistBuddy, ["-c", `Set :${key} ${value}`, plistPath], {
+function setPlistString(plistBuddy, plistPath, key, value, runCommand = run) {
+  const set = runCommand(plistBuddy, ["-c", `Set :${key} ${value}`, plistPath], {
     check: false,
   });
   if (set.status !== 0) {
-    run(plistBuddy, ["-c", `Add :${key} string ${value}`, plistPath]);
+    runCommand(plistBuddy, ["-c", `Add :${key} string ${value}`, plistPath]);
   }
 }
 
@@ -185,9 +316,71 @@ function parseLaunchdPlistPath(text) {
   return String(text || "").match(/^\s*path = (.+\.plist)\s*$/m)?.[1]?.trim() || "";
 }
 
-function restartSystemdConnector() {
-  if (process.platform !== "linux") return false;
-  const loaded = run(
+async function waitForLaunchdUnloaded(
+  target,
+  { runCommand = run, sleepImpl = sleep, attempts = 8 } = {},
+) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const printed = runCommand("launchctl", ["print", target], { check: false });
+    if (printed.status !== 0) return true;
+    if (attempt < attempts) await sleepImpl(250);
+  }
+  return false;
+}
+
+async function startAndVerifyLaunchdService(
+  domain,
+  target,
+  plistPath,
+  { runCommand = run, sleepImpl = sleep, attempts = 8 } = {},
+) {
+  runCommand("launchctl", ["enable", target], { check: false });
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    let printed = runCommand("launchctl", ["print", target], { check: false });
+    let running = launchdRunningService(printed);
+    if (running) return running;
+
+    if (printed.status !== 0) {
+      const bootstrap = runCommand("launchctl", ["bootstrap", domain, plistPath], {
+        check: false,
+      });
+      if (bootstrap.status === 0) {
+        printed = runCommand("launchctl", ["print", target], { check: false });
+        running = launchdRunningService(printed);
+        if (running) return running;
+      }
+    }
+
+    const kickstart = runCommand("launchctl", ["kickstart", "-k", target], {
+      check: false,
+    });
+    printed = runCommand("launchctl", ["print", target], { check: false });
+    running = launchdRunningService(printed);
+    if (running) return running;
+    if (kickstart.status !== 0) {
+      log(`launchd kickstart failed target=${target} attempt=${attempt}`);
+    }
+    if (attempt < attempts) await sleepImpl(250);
+  }
+  return null;
+}
+
+function launchdRunningService(result) {
+  if (result?.status !== 0) return null;
+  const text = String(result.stdout || "");
+  const state = text.match(/^\s*state = (\S+)\s*$/m)?.[1] || "";
+  const pid = Number(text.match(/^\s*pid = (\d+)\s*$/m)?.[1] || 0);
+  return state === "running" && Number.isInteger(pid) && pid > 0
+    ? { pid, state }
+    : null;
+}
+
+async function restartSystemdConnector(options = {}) {
+  const platform = options.platform || process.platform;
+  const runCommand = options.runCommand || run;
+  const sleepImpl = options.sleepImpl || sleep;
+  if (platform !== "linux") return false;
+  const loaded = runCommand(
     "systemctl",
     ["--user", "show", systemdUnit, "--property=LoadState", "--value"],
     { check: false },
@@ -216,30 +409,81 @@ function restartSystemdConnector() {
     "",
   ].join("\n");
   writeFileSync(path.join(dropInDir, "tmux-mobile-bundle.conf"), override);
-  run("systemctl", ["--user", "daemon-reload"]);
-  run("systemctl", ["--user", "restart", systemdUnit]);
-  log(`started connector through systemd unit=${systemdUnit}`);
-  return true;
+  runCommand("systemctl", ["--user", "daemon-reload"]);
+  runCommand("systemctl", ["--user", "restart", systemdUnit]);
+  const started = await waitForSystemdRunning(systemdUnit, { runCommand, sleepImpl });
+  if (!started) throw new Error(`systemd connector ${systemdUnit} did not reach running`);
+  log(`started connector through systemd unit=${systemdUnit} pid=${started.pid}`);
+  return { manager: "systemd", pid: started.pid };
+}
+
+async function waitForSystemdRunning(
+  unit,
+  { runCommand = run, sleepImpl = sleep, attempts = 8 } = {},
+) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const shown = runCommand(
+      "systemctl",
+      [
+        "--user",
+        "show",
+        unit,
+        "--property=ActiveState",
+        "--property=SubState",
+        "--property=MainPID",
+      ],
+      { check: false },
+    );
+    const running = systemdRunningService(shown);
+    if (running) return running;
+    if (attempt < attempts) await sleepImpl(250);
+  }
+  return null;
+}
+
+function systemdRunningService(result) {
+  if (result?.status !== 0) return null;
+  const values = Object.fromEntries(
+    String(result.stdout || "")
+      .split("\n")
+      .map((line) => line.split(/=(.*)/s).slice(0, 2))
+      .filter(([key]) => key),
+  );
+  const pid = Number(values.MainPID || 0);
+  return values.ActiveState === "active" && values.SubState === "running" &&
+    Number.isInteger(pid) && pid > 0
+    ? { pid, state: values.SubState }
+    : null;
 }
 
 function systemdQuote(value) {
   return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%")}"`;
 }
 
-async function stopOldConnectorPids(oldPids, { exclude = [] } = {}) {
-  const excludeSet = new Set([process.pid, ...exclude].filter((pid) => Number.isInteger(pid)));
+async function stopOldConnectorPids(
+  oldPids,
+  {
+    exclude = [],
+    currentPid = process.pid,
+    killImpl = process.kill,
+    sleepImpl = sleep,
+  } = {},
+) {
+  const excludeSet = new Set(
+    [currentPid, ...exclude].filter((pid) => Number.isInteger(pid) && pid > 0),
+  );
   for (const pid of oldPids) {
     if (excludeSet.has(pid)) continue;
     try {
-      process.kill(pid, "SIGTERM");
+      killImpl(pid, "SIGTERM");
       log(`stopped old connector pid=${pid}`);
     } catch {}
   }
-  await sleep(1500);
+  await sleepImpl(1500);
   for (const pid of oldPids) {
     if (excludeSet.has(pid)) continue;
     try {
-      process.kill(pid, "SIGKILL");
+      killImpl(pid, "SIGKILL");
       log(`killed old connector pid=${pid}`);
     } catch {}
   }
@@ -357,7 +601,19 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-main().catch(async (error) => {
-  await log(`FAILED: ${error.message}`);
-  process.exitCode = 1;
-});
+if (globalThis.__TMUX_MOBILE_UPDATE_BUNDLE_TEST__ !== true) {
+  main().catch(async (error) => {
+    await log(`FAILED: ${error.message}`);
+    process.exitCode = 1;
+  });
+}
+
+export {
+  configureLaunchdPlist,
+  launchdRunningService,
+  restartConnector,
+  restartLaunchdConnector,
+  restartSystemdConnector,
+  stopOldConnectorPids,
+  systemdRunningService,
+};

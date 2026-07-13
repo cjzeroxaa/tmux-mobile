@@ -309,32 +309,91 @@ const finalCasManifest = JSON.parse(
 assert.equal(finalCasManifest.committedOffset, newSecond.committedOffset);
 assert.equal(finalCasManifest.nextLineSeq, 2);
 
-// A raw object written by a CAS loser is not proof that its range was
-// committed. Only membership in the winning manifest's metadata chain earns an
-// idempotent ACK; conflicting bytes at the same range are rejected.
-const conflictEpoch = "66666666-6666-4666-8666-666666666666";
-const rejectingManifestStorage = {
-  ...casStorage,
-  async put(key, bytes, options) {
-    if (key.endsWith("/manifest.json")) {
-      const error = new Error("forced manifest CAS loss");
+// Two controllers can fork from the same empty cursor and durably write their
+// own immutable objects before either manifest CAS finishes. The CAS loser may
+// see its orphan raw object during retry, but only the winner's metadata is
+// reachable from the committed manifest and therefore eligible for an ACK.
+const forkObjects = new Map();
+const forkVersions = new Map();
+let releaseForkManifest;
+let signalForkManifest;
+const forkManifestStarted = new Promise((resolve) => {
+  signalForkManifest = resolve;
+});
+const forkManifestGate = new Promise((resolve) => {
+  releaseForkManifest = resolve;
+});
+let delayFirstForkManifest = true;
+const forkStorage = {
+  kind: "versioned-memory",
+  conditionalWrites: true,
+  objects: forkObjects,
+  async put(key, bytes, { ifVersion } = {}) {
+    if (key.endsWith("/manifest.json") && delayFirstForkManifest) {
+      delayFirstForkManifest = false;
+      signalForkManifest();
+      await forkManifestGate;
+    }
+    const currentVersion = forkVersions.has(key)
+      ? String(forkVersions.get(key))
+      : null;
+    if (
+      ifVersion !== undefined &&
+      ((ifVersion === null && currentVersion !== null) ||
+        (ifVersion !== null && String(ifVersion) !== currentVersion))
+    ) {
+      const error = new Error("conditional write conflict");
       error.code = "storage_version_conflict";
       throw error;
     }
-    return casStorage.put(key, bytes, options);
+    const nextVersion = Number(currentVersion || 0) + 1;
+    forkObjects.set(key, Buffer.from(bytes));
+    forkVersions.set(key, nextVersion);
+    return { key, size: bytes.length, version: String(nextVersion) };
+  },
+  async get(key) {
+    const bytes = forkObjects.get(key);
+    return bytes
+      ? {
+          bytes: Buffer.from(bytes),
+          size: bytes.length,
+          version: String(forkVersions.get(key)),
+        }
+      : null;
   },
 };
-const losingArchive = createTranscriptArchive({ storage: rejectingManifestStorage });
+const losingForkArchive = createTranscriptArchive({ storage: forkStorage });
+const winningForkArchive = createTranscriptArchive({ storage: forkStorage });
+const conflictEpoch = "66666666-6666-4666-8666-666666666666";
 const conflictA = chunk('{"value":"A"}\n', { fileEpoch: conflictEpoch });
 const conflictB = chunk('{"value":"B"}\n', { fileEpoch: conflictEpoch });
+const losingForkCommit = losingForkArchive.commitChunk({
+  ...source,
+  chunk: conflictA,
+});
+await forkManifestStarted;
+const winningForkCommit = await winningForkArchive.commitChunk({
+  ...source,
+  chunk: conflictB,
+});
+releaseForkManifest();
 await assert.rejects(
-  losingArchive.commitChunk({ ...source, chunk: conflictA }),
-  (error) => error.code === "storage_version_conflict",
+  losingForkCommit,
+  (error) =>
+    error.code === "transcript_epoch_conflict" &&
+    error.expected.conflictingRange.sha256 === conflictB.sha256,
 );
-await newControllerArchive.commitChunk({ ...source, chunk: conflictB });
-await assert.rejects(
-  losingArchive.commitChunk({ ...source, chunk: conflictA }),
-  (error) => error.code === "transcript_cursor_mismatch",
+const forkReplay = await winningForkArchive.readEpoch(winningForkCommit.manifestKey);
+assert.deepEqual(
+  forkReplay.chunks.map((item) => item.bytes.toString()),
+  ['{"value":"B"}\n'],
+  "the manifest chain reaches only the CAS winner",
+);
+assert.ok(
+  [...forkObjects.keys()].some((key) =>
+    key.endsWith(`-${conflictA.sha256}.jsonl`),
+  ),
+  "the CAS loser's orphan raw object still exists and must not earn an ACK",
 );
 
 console.log("transcript archive tests passed");

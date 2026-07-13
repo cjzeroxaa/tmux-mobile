@@ -164,9 +164,9 @@ try {
     assert.equal(reset.pending, false);
   }
 
-  // If the path rotates while an old-file pending chunk receives a permanent
-  // remote NACK, the connector must retain those exact pending bytes. It cannot
-  // reset onto the new inode and silently discard data the archive never ACKed.
+  // A zero-based pending chunk is a complete replayable prefix. Even if the path
+  // rotates during the NACK, recovery re-keys the exact persisted old bytes,
+  // ACKs them in a fresh epoch, and only then starts the replacement file.
   {
     const filePath = path.join(dir, "remote-reset-rotated.jsonl");
     const oldPath = path.join(dir, "remote-reset-rotated.old.jsonl");
@@ -177,34 +177,84 @@ try {
       createFileEpoch: epochFactory("remote-reset-rotated"),
       uploadChunk: async (chunk) => {
         attempts.push(chunk);
+        if (attempts.length === 1) {
+          await rename(filePath, oldPath);
+          await writeFile(filePath, "new-file\n");
+          const error = new Error("remote manifest was replaced during rotation");
+          error.code = "transcript_cursor_mismatch";
+          throw error;
+        }
+        return { ack: true, chunkId: chunk.chunkId };
+      },
+    });
+    const recovered = await replicator.syncSession({
+      sessionKey: "remote-reset-rotated",
+      filePath,
+    });
+    assert.equal(attempts.length, 3);
+    assert.equal(attempts[0].bytes.toString(), "old-pending\n");
+    assert.equal(attempts[1].bytes.toString(), "old-pending\n");
+    assert.notEqual(attempts[1].fileEpoch, attempts[0].fileEpoch);
+    assert.equal(attempts[2].bytes.toString(), "new-file\n");
+    assert.notEqual(attempts[2].fileEpoch, attempts[1].fileEpoch);
+    assert.equal(recovered.pending, false);
+    assert.equal(recovered.state.quarantine, null);
+  }
+
+  // A later pending chunk does not contain its already-ACKed prefix. If the
+  // controller NACKs that old epoch and the path rotates, preserve the exact
+  // old pending bytes and block: resetting onto the new inode would lose data.
+  {
+    const filePath = path.join(dir, "remote-reset-late-rotated.jsonl");
+    const oldPath = path.join(dir, "remote-reset-late-rotated.old.jsonl");
+    await writeFile(filePath, "one\nold-pending\n");
+    const attempts = [];
+    const stateStore = createMemoryTranscriptStateStore();
+    const replicator = createTranscriptReplicator({
+      stateStore,
+      createFileEpoch: epochFactory("remote-reset-late-rotated"),
+      chunkBytes: 4,
+      uploadChunk: async (chunk) => {
+        attempts.push(chunk);
+        if (attempts.length === 1) return { ack: true, chunkId: chunk.chunkId };
         await rename(filePath, oldPath);
         await writeFile(filePath, "new-file\n");
-        const error = new Error("remote manifest was replaced during rotation");
+        const error = new Error("remote manifest was replaced after an earlier ACK");
         error.code = "transcript_cursor_mismatch";
         throw error;
       },
     });
     const quarantined = await replicator.syncSession({
-      sessionKey: "remote-reset-rotated",
+      sessionKey: "remote-reset-late-rotated",
       filePath,
     });
-    assert.equal(attempts.length, 1);
-    assert.equal(attempts[0].bytes.toString(), "old-pending\n");
+    assert.equal(attempts.length, 2);
+    assert.equal(attempts[0].bytes.toString(), "one\n");
+    assert.equal(attempts[1].bytes.toString(), "old-pending\n");
     assert.equal(quarantined.pending, true);
-    assert.equal(
-      quarantined.quarantined.code,
-      "transcript_pending_source_changed",
-    );
+    assert.equal(quarantined.state.cursor.byteOffset, Buffer.byteLength("one\n"));
+    assert.equal(quarantined.quarantined.code, "transcript_pending_source_changed");
+    assert.equal(quarantined.quarantined.reason, "pending-prefix-not-spooled");
     assert.equal(
       Buffer.from(quarantined.state.pending.bytesBase64, "base64").toString(),
       "old-pending\n",
     );
-    const stillQuarantined = await replicator.syncSession({
-      sessionKey: "remote-reset-rotated",
+    const restarted = createTranscriptReplicator({
+      stateStore,
+      createFileEpoch: () => {
+        throw new Error("quarantined restart must not create an epoch");
+      },
+      uploadChunk: async (chunk) => {
+        attempts.push(chunk);
+        return { ack: true, chunkId: chunk.chunkId };
+      },
+    });
+    const stillQuarantined = await restarted.syncSession({
+      sessionKey: "remote-reset-late-rotated",
       filePath,
     });
     assert.equal(stillQuarantined.pending, true);
-    assert.equal(attempts.length, 1, "quarantine prevents repeated impossible upload");
+    assert.equal(attempts.length, 2, "quarantine prevents repeated impossible upload");
   }
 
   // A JSONL record at the shared hard limit is valid; one with no newline by
