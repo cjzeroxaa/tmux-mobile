@@ -4932,6 +4932,7 @@ try {
 // (the default), the controller advertises no capability and connectors do no
 // transcript I/O.
 let TRANSCRIPT_ARCHIVE = null;
+let TRANSCRIPT_ARCHIVE_ALLOW_ALL = false;
 let TRANSCRIPT_ARCHIVE_MACHINE_ALLOWLIST = new Set();
 let TRANSCRIPT_ARCHIVE_OWNER_ALLOWLIST = new Set();
 if (
@@ -4939,15 +4940,20 @@ if (
   process.env.TMUX_MOBILE_TRANSCRIPT_ARCHIVE_ENABLED === "1"
 ) {
   try {
+    TRANSCRIPT_ARCHIVE_ALLOW_ALL =
+      process.env.TMUX_MOBILE_TRANSCRIPT_ARCHIVE_ALLOW_ALL === "1";
     TRANSCRIPT_ARCHIVE_MACHINE_ALLOWLIST = new Set(
       splitCsv(process.env.TMUX_MOBILE_TRANSCRIPT_ARCHIVE_MACHINE_ALLOWLIST),
     );
     TRANSCRIPT_ARCHIVE_OWNER_ALLOWLIST = new Set(
       splitCsv(process.env.TMUX_MOBILE_TRANSCRIPT_ARCHIVE_OWNER_ALLOWLIST),
     );
-    if (TRANSCRIPT_ARCHIVE_MACHINE_ALLOWLIST.size === 0) {
+    if (
+      !TRANSCRIPT_ARCHIVE_ALLOW_ALL &&
+      TRANSCRIPT_ARCHIVE_MACHINE_ALLOWLIST.size === 0
+    ) {
       throw new Error(
-        "TMUX_MOBILE_TRANSCRIPT_ARCHIVE_MACHINE_ALLOWLIST must name at least one canary machine",
+        "TMUX_MOBILE_TRANSCRIPT_ARCHIVE_MACHINE_ALLOWLIST must name at least one canary machine unless TMUX_MOBILE_TRANSCRIPT_ARCHIVE_ALLOW_ALL=1",
       );
     }
     const transcriptStorageKind = String(
@@ -5607,6 +5613,7 @@ if (MODE.kind === "register") {
         process.env.TMUX_MOBILE_TRANSCRIPT_ARCHIVE_ROOT_DISCOVERY === "1",
       transcriptArchiveEnabledForMachine: TRANSCRIPT_ARCHIVE
         ? ({ owner, machine }) => {
+            if (TRANSCRIPT_ARCHIVE_ALLOW_ALL) return true;
             const machineKeys = [
               machine.agentId,
               machine.machineId,
