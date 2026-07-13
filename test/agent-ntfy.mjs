@@ -3,9 +3,54 @@ import {
   buildAgentAppUrl,
   createAgentRoundNtfyNotifier,
   createNtfyConfig,
+  isNtfyQuietHours,
   NTFY_MESSAGE_MAX_BYTES,
+  NTFY_QUIET_HOURS_END_MINUTE,
+  NTFY_QUIET_HOURS_START_MINUTE,
+  NTFY_QUIET_HOURS_TIME_ZONE,
+  ntfyDeliveryWindowKey,
   ntfyTopicForMachine,
 } from "../lib/agent-ntfy.mjs";
+
+assert.equal(NTFY_QUIET_HOURS_TIME_ZONE, "Asia/Shanghai");
+assert.equal(NTFY_QUIET_HOURS_START_MINUTE, 21 * 60);
+assert.equal(NTFY_QUIET_HOURS_END_MINUTE, 8 * 60);
+assert.equal(
+  isNtfyQuietHours(Date.parse("2026-07-13T12:59:59Z")),
+  false,
+  "Beijing 20:59 is still inside the delivery window",
+);
+assert.equal(
+  isNtfyQuietHours(Date.parse("2026-07-13T13:00:00Z")),
+  true,
+  "Beijing 21:00 starts quiet hours",
+);
+assert.equal(
+  isNtfyQuietHours(Date.parse("2026-07-13T23:59:59Z")),
+  true,
+  "Beijing 07:59 remains inside quiet hours",
+);
+assert.equal(
+  isNtfyQuietHours(Date.parse("2026-07-14T00:00:00Z")),
+  false,
+  "Beijing 08:00 ends quiet hours",
+);
+assert.equal(isNtfyQuietHours(new Date(NaN)), false, "an invalid time fails open");
+assert.equal(
+  ntfyDeliveryWindowKey(Date.parse("2026-07-13T12:59:59Z")),
+  "2026-07-13",
+  "an allowed instant belongs to its Beijing delivery date",
+);
+assert.equal(
+  ntfyDeliveryWindowKey(Date.parse("2026-07-13T13:00:00Z")),
+  "",
+  "quiet hours do not have a delivery window",
+);
+assert.equal(
+  ntfyDeliveryWindowKey(Date.parse("2026-07-14T00:00:00Z")),
+  "2026-07-14",
+  "the next delivery window opens at Beijing 08:00",
+);
 
 assert.equal(
   ntfyTopicForMachine({ hostname: "FIN Mini" }),
@@ -494,6 +539,7 @@ const batchLimitNotifier = createAgentRoundNtfyNotifier(
       batchLimitPosts.push({ url, options });
       return { ok: true, status: 200 };
     },
+    now: () => 0,
   },
 );
 const batchLimitAgents = [
@@ -530,6 +576,291 @@ assert.equal(
   (batchLimitBody.match(/\n\nOpen: /g) || []).length,
   2,
   "byte budgeting keeps both batched agent deep links",
+);
+
+const publishBoundaryPosts = [];
+const publishBoundaryLogs = [];
+const beforeQuietBoundary = Date.parse("2026-07-13T12:59:59.999Z");
+const atQuietBoundary = Date.parse("2026-07-13T13:00:00.000Z");
+let publishBoundaryNowCalls = 0;
+const publishBoundaryNotifier = createAgentRoundNtfyNotifier(
+  { enabled: true, baseUrl: "https://ntfy.example" },
+  {
+    fetchImpl: async (url, options) => {
+      publishBoundaryPosts.push({ url, options });
+      return { ok: true, status: 200 };
+    },
+    logEvent: (event, details) => publishBoundaryLogs.push({ event, details }),
+    now: () => {
+      publishBoundaryNowCalls += 1;
+      return publishBoundaryNowCalls <= 3 ? beforeQuietBoundary : atQuietBoundary;
+    },
+  },
+);
+const publishBoundaryAgent = { ...baseAgent, agentSessionId: "publish-boundary" };
+await publishBoundaryNotifier.observeAgents({
+  machines: [machine],
+  agents: [
+    { ...publishBoundaryAgent, status: "running", lastAssistantText: "", turnCount: 0 },
+  ],
+});
+await publishBoundaryNotifier.observeAgents({
+  machines: [machine],
+  agents: [
+    {
+      ...publishBoundaryAgent,
+      status: "idle",
+      lastAssistantText: "finished on the boundary",
+      lastAssistantAt: "2026-07-13T12:59:59.999Z",
+      lastActivityAt: "2026-07-13T12:59:59.999Z",
+      turnCount: 1,
+    },
+  ],
+});
+assert.equal(publishBoundaryNowCalls, 4, "the publish boundary performs a final time check");
+assert.equal(
+  publishBoundaryPosts.length,
+  0,
+  "an HTTP publish that reaches Beijing 21:00 is suppressed before fetch",
+);
+assert.equal(publishBoundaryLogs.at(-1)?.details?.basis, "send_time");
+
+const quietClock = createFakeClock();
+const quietPosts = [];
+const quietLogs = [];
+quietClock.advanceTo(Date.parse("2026-07-13T12:59:50Z")); // Beijing 20:59:50
+const quietNotifier = createAgentRoundNtfyNotifier(
+  {
+    enabled: true,
+    baseUrl: "https://ntfy.example",
+    appBaseUrl: "https://eng.impo.ai",
+  },
+  {
+    fetchImpl: async (url, options) => {
+      quietPosts.push({ url, options });
+      return { ok: true, status: 200 };
+    },
+    logEvent: (event, details) => quietLogs.push({ event, details }),
+    now: quietClock.now,
+    setTimeoutImpl: quietClock.setTimeout,
+    clearTimeoutImpl: quietClock.clearTimeout,
+  },
+);
+const quietAgent = { ...baseAgent, agentSessionId: "session-quiet" };
+await quietNotifier.observeAgents({
+  machines: [machine],
+  agents: [{ ...quietAgent, status: "running", lastAssistantText: "", turnCount: 0 }],
+});
+quietClock.advanceTo(Date.parse("2026-07-13T13:00:00Z")); // Beijing 21:00
+await quietNotifier.observeAgents({
+  machines: [machine],
+  agents: [
+    {
+      ...quietAgent,
+      status: "idle",
+      lastAssistantText: "night completion",
+      lastAssistantAt: "2026-07-13T13:00:00Z",
+      lastActivityAt: "2026-07-13T13:00:00Z",
+      turnCount: 1,
+    },
+  ],
+});
+assert.equal(quietPosts.length, 0, "a completion at Beijing 21:00 is suppressed");
+assert.equal(quietClock.pendingTimers().length, 0, "a quiet-hours completion is not queued");
+assert.equal(quietLogs.at(-1)?.event, "ntfy_agent_round_suppressed");
+assert.equal(quietLogs.at(-1)?.details?.basis, "send_time");
+
+quietClock.advanceTo(Date.parse("2026-07-14T00:00:00Z")); // Beijing 08:00
+await quietNotifier.observeAgents({
+  machines: [machine],
+  agents: [
+    {
+      ...quietAgent,
+      status: "idle",
+      lastAssistantText: "night completion",
+      lastAssistantAt: "2026-07-13T13:00:00Z",
+      lastActivityAt: "2026-07-13T13:00:00Z",
+      turnCount: 1,
+    },
+  ],
+});
+assert.equal(quietPosts.length, 0, "the suppressed completion is not replayed at 08:00");
+await quietNotifier.observeAgents({
+  machines: [machine],
+  agents: [
+    {
+      ...quietAgent,
+      status: "running",
+      lastAssistantText: "night completion",
+      lastAssistantAt: "2026-07-13T13:00:00Z",
+      lastActivityAt: "2026-07-14T00:00:10Z",
+      turnCount: 1,
+    },
+  ],
+});
+quietClock.advanceTo(Date.parse("2026-07-14T00:01:00Z"));
+await quietNotifier.observeAgents({
+  machines: [machine],
+  agents: [
+    {
+      ...quietAgent,
+      status: "idle",
+      lastAssistantText: "morning completion",
+      lastAssistantAt: "2026-07-14T00:01:00Z",
+      lastActivityAt: "2026-07-14T00:01:00Z",
+      turnCount: 2,
+    },
+  ],
+});
+assert.equal(quietPosts.length, 1, "a genuinely new completion after 08:00 is sent");
+
+const restartClock = createFakeClock();
+const restartPosts = [];
+const restartLogs = [];
+restartClock.advanceTo(Date.parse("2026-07-14T00:00:00Z")); // Beijing 08:00
+const restartNotifier = createAgentRoundNtfyNotifier(
+  { enabled: true, baseUrl: "https://ntfy.example" },
+  {
+    fetchImpl: async (url, options) => {
+      restartPosts.push({ url, options });
+      return { ok: true, status: 200 };
+    },
+    logEvent: (event, details) => restartLogs.push({ event, details }),
+    now: restartClock.now,
+    setTimeoutImpl: restartClock.setTimeout,
+    clearTimeoutImpl: restartClock.clearTimeout,
+  },
+);
+await restartNotifier.observeAgents({
+  machines: [machine],
+  agents: [
+    {
+      ...baseAgent,
+      agentSessionId: "session-night-restart",
+      status: "idle",
+      lastAssistantText: "finished just before eight",
+      lastAssistantAt: "2026-07-13T23:59:00Z",
+      lastActivityAt: "2026-07-13T23:59:00Z",
+      turnCount: 1,
+    },
+  ],
+});
+assert.equal(restartPosts.length, 0, "a recent night completion is not replayed after restart");
+assert.equal(restartLogs.at(-1)?.details?.basis, "event_time");
+
+const delayedCandidateClock = createFakeClock();
+const delayedCandidatePosts = [];
+const delayedCandidateLogs = [];
+delayedCandidateClock.advanceTo(Date.parse("2026-07-13T12:00:00Z")); // Beijing 20:00
+const delayedCandidateNotifier = createAgentRoundNtfyNotifier(
+  { enabled: true, baseUrl: "https://ntfy.example" },
+  {
+    fetchImpl: async (url, options) => {
+      delayedCandidatePosts.push({ url, options });
+      return { ok: true, status: 200 };
+    },
+    logEvent: (event, details) => delayedCandidateLogs.push({ event, details }),
+    now: delayedCandidateClock.now,
+    setTimeoutImpl: delayedCandidateClock.setTimeout,
+    clearTimeoutImpl: delayedCandidateClock.clearTimeout,
+  },
+);
+const delayedCandidateAgent = { ...baseAgent, agentSessionId: "session-delayed-candidate" };
+await delayedCandidateNotifier.observeAgents({
+  machines: [machine],
+  agents: [
+    { ...delayedCandidateAgent, status: "running", lastAssistantText: "", turnCount: 0 },
+  ],
+});
+delayedCandidateClock.advanceTo(Date.parse("2026-07-14T00:00:00Z")); // Beijing 08:00
+await delayedCandidateNotifier.observeAgents({
+  machines: [machine],
+  agents: [
+    {
+      ...delayedCandidateAgent,
+      status: "idle",
+      lastAssistantText: "completed before the overnight disconnect",
+      lastAssistantAt: "2026-07-13T12:59:00Z",
+      lastActivityAt: "2026-07-13T12:59:00Z",
+      turnCount: 1,
+    },
+  ],
+});
+assert.equal(
+  delayedCandidatePosts.length,
+  0,
+  "a previous delivery-window completion first observed at 08:00 is not replayed",
+);
+assert.equal(delayedCandidateLogs.at(-1)?.details?.basis, "delivery_window");
+assert.equal(delayedCandidateLogs.at(-1)?.details?.reason, "quiet_hours_expired");
+
+const overnightClock = createFakeClock();
+const overnightPosts = [];
+const overnightLogs = [];
+overnightClock.advanceTo(Date.parse("2026-07-13T12:59:30Z")); // Beijing 20:59:30
+const overnightNotifier = createAgentRoundNtfyNotifier(
+  {
+    enabled: true,
+    baseUrl: "https://ntfy.example",
+    topic: "overnight-topic",
+    topicMinIntervalMs: 60_000,
+  },
+  {
+    fetchImpl: async (url, options) => {
+      overnightPosts.push({ url, options });
+      return { ok: true, status: 200 };
+    },
+    logEvent: (event, details) => overnightLogs.push({ event, details }),
+    now: overnightClock.now,
+    setTimeoutImpl: overnightClock.setTimeout,
+    clearTimeoutImpl: overnightClock.clearTimeout,
+  },
+);
+const overnightFirst = { ...baseAgent, agentSessionId: "overnight-first" };
+const overnightSecond = { ...baseAgent, agentSessionId: "overnight-second" };
+await overnightNotifier.observeAgents({
+  machines: [machine],
+  agents: [
+    { ...overnightFirst, status: "running", lastAssistantText: "", turnCount: 0 },
+    { ...overnightSecond, status: "running", lastAssistantText: "", turnCount: 0 },
+  ],
+});
+await overnightNotifier.observeAgents({
+  machines: [machine],
+  agents: [
+    {
+      ...overnightFirst,
+      status: "idle",
+      lastAssistantText: "sent before quiet hours",
+      lastAssistantAt: "2026-07-13T12:59:30Z",
+      lastActivityAt: "2026-07-13T12:59:30Z",
+      turnCount: 1,
+    },
+  ],
+});
+assert.equal(overnightPosts.length, 1, "a completion before 21:00 sends normally");
+overnightClock.advanceTo(Date.parse("2026-07-13T12:59:40Z"));
+await overnightNotifier.observeAgents({
+  machines: [machine],
+  agents: [
+    {
+      ...overnightSecond,
+      status: "idle",
+      lastAssistantText: "queued before quiet hours",
+      lastAssistantAt: "2026-07-13T12:59:40Z",
+      lastActivityAt: "2026-07-13T12:59:40Z",
+      turnCount: 1,
+    },
+  ],
+});
+assert.equal(overnightClock.pendingTimers().length, 1, "the second completion is rate-limited");
+overnightClock.advanceTo(Date.parse("2026-07-14T00:00:00Z")); // timer wakes at 08:00
+await overnightClock.runDueTimers();
+assert.equal(overnightPosts.length, 1, "a delayed pre-quiet batch is not sent the next morning");
+assert.equal(
+  overnightLogs.at(-1)?.details?.reason,
+  "quiet_hours_expired",
+  "an overnight-delayed batch is discarded as expired",
 );
 
 const failingClock = createFakeClock();

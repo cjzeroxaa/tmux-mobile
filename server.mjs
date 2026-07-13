@@ -2973,6 +2973,9 @@ function startAgentRoundNtfyWatcher({ hub = null } = {}) {
     topicMinIntervalMs: agentRoundNtfyNotifier.topicMinIntervalMs,
     baseUrl: agentRoundNtfyNotifier.baseUrl,
     topicPrefix: NTFY_TOPIC_PREFIX,
+    quietHoursTimeZone: agentRoundNtfyNotifier.quietHoursTimeZone,
+    quietHoursStartMinute: agentRoundNtfyNotifier.quietHoursStartMinute,
+    quietHoursEndMinute: agentRoundNtfyNotifier.quietHoursEndMinute,
   });
   return () => {
     clearInterval(timer);
