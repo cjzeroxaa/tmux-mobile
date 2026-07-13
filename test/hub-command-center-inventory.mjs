@@ -106,6 +106,14 @@ try {
   assert.equal(fresh.machine.agentCount, 1, "fresh inventory counts agents");
   assert.equal(fresh.agents.length, 1, "fresh inventory exposes agents");
   assert.equal(fresh.agents[0].windowId, "@1");
+  const allFresh = hub.listAllCommandCenterInventories();
+  assert.equal(allFresh.length, 1, "internal inventory consumer sees every machine");
+  assert.equal(allFresh[0].machine.id, machine.id);
+  assert.deepEqual(
+    allFresh[0].agents,
+    fresh.agents,
+    "internal inventory consumer reuses the connector-pushed agent cache",
+  );
 
   ws.send(
     JSON.stringify(
@@ -156,6 +164,11 @@ try {
   });
   assert.equal(stale.machine.agentCount, 0, "stale inventory does not count old agents");
   assert.equal(stale.agents.length, 0, "stale inventory does not expose old agents");
+  assert.equal(
+    hub.listAllCommandCenterInventories()[0].agents.length,
+    0,
+    "background consumers do not revive stale agents with a live RPC scan",
+  );
   await new Promise((resolve) => setTimeout(resolve, 225));
   assert.equal(hub.listMachines(viewer).length, 1, "stale inventory does not disconnect machine");
 

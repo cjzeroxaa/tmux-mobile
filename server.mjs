@@ -2911,16 +2911,6 @@ function observeCommandCenterAgentsForNtfy(machines, agents) {
   void agentRoundNtfyNotifier.observeAgents({ machines, agents });
 }
 
-function viewerForMachineOwner(machine) {
-  const email = String(machine.ownerEmail || machine.ownerId || "").trim();
-  const userId = String(machine.ownerId || email).trim();
-  return {
-    email,
-    userId,
-    hd: String(machine.ownerHd || "").trim(),
-  };
-}
-
 async function sweepLocalAgentRoundsForNtfy() {
   const result = await listAgentSessions();
   const machine = await localCommandCenterMachine(result.agents?.length || 0);
@@ -2932,19 +2922,23 @@ async function sweepLocalAgentRoundsForNtfy() {
 }
 
 async function sweepHubAgentRoundsForNtfy(hub) {
-  const machines = typeof hub.listAllMachines === "function" ? hub.listAllMachines() : [];
+  const inventories =
+    typeof hub.listAllCommandCenterInventories === "function"
+      ? hub.listAllCommandCenterInventories()
+      : [];
   await Promise.allSettled(
-    machines.map(async (machine) => {
-      const viewer = viewerForMachineOwner(machine);
-      if (!viewer.userId) return;
-      const result = await withBackend(
-        hub.backendFor(viewer, machine.id),
-        () => listAgentSessions(),
-      );
-      const agents = tagCommandCenterAgents(result, machine);
+    inventories.map(async (inventory) => {
+      // Connectors already publish Command Center inventory snapshots. The
+      // notification watcher is a background consumer of that pushed state;
+      // it must never fan back out into live tmux/transcript RPCs. Apart from
+      // duplicating the connector's own inventory scan, those RPCs can parse
+      // many large transcript tails and starve the Connector heartbeat on a
+      // busy machine even when no browser is open.
+      const result = commandCenterResultFromInventory(inventory);
+      if (!result) return;
       await agentRoundNtfyNotifier.observeAgents({
-        machines: [{ ...machine, agentCount: agents.length }],
-        agents,
+        machines: result.machines,
+        agents: result.agents,
       });
     }),
   );
