@@ -3,6 +3,7 @@ import {
   buildAgentAppUrl,
   createAgentRoundNtfyNotifier,
   createNtfyConfig,
+  NTFY_MESSAGE_MAX_BYTES,
   ntfyTopicForMachine,
 } from "../lib/agent-ntfy.mjs";
 
@@ -396,7 +397,140 @@ await notifier.observeAgents({
 });
 assert.equal(posts.length, 4, "long responses are still notified");
 assert.ok(posts[3].options.body.length > 320, "push body includes notification preview plus open link");
-assert.match(posts[3].options.body, /\.\.\.\n\nOpen: https:\/\/eng\.impo\.ai\/app\//);
+assert.ok(posts[3].options.body.startsWith(longText), "a response below 4K is preserved in full");
+assert.doesNotMatch(posts[3].options.body, /\.\.\.\n\nOpen:/, "a response below 4K is not truncated");
+
+async function captureSingleNotification(text, agentSessionId) {
+  const captured = [];
+  const logs = [];
+  const singleClock = createFakeClock();
+  const singleNotifier = createAgentRoundNtfyNotifier(
+    {
+      enabled: true,
+      baseUrl: "https://ntfy.example",
+      appBaseUrl: "https://eng.impo.ai",
+    },
+    {
+      fetchImpl: async (url, options) => {
+        captured.push({ url, options });
+        return { ok: true, status: 200 };
+      },
+      logEvent: (event, details) => logs.push({ event, details }),
+      now: singleClock.now,
+      setTimeoutImpl: singleClock.setTimeout,
+      clearTimeoutImpl: singleClock.clearTimeout,
+    },
+  );
+  const agent = { ...baseAgent, agentSessionId };
+  await singleNotifier.observeAgents({
+    machines: [machine],
+    agents: [{ ...agent, status: "running", lastAssistantText: "", turnCount: 0 }],
+  });
+  await singleNotifier.observeAgents({
+    machines: [machine],
+    agents: [{ ...agent, status: "idle", lastAssistantText: text, turnCount: 1 }],
+  });
+  assert.equal(captured.length, 1, "single response produces one notification");
+  return { post: captured[0], logs, agent };
+}
+
+const preservedUnicodeText = `${"完整回复🙂\n".repeat(180)}结束`;
+const preservedUnicode = await captureSingleNotification(
+  preservedUnicodeText,
+  "session-preserved-unicode",
+);
+const preservedUnicodeUrl = buildAgentAppUrl(preservedUnicode.agent, {
+  appBaseUrl: "https://eng.impo.ai",
+  machine,
+});
+assert.equal(
+  preservedUnicode.post.options.body,
+  `${preservedUnicodeText}\n\nOpen: ${preservedUnicodeUrl}`,
+  "multibyte responses larger than the old 320-char preview remain complete when under 4K",
+);
+assert.ok(
+  Buffer.byteLength(preservedUnicode.post.options.body, "utf8") <= NTFY_MESSAGE_MAX_BYTES,
+  "complete multibyte response stays inside the ntfy byte limit",
+);
+
+const overlongUnicodeText = `${"完成🙂".repeat(800)}最终结尾`;
+const overlongUnicode = await captureSingleNotification(
+  overlongUnicodeText,
+  "session-overlong-unicode",
+);
+const overlongBody = overlongUnicode.post.options.body;
+const [overlongPreview, overlongOpenUrl] = overlongBody.split("\n\nOpen: ");
+assert.equal(
+  Buffer.byteLength(overlongBody, "utf8"),
+  NTFY_MESSAGE_MAX_BYTES,
+  "an overlong response uses the full 4K byte budget without exceeding it",
+);
+assert.ok(overlongPreview.endsWith("..."), "an overlong response is visibly truncated");
+assert.ok(overlongOpenUrl, "the deep link survives response truncation");
+assert.ok(!overlongBody.includes("最终结尾"), "content beyond the byte budget is removed");
+assert.ok(!overlongBody.includes("\uFFFD"), "UTF-8 truncation does not insert a replacement character");
+const lastPreviewCodePoint = Array.from(overlongPreview.slice(0, -3)).at(-1)?.codePointAt(0) || 0;
+assert.ok(
+  lastPreviewCodePoint < 0xd800 || lastPreviewCodePoint > 0xdfff,
+  "UTF-8 truncation does not leave a split surrogate",
+);
+const sentLog = overlongUnicode.logs.find((entry) => entry.event === "ntfy_agent_round_sent");
+assert.equal(
+  sentLog?.details?.bytes,
+  NTFY_MESSAGE_MAX_BYTES,
+  "sent notification logs expose the UTF-8 byte size",
+);
+
+const batchLimitPosts = [];
+const batchLimitNotifier = createAgentRoundNtfyNotifier(
+  {
+    enabled: true,
+    baseUrl: "https://ntfy.example",
+    appBaseUrl: "https://eng.impo.ai",
+    topic: "unified-limit-test",
+  },
+  {
+    fetchImpl: async (url, options) => {
+      batchLimitPosts.push({ url, options });
+      return { ok: true, status: 200 };
+    },
+  },
+);
+const batchLimitAgents = [
+  { ...baseAgent, machineId: "m-fin", agentSessionId: "batch-limit-fin" },
+  { ...baseAgent, machineId: "m-air", agentSessionId: "batch-limit-air" },
+];
+await batchLimitNotifier.observeAgents({
+  machines: [machine, otherMachine],
+  agents: batchLimitAgents.map((agent) => ({
+    ...agent,
+    status: "running",
+    lastAssistantText: "",
+    turnCount: 0,
+  })),
+});
+await batchLimitNotifier.observeAgents({
+  machines: [machine, otherMachine],
+  agents: batchLimitAgents.map((agent, index) => ({
+    ...agent,
+    status: "idle",
+    lastAssistantText: `${index === 0 ? "甲" : "乙"}${"完成🙂".repeat(800)}`,
+    turnCount: 1,
+  })),
+});
+assert.equal(batchLimitPosts.length, 1, "overlong same-topic responses are sent as one batch");
+const batchLimitBody = batchLimitPosts[0].options.body;
+assert.ok(
+  Buffer.byteLength(batchLimitBody, "utf8") <= NTFY_MESSAGE_MAX_BYTES,
+  "a multi-agent notification also respects the total 4K byte limit",
+);
+assert.match(batchLimitBody, /\[1\/2\] FIN Mini codex/);
+assert.match(batchLimitBody, /\[2\/2\] Air codex/);
+assert.equal(
+  (batchLimitBody.match(/\n\nOpen: /g) || []).length,
+  2,
+  "byte budgeting keeps both batched agent deep links",
+);
 
 const failingClock = createFakeClock();
 const failingPosts = [];
