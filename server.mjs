@@ -3342,8 +3342,11 @@ const SESSION_COOKIE = "tmux_mobile_session";
 const OAUTH_SCOPE = "openid email profile";
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const AGENT_TOKEN_TTL_SECONDS = 180 * 24 * 60 * 60;
+const BROWSER_HANDOFF_TTL_MS = 60 * 1000;
+const BROWSER_HANDOFF_MAX_PENDING = 1000;
 const oauthStates = new Map();
 const deviceSessions = new Map();
+const browserHandoffs = new Map();
 
 function splitCsv(value) {
   return String(value || "")
@@ -3503,6 +3506,19 @@ function cookieSecure(req) {
   return originForRequest(req).startsWith("https://");
 }
 
+function setSessionTokenCookie(req, res, token, maxAgeSeconds = SESSION_TTL_SECONDS) {
+  const maxAge = Math.max(1, Math.floor(Number(maxAgeSeconds) || 0));
+  const parts = [
+    `${SESSION_COOKIE}=${token}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${maxAge}`,
+  ];
+  if (cookieSecure(req)) parts.push("Secure");
+  res.setHeader("set-cookie", parts.join("; "));
+}
+
 function setSessionCookie(req, res, user) {
   const token = issueSignedToken(
     {
@@ -3514,15 +3530,7 @@ function setSessionCookie(req, res, user) {
     },
     SESSION_TTL_SECONDS,
   );
-  const parts = [
-    `${SESSION_COOKIE}=${token}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    `Max-Age=${SESSION_TTL_SECONDS}`,
-  ];
-  if (cookieSecure(req)) parts.push("Secure");
-  res.setHeader("set-cookie", parts.join("; "));
+  setSessionTokenCookie(req, res, token);
 }
 
 function clearSessionCookie(req, res) {
@@ -3698,6 +3706,76 @@ async function exchangeDeviceCode(deviceCode) {
 }
 
 async function handleAuthRoute(req, res, url) {
+  if (url.pathname === "/auth/browser-handoff") {
+    if (req.method === "POST") {
+      // Native clients keep their session in SecureStore and authenticate API
+      // calls with Bearer. Safari cannot inherit that credential, so exchange
+      // it for a short-lived, single-use ticket instead of putting the durable
+      // session token in a URL.
+      const sessionToken = bearerToken(req);
+      const session = verifySignedToken(sessionToken, "session");
+      if (!session) {
+        sendJson(res, 401, { error: "Authentication required" });
+        return true;
+      }
+      const body = await readJsonBody(req).catch(() => ({}));
+      const returnTo = safeBrowserHandoffPath(body.returnTo);
+      if (!returnTo) {
+        sendJson(res, 400, { error: "Unsupported browser handoff target" });
+        return true;
+      }
+      pruneBrowserHandoffs();
+      while (browserHandoffs.size >= BROWSER_HANDOFF_MAX_PENDING) {
+        const oldest = browserHandoffs.keys().next().value;
+        if (!oldest) break;
+        browserHandoffs.delete(oldest);
+      }
+      const ticket = randomId();
+      browserHandoffs.set(ticket, {
+        expiresAt: Math.min(
+          Date.now() + BROWSER_HANDOFF_TTL_MS,
+          Number(session.exp || 0) * 1000,
+        ),
+        returnTo,
+        sessionToken,
+      });
+      sendJson(res, 201, {
+        handoffUrl: `/auth/browser-handoff?ticket=${encodeURIComponent(ticket)}`,
+        expiresIn: Math.floor(BROWSER_HANDOFF_TTL_MS / 1000),
+      });
+      return true;
+    }
+
+    if (req.method === "GET") {
+      const ticket = String(url.searchParams.get("ticket") || "");
+      const pending = browserHandoffs.get(ticket);
+      // Delete before validating or redirecting so every ticket is single-use,
+      // including failed/expired attempts.
+      browserHandoffs.delete(ticket);
+      pruneBrowserHandoffs();
+      const session = pending
+        ? verifySignedToken(pending.sessionToken, "session")
+        : null;
+      if (!pending || pending.expiresAt < Date.now() || !session) {
+        sendJson(res, 410, { error: "Browser handoff expired or already used" });
+        return true;
+      }
+      const remainingSeconds = Math.max(
+        1,
+        Number(session.exp || 0) - Math.floor(Date.now() / 1000),
+      );
+      setSessionTokenCookie(req, res, pending.sessionToken, remainingSeconds);
+      res.setHeader("pragma", "no-cache");
+      res.setHeader("referrer-policy", "no-referrer");
+      res.setHeader("x-robots-tag", "noindex, nofollow");
+      sendRedirect(res, pending.returnTo);
+      return true;
+    }
+
+    sendJson(res, 405, { error: "Method not allowed" });
+    return true;
+  }
+
   if (req.method === "GET" && url.pathname === "/auth/me") {
     const user = authenticateBrowser(req);
     if (!user) {
@@ -3861,6 +3939,28 @@ function safeReturnPath(value) {
   return pathValue;
 }
 
+function safeBrowserHandoffPath(value) {
+  const raw = String(value || "");
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "";
+  let target;
+  try {
+    target = new URL(raw, "http://browser-handoff.local");
+  } catch {
+    return "";
+  }
+  const allowedPaths = new Set([
+    "/pin",
+    "/api/pin",
+    "/api/file-view",
+    "/api/file-page",
+    "/api/file-raw",
+  ]);
+  if (target.origin !== "http://browser-handoff.local" || !allowedPaths.has(target.pathname)) {
+    return "";
+  }
+  return `${target.pathname}${target.search}${target.hash}`;
+}
+
 function pruneAuthState() {
   const cutoff = Date.now() - 10 * 60 * 1000;
   for (const [state, pending] of oauthStates) {
@@ -3872,6 +3972,13 @@ function pruneDeviceSessions() {
   const now = Date.now();
   for (const [id, pending] of deviceSessions) {
     if (pending.expiresAt < now) deviceSessions.delete(id);
+  }
+}
+
+function pruneBrowserHandoffs() {
+  const now = Date.now();
+  for (const [ticket, pending] of browserHandoffs) {
+    if (!pending || pending.expiresAt < now) browserHandoffs.delete(ticket);
   }
 }
 

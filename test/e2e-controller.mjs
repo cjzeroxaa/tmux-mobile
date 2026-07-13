@@ -469,6 +469,90 @@ try {
     status: 401,
   });
 
+  await requestJson(baseUrl, "/auth/browser-handoff", {
+    method: "POST",
+    body: { returnTo: "/pin?token=missing" },
+    status: 401,
+  });
+  await requestJson(baseUrl, "/auth/browser-handoff", {
+    method: "POST",
+    cookie: aliceCookie,
+    body: { returnTo: "/pin?token=missing" },
+    status: 401,
+  });
+  await requestJson(baseUrl, "/auth/browser-handoff", {
+    method: "POST",
+    bearer: terminalLogin.token,
+    body: { returnTo: "/pin?token=missing" },
+    status: 401,
+  });
+  await requestJson(baseUrl, "/auth/browser-handoff", {
+    method: "POST",
+    bearer: terminalLogin.sessionToken,
+    body: { returnTo: "https://evil.example/pin" },
+    status: 400,
+  });
+  await requestJson(baseUrl, "/auth/browser-handoff", {
+    method: "POST",
+    bearer: terminalLogin.sessionToken,
+    body: { returnTo: "//evil.example/pin" },
+    status: 400,
+  });
+  await requestJson(baseUrl, "/auth/browser-handoff", {
+    method: "POST",
+    bearer: terminalLogin.sessionToken,
+    body: { returnTo: "/\\evil.example/pin" },
+    status: 400,
+  });
+  await requestJson(baseUrl, "/auth/browser-handoff", {
+    method: "POST",
+    bearer: terminalLogin.sessionToken,
+    body: { returnTo: "/not-a-viewer" },
+    status: 400,
+  });
+  const browserHandoff = await requestJson(baseUrl, "/auth/browser-handoff", {
+    method: "POST",
+    bearer: terminalLogin.sessionToken,
+    body: { returnTo: "/pin?token=missing" },
+    status: 201,
+  });
+  assert.match(browserHandoff.handoffUrl, /^\/auth\/browser-handoff\?ticket=/);
+  assert.equal(browserHandoff.expiresIn, 60);
+  const browserHandoffResponse = await fetch(`${baseUrl}${browserHandoff.handoffUrl}`, {
+    redirect: "manual",
+  });
+  assert.equal(browserHandoffResponse.status, 302);
+  assert.equal(browserHandoffResponse.headers.get("location"), "/pin?token=missing");
+  assert.equal(browserHandoffResponse.headers.get("referrer-policy"), "no-referrer");
+  const handoffCookieHeader = browserHandoffResponse.headers.get("set-cookie") || "";
+  const handoffCookie = handoffCookieHeader.split(";", 1)[0];
+  assert.equal(
+    handoffCookie,
+    `tmux_mobile_session=${terminalLogin.sessionToken}`,
+    "browser handoff transfers the exact session without exposing it in the URL",
+  );
+  assert.match(handoffCookieHeader, /HttpOnly/i);
+  assert.match(handoffCookieHeader, /SameSite=Lax/i);
+  assert.match(handoffCookieHeader, /Path=\//i);
+  assert.match(handoffCookieHeader, /Max-Age=\d+/i);
+  const handoffRuntime = await requestJson(baseUrl, "/api/runtime", {
+    cookie: handoffCookie,
+  });
+  assert.equal(handoffRuntime.mode, "hub", "handoff cookie authenticates browser APIs");
+  const authorizedMissingPin = await fetch(`${baseUrl}/pin?token=missing`, {
+    headers: { cookie: handoffCookie },
+    redirect: "manual",
+  });
+  assert.equal(authorizedMissingPin.status, 404, "handoff cookie passes the browser auth gate");
+  const replayedBrowserHandoff = await fetch(`${baseUrl}${browserHandoff.handoffUrl}`, {
+    redirect: "manual",
+  });
+  assert.equal(replayedBrowserHandoff.status, 410, "browser handoff ticket is single-use");
+  const unknownBrowserHandoff = await fetch(`${baseUrl}/auth/browser-handoff?ticket=unknown`, {
+    redirect: "manual",
+  });
+  assert.equal(unknownBrowserHandoff.status, 410, "unknown handoff tickets are indistinguishable");
+
   const aliceOne = `alice-one-${process.pid}`;
   const aliceTwo = `alice-two-${process.pid}`;
   const bobOne = `bob-one-${process.pid}`;
