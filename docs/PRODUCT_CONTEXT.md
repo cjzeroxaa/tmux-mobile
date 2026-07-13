@@ -219,11 +219,6 @@ Behavior:
 
 - auto-refreshes every **3s**,
 - auto-scrolls to bottom after sends and refreshes,
-- fullscreen becomes a focused two-region surface: terminal output fills the
-  viewport above a bottom composer; the topbar, snapshot toolbar, snippets, and
-  secondary composer controls disappear. Text remains staged in the visible
-  composer, terminal keys stay available from **Keys**, and fullscreen exits
-  from the composer control or desktop Escape,
 - respects active text selection so copying is not broken by refresh,
 - unpins when the user scrolls up,
 - shows a stale indicator when refresh fails,

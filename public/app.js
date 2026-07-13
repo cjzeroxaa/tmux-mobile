@@ -542,7 +542,8 @@ const els = {
   agentTranscriptBody: document.querySelector("#agentTranscriptBody"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
-  exitSnapshotFullscreen: document.querySelector("#exitSnapshotFullscreen"),
+  fullscreenRead: document.querySelector("#fullscreenRead"),
+  paneInput: document.querySelector("#paneInput"),
   renameWindow: document.querySelector("#renameWindow"),
   answerQuestion: document.querySelector("#answerQuestion"),
   askSheet: document.querySelector("#askSheet"),
@@ -2597,14 +2598,19 @@ function setSpeakWindowBusy(busy) {
   );
   els.speakWindow.classList.toggle("reading", busy);
   els.speakWindow.classList.toggle("stopping", stopping);
+  els.fullscreenRead.textContent = busy ? "Stop" : "Read";
+  els.fullscreenRead.classList.toggle("reading", busy);
+  els.fullscreenRead.classList.toggle("stopping", stopping);
 }
 
-// Read is only meaningful on Codex or Claude panes, where there's a structured
-// transcript to lift the last response out of. While reading is in progress
-// (`state.audio.busy`) the button MUST stay enabled so the user can hit Stop.
+// Both Read buttons (toolbar + composer) are only meaningful on Codex or
+// Claude panes — where there's a structured transcript to lift the last
+// response out of. While reading is in progress (`state.audio.busy`) the
+// buttons MUST stay enabled so the user can hit Stop.
 function renderReadButtonsEnabled() {
   const allowed = state.audio.busy || Boolean(state.currentAgentKind);
   els.speakWindow.disabled = !allowed;
+  els.fullscreenRead.disabled = !allowed;
 }
 
 // Detect the running agent (if any) in the current pane and stash it on
@@ -3030,16 +3036,42 @@ function setSnapshotFullscreen(enabled) {
   state.snapshotFullscreen = enabled;
   document.body.classList.toggle("snapshot-fullscreen", enabled);
   els.fullscreenSnapshot.setAttribute("aria-pressed", String(enabled));
-  els.textInput.dataset.placeholder = enabled
-    ? "Message…"
-    : "Message, dictate, or tap a snippet…";
   scrollSnapshotToBottom();
-  window.setTimeout(() => {
-    const target = enabled
-      ? els.exitSnapshotFullscreen
-      : els.fullscreenSnapshot;
-    target.focus({ preventScroll: true });
-  }, 0);
+  if (enabled && isWideViewport()) {
+    focusPaneInput();
+  } else {
+    els.paneInput.blur();
+  }
+}
+
+function isWideViewport() {
+  return window.matchMedia && window.matchMedia("(min-width: 600px)").matches;
+}
+
+function focusPaneInput() {
+  els.paneInput.value = "";
+  els.paneInput.focus({ preventScroll: true });
+}
+
+const paneKeyMap = {
+  ArrowUp: "Up",
+  ArrowDown: "Down",
+  ArrowLeft: "Left",
+  ArrowRight: "Right",
+  Enter: "Enter",
+  Backspace: "BSpace",
+  Tab: "Tab",
+  Escape: "Escape",
+};
+
+function mapPaneKey(event) {
+  if (event.ctrlKey && !event.altKey && !event.metaKey) {
+    const k = event.key.toLowerCase();
+    if (k === "c") return "C-c";
+    if (k === "d") return "C-d";
+    if (k === "z") return "C-z";
+  }
+  return paneKeyMap[event.key] || null;
 }
 
 let paneSnapshotRefreshTimer = null;
@@ -3049,6 +3081,24 @@ function schedulePaneSnapshotRefresh() {
     paneSnapshotRefreshTimer = null;
     refreshSnapshot(true);
   }, 200);
+}
+
+async function sendPaneText(text) {
+  if (!state.paneId || !text) return;
+  await api("/api/send", {
+    method: "POST",
+    body: JSON.stringify({ paneId: state.paneId, text, enter: false }),
+  });
+  schedulePaneSnapshotRefresh();
+}
+
+async function sendPaneKey(key) {
+  if (!state.paneId) return;
+  await api("/api/key", {
+    method: "POST",
+    body: JSON.stringify({ paneId: state.paneId, key }),
+  });
+  schedulePaneSnapshotRefresh();
 }
 
 // How long to keep the current window on screen and retry before giving up and
@@ -5103,8 +5153,6 @@ document.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && els.directKeysMenu && !els.directKeysMenu.hidden) {
     setDirectKeysOpen(false);
-    event.preventDefault();
-    event.stopImmediatePropagation();
   }
 });
 
@@ -5220,9 +5268,6 @@ document.addEventListener("keydown", (event) => {
 els.refreshSnapshot.addEventListener("click", () => refreshSnapshot());
 els.fullscreenSnapshot.addEventListener("click", () => {
   setSnapshotFullscreen(!state.snapshotFullscreen);
-});
-els.exitSnapshotFullscreen.addEventListener("click", () => {
-  setSnapshotFullscreen(false);
 });
 
 // Smart content viewer: fetch a pane-referenced file and show it inline. The
@@ -5458,6 +5503,7 @@ els.snapshot.addEventListener("click", (event) => {
     openFileViewer(filePath);
     return;
   }
+  if (state.snapshotFullscreen && isWideViewport()) focusPaneInput();
 });
 
 // When a deferred snapshot update is pending (held back because the user was
@@ -5488,6 +5534,33 @@ els.snapshot.addEventListener("contextmenu", (event) => {
   if (!filePath) return;
   event.preventDefault();
   pinArtifact(filePath);
+});
+
+els.paneInput.addEventListener("beforeinput", (event) => {
+  if (!state.snapshotFullscreen) return;
+  if (event.inputType === "insertText" && event.data) {
+    event.preventDefault();
+    sendPaneText(event.data).catch(() => {});
+  } else if (event.inputType === "insertLineBreak") {
+    event.preventDefault();
+    sendPaneKey("Enter").catch(() => {});
+  } else if (event.inputType === "deleteContentBackward") {
+    event.preventDefault();
+    sendPaneKey("BSpace").catch(() => {});
+  }
+});
+
+els.paneInput.addEventListener("keydown", (event) => {
+  if (!state.snapshotFullscreen) return;
+  const key = mapPaneKey(event);
+  if (!key) return;
+  event.preventDefault();
+  event.stopPropagation();
+  sendPaneKey(key).catch(() => {});
+});
+
+els.paneInput.addEventListener("input", () => {
+  els.paneInput.value = "";
 });
 
 els.snapshot.addEventListener(
@@ -5812,6 +5885,8 @@ els.directoryList.addEventListener("click", async (event) => {
     addChat("system", error.message, "directory error");
   }
 });
+els.fullscreenRead.addEventListener("click", () => els.speakWindow.click());
+
 els.speakWindow.addEventListener("click", async () => {
   if (state.audio.busy) {
     stopWindowSummary();
@@ -5826,7 +5901,6 @@ els.speakWindow.addEventListener("click", async () => {
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && state.snapshotFullscreen) {
-    event.preventDefault();
     setSnapshotFullscreen(false);
     return;
   }
