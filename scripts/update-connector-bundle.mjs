@@ -24,6 +24,10 @@ const logPath =
   process.env.TMUX_MOBILE_UPDATE_LOG || path.join(os.tmpdir(), "tmux-mobile-connector-update.log");
 const bundleUrl = `${controllerUrl}/connector/tmux-mobile-connector.mjs`;
 const manifestUrl = `${controllerUrl}/connector/tmux-mobile-connector.json`;
+const launchdLabel =
+  process.env.TMUX_MOBILE_UPDATE_LAUNCHD_LABEL || "com.tmux-mobile.agent";
+const systemdUnit =
+  process.env.TMUX_MOBILE_UPDATE_SYSTEMD_UNIT || "tmux-mobile-agent.service";
 const savedEnv = readEnvFile(envFile);
 const agentMachine =
   process.env.TMUX_MOBILE_UPDATE_AGENT_MACHINE || savedEnv.AGENT_MACHINE || "";
@@ -78,6 +82,9 @@ async function main() {
 }
 
 async function restartConnector(installedRevision = "") {
+  if (await restartLaunchdConnector()) return;
+  if (restartSystemdConnector()) return;
+
   const oldPids = connectorPids();
   const logFile = path.join(installDir, "connector.log");
   const fd = openSync(logFile, "a");
@@ -97,6 +104,126 @@ async function restartConnector(installedRevision = "") {
   closeSync(fd);
   await stopOldConnectorPids(oldPids, { exclude: [child.pid] });
   log(`started connector pid=${child.pid} machine=${agentMachine || "(hostname)"} log=${logFile}`);
+}
+
+async function restartLaunchdConnector() {
+  if (process.platform !== "darwin" || typeof process.getuid !== "function") return false;
+  const domain = `gui/${process.getuid()}`;
+  const target = `${domain}/${launchdLabel}`;
+  const printed = run("launchctl", ["print", target], { check: false });
+  const plistPath =
+    parseLaunchdPlistPath(printed.stdout) ||
+    path.join(os.homedir(), "Library", "LaunchAgents", `${launchdLabel}.plist`);
+  if (!existsSync(plistPath)) return false;
+
+  configureLaunchdPlist(plistPath);
+  log(`restart=launchd target=${target} plist=${plistPath}`);
+  let stopped = run("launchctl", ["bootout", domain, plistPath], { check: false });
+  if (stopped.status !== 0) {
+    stopped = run("launchctl", ["bootout", target], { check: false });
+  }
+
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
+    const bootstrap = run("launchctl", ["bootstrap", domain, plistPath], {
+      check: false,
+    });
+    if (bootstrap.status === 0) {
+      run("launchctl", ["kickstart", "-k", target], { check: false });
+      log(`started connector through launchd target=${target}`);
+      return true;
+    }
+    if (attempt < 8) await sleep(250);
+  }
+  throw new Error(`could not restart launchd connector ${target}`);
+}
+
+function configureLaunchdPlist(plistPath) {
+  const plistBuddy = "/usr/libexec/PlistBuddy";
+  const logFile = path.join(installDir, "connector.log");
+  run(plistBuddy, ["-c", "Delete :ProgramArguments", plistPath], { check: false });
+  run(plistBuddy, ["-c", "Add :ProgramArguments array", plistPath]);
+  for (const [index, value] of [
+    process.execPath,
+    bundlePath,
+    "--register",
+    controllerUrl,
+  ].entries()) {
+    run(plistBuddy, ["-c", `Add :ProgramArguments:${index} string ${value}`, plistPath]);
+  }
+  setPlistString(plistBuddy, plistPath, "WorkingDirectory", installDir);
+  setPlistString(plistBuddy, plistPath, "StandardOutPath", logFile);
+  setPlistString(plistBuddy, plistPath, "StandardErrorPath", logFile);
+
+  const environmentExists = run(
+    plistBuddy,
+    ["-c", "Print :EnvironmentVariables", plistPath],
+    { check: false },
+  );
+  if (environmentExists.status !== 0) {
+    run(plistBuddy, ["-c", "Add :EnvironmentVariables dict", plistPath]);
+  }
+  for (const [key, value] of Object.entries({
+    AGENT_MACHINE: agentMachine,
+    TMUX_MOBILE_MUX: targetMux,
+    TMUX_MOBILE_MUXES: targetMuxes,
+  })) {
+    if (value) setPlistString(plistBuddy, plistPath, `EnvironmentVariables:${key}`, value);
+  }
+  run("plutil", ["-lint", plistPath]);
+}
+
+function setPlistString(plistBuddy, plistPath, key, value) {
+  const set = run(plistBuddy, ["-c", `Set :${key} ${value}`, plistPath], {
+    check: false,
+  });
+  if (set.status !== 0) {
+    run(plistBuddy, ["-c", `Add :${key} string ${value}`, plistPath]);
+  }
+}
+
+function parseLaunchdPlistPath(text) {
+  return String(text || "").match(/^\s*path = (.+\.plist)\s*$/m)?.[1]?.trim() || "";
+}
+
+function restartSystemdConnector() {
+  if (process.platform !== "linux") return false;
+  const loaded = run(
+    "systemctl",
+    ["--user", "show", systemdUnit, "--property=LoadState", "--value"],
+    { check: false },
+  );
+  if (loaded.status !== 0 || loaded.stdout.trim() !== "loaded") return false;
+
+  const dropInDir = path.join(
+    os.homedir(),
+    ".config",
+    "systemd",
+    "user",
+    `${systemdUnit}.d`,
+  );
+  mkdirSync(dropInDir, { recursive: true });
+  const environment = [
+    agentMachine ? `Environment=AGENT_MACHINE=${systemdQuote(agentMachine)}` : "",
+    targetMux ? `Environment=TMUX_MOBILE_MUX=${systemdQuote(targetMux)}` : "",
+    targetMuxes ? `Environment=TMUX_MOBILE_MUXES=${systemdQuote(targetMuxes)}` : "",
+  ].filter(Boolean);
+  const override = [
+    "[Service]",
+    "ExecStart=",
+    `ExecStart=${systemdQuote(process.execPath)} ${systemdQuote(bundlePath)} --register ${systemdQuote(controllerUrl)}`,
+    `WorkingDirectory=${systemdQuote(installDir)}`,
+    ...environment,
+    "",
+  ].join("\n");
+  writeFileSync(path.join(dropInDir, "tmux-mobile-bundle.conf"), override);
+  run("systemctl", ["--user", "daemon-reload"]);
+  run("systemctl", ["--user", "restart", systemdUnit]);
+  log(`started connector through systemd unit=${systemdUnit}`);
+  return true;
+}
+
+function systemdQuote(value) {
+  return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%")}"`;
 }
 
 async function stopOldConnectorPids(oldPids, { exclude = [] } = {}) {

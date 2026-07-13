@@ -37,8 +37,8 @@ Two principles drive the UI:
 
 ### Runtime Models
 
-- **Local mode:** `node server.mjs` controls local tmux directly and is usually
-  reached over Tailscale.
+- **Local mode:** `node server.mjs` is retained only for isolated development
+  and tests; it is not a deployed access path.
 - **Controller mode:** a hosted controller serves the same UI and brokers commands
   to lightweight agents connected from each dev machine.
 

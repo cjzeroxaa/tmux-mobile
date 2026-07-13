@@ -2,41 +2,25 @@
 
 A mobile browser UI for selecting tmux sessions and windows, then reading snapshots or sending voice commands without a terminal emulator.
 
-It runs in two modes that share the exact same browser UI: **local mode**
-(controls this machine's tmux directly, the original behavior) and **controller
-mode** (a Cloud Run service serves the UI and brokers commands to a lightweight
-agent running on this machine). See [Cloud Run controller](#cloud-run-controller).
+The canonical runtime is the hosted Controller at `https://eng.impo.ai`.
+Browsers connect to that HTTPS endpoint; every machine runs an outbound
+Connector that brokers tmux/rmux commands. A local server mode remains in the
+codebase for isolated development and tests, but it is not the deployed access
+path and should not be published through Tailscale.
 
-## Run (local mode)
+## Use the hosted Controller
 
-```bash
-cd tmux-chat-web
-npm start
-```
+Open `https://eng.impo.ai`. To attach another machine, follow
+[docs/join-network.md](docs/join-network.md); the machine needs no inbound web
+server or tailnet route.
 
-Open http://127.0.0.1:3737. This serves the UI and controls this machine's
-tmux directly — nothing about the single-machine app changed.
-
-## Network access
-
-The local server binds to `127.0.0.1` by default because it controls local tmux
-panes. For the existing Tailscale setup, keep the app local and publish it
-through Tailscale Serve:
-
-```bash
-tailscale serve --bg 3737
-```
-
-Only devices that are signed in to the same tailnet should be able to reach that
-Tailscale HTTPS URL.
-
-## Cloud Run controller
+## Hosted controller
 
 > **Want to join an already-running controller (e.g. https://eng.impo.ai)?**
 > Skip everything below — see [docs/join-network.md](docs/join-network.md)
 > for the one-command device-login flow.
 
-Controller mode removes the Tailscale requirement for browser access. The same
+Hosted mode removes the Tailscale requirement for browser access. The same
 A short screen recording of the core flow (window switching, snippet send, PR
 links, the smart content viewer rendering a Mermaid diagram) is at
 [`docs/demo.mp4`](docs/demo.mp4). A captioned walkthrough focused on the
@@ -45,8 +29,8 @@ AskUserQuestion answer flow, quick snippets, and the notification sound is at
 
 `server.mjs` runs in three roles, chosen by flags:
 
-- local: `npm start`, the original single-machine app.
-- controller: `node server.mjs --controller`, a public Cloud Run service that
+- local: `npm start`, a development/test-only single-machine mode.
+- controller: `node server.mjs --controller`, the hosted service that
   serves the UI, calls OpenAI, and brokers tmux commands.
 - agent: `node server.mjs --register <controller-url>`, the local process that
   opens an outbound WebSocket to the controller and executes tmux-compatible
@@ -192,12 +176,11 @@ web app. It does not talk directly to agent WebSockets.
 
 ```bash
 npm run terminal
-npm run terminal -- http://127.0.0.1:3737
 npm run terminal -- https://YOUR-CLOUD-RUN-URL
 ```
 
-By default this connects to `https://eng.impo.ai`; pass a URL to point it at a
-local server or another controller. In controller mode it starts the same Google
+By default this connects to `https://eng.impo.ai`; pass a URL to point it at
+another controller. In controller mode it starts the same Google
 device-login flow as connector registration, but stores a separate
 browser-session bearer token at `~/.config/tmux-mobile/terminal.json`. Machine
 visibility is the same as the web app: super-admins see every machine,
@@ -557,7 +540,7 @@ linked backward from its manifest.
 
 ## Voice transcription
 
-Voice mode uses the OpenAI transcription API from the local server. Set an API key before starting the server:
+Voice mode uses the OpenAI transcription API from the hosted Controller. Set an API key before starting the Controller:
 
 ```bash
 export OPENAI_API_KEY=...
@@ -636,4 +619,5 @@ OPENAI_REALTIME_WINDOW_BRIEFING_CHUNK_CHARS=1200
 The legacy non-streaming endpoint can still be configured with
 `OPENAI_WINDOW_BRIEFING_MODEL`, `OPENAI_SPEECH_MODEL`, and `OPENAI_SPEECH_VOICE`.
 
-The server binds to `127.0.0.1` by default because it can control local shells.
+The development-only local mode binds to loopback; deployed users and
+Connectors use the hosted HTTPS Controller.

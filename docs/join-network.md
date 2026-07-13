@@ -12,7 +12,7 @@ browser -> eng.impo.ai controller -> outbound WebSocket -> connector -> tmux/rmu
 
 Running `tmux` by itself is not enough. The machine only appears after the
 connector logs in and opens its outbound WebSocket. The connector does not need
-an inbound port, Tailscale, or a local `3737` server.
+an inbound port, Tailscale, or a local web server.
 
 Command Center has two different concepts:
 
