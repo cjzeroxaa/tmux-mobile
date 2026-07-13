@@ -67,6 +67,7 @@ import {
   createArtifactStorage,
   createLocalArtifactStorage,
 } from "./lib/artifact-storage.mjs";
+import { createTranscriptArchive } from "./lib/transcript-archive.mjs";
 import {
   createPin,
   deletePin,
@@ -4924,6 +4925,104 @@ try {
   ARTIFACT_STORAGE = createLocalArtifactStorage();
 }
 
+// Raw Claude/Codex transcript replication is an opt-in controller capability.
+// Keep its storage configuration separate from pinned artifacts: transcript
+// retention and IAM are intentionally stricter, and silently falling back to
+// ephemeral Fargate disk would violate the archive ACK contract. When disabled
+// (the default), the controller advertises no capability and connectors do no
+// transcript I/O.
+let TRANSCRIPT_ARCHIVE = null;
+let TRANSCRIPT_ARCHIVE_MACHINE_ALLOWLIST = new Set();
+let TRANSCRIPT_ARCHIVE_OWNER_ALLOWLIST = new Set();
+if (
+  MODE.kind === "controller" &&
+  process.env.TMUX_MOBILE_TRANSCRIPT_ARCHIVE_ENABLED === "1"
+) {
+  try {
+    TRANSCRIPT_ARCHIVE_MACHINE_ALLOWLIST = new Set(
+      splitCsv(process.env.TMUX_MOBILE_TRANSCRIPT_ARCHIVE_MACHINE_ALLOWLIST),
+    );
+    TRANSCRIPT_ARCHIVE_OWNER_ALLOWLIST = new Set(
+      splitCsv(process.env.TMUX_MOBILE_TRANSCRIPT_ARCHIVE_OWNER_ALLOWLIST),
+    );
+    if (TRANSCRIPT_ARCHIVE_MACHINE_ALLOWLIST.size === 0) {
+      throw new Error(
+        "TMUX_MOBILE_TRANSCRIPT_ARCHIVE_MACHINE_ALLOWLIST must name at least one canary machine",
+      );
+    }
+    const transcriptStorageKind = String(
+      process.env.TMUX_MOBILE_TRANSCRIPT_STORAGE || "",
+    ).toLowerCase();
+    if (!new Set(["local", "s3", "gcs"]).has(transcriptStorageKind)) {
+      throw new Error(
+        "TMUX_MOBILE_TRANSCRIPT_STORAGE must be local, s3, or gcs when transcript archive is enabled",
+      );
+    }
+    if (
+      transcriptStorageKind === "local" &&
+      process.env.TMUX_MOBILE_TRANSCRIPT_ALLOW_EPHEMERAL_LOCAL !== "1"
+    ) {
+      throw new Error(
+        "local transcript storage requires TMUX_MOBILE_TRANSCRIPT_ALLOW_EPHEMERAL_LOCAL=1; use s3/gcs for durable controller ACKs",
+      );
+    }
+    const transcriptStorage = await createArtifactStorage({
+      ...process.env,
+      TMUX_MOBILE_ARTIFACT_STORAGE: transcriptStorageKind,
+      TMUX_MOBILE_ARTIFACT_DIR:
+        process.env.TMUX_MOBILE_TRANSCRIPT_DIR ||
+        path.join(os.homedir(), ".local", "share", "tmux-mobile", "transcripts"),
+      TMUX_MOBILE_S3_BUCKET:
+        process.env.TMUX_MOBILE_TRANSCRIPT_S3_BUCKET,
+      TMUX_MOBILE_S3_REGION:
+        process.env.TMUX_MOBILE_TRANSCRIPT_S3_REGION || process.env.TMUX_MOBILE_S3_REGION,
+      TMUX_MOBILE_S3_ENDPOINT:
+        process.env.TMUX_MOBILE_TRANSCRIPT_S3_ENDPOINT || process.env.TMUX_MOBILE_S3_ENDPOINT,
+      TMUX_MOBILE_S3_KEY_PREFIX:
+        process.env.TMUX_MOBILE_TRANSCRIPT_S3_KEY_PREFIX || "transcripts/",
+      TMUX_MOBILE_GCS_BUCKET:
+        process.env.TMUX_MOBILE_TRANSCRIPT_GCS_BUCKET,
+      TMUX_MOBILE_GCS_KEY_PREFIX:
+        process.env.TMUX_MOBILE_TRANSCRIPT_GCS_KEY_PREFIX || "transcripts/",
+    });
+    // Driver construction does not contact the bucket. Probe write/read before
+    // advertising the capability so bad IAM, credentials, or bucket names fail
+    // closed instead of putting every canary connector into a retry loop.
+    const probeKey = `_health/startup-${process.pid}-${randomBytes(8).toString("hex")}.txt`;
+    const probeBytes = Buffer.from(`tmux-mobile transcript probe ${Date.now()}\n`);
+    let probeWritten = false;
+    try {
+      await transcriptStorage.put(probeKey, probeBytes, {
+        contentType: "text/plain; charset=utf-8",
+      });
+      probeWritten = true;
+      const storedProbe = await transcriptStorage.get(probeKey);
+      if (!storedProbe?.bytes || !storedProbe.bytes.equals(probeBytes)) {
+        throw new Error("transcript storage startup probe read did not match its write");
+      }
+    } finally {
+      if (probeWritten && typeof transcriptStorage.delete === "function") {
+        try {
+          await transcriptStorage.delete(probeKey);
+        } catch (cleanupError) {
+          console.error(
+            `Transcript storage probe cleanup failed (${cleanupError.message || cleanupError}).`,
+          );
+        }
+      }
+    }
+    TRANSCRIPT_ARCHIVE = createTranscriptArchive({
+      storage: transcriptStorage,
+      logEvent: logServerEvent,
+    });
+    logServerEvent("transcript_archive_ready", {
+      storage: transcriptStorage.kind,
+    });
+  } catch (error) {
+    console.error(`Transcript archive init failed (${error.message}); archive is disabled.`);
+  }
+}
+
 // The pin INDEX (mutable metadata records) is a separate concern from the bytes:
 // it lives in a pluggable PinIndex backend chosen by TMUX_MOBILE_PIN_INDEX —
 // memory (default, zero infra) | file (local JSON) | firestore (durable,
@@ -5504,6 +5603,37 @@ if (MODE.kind === "register") {
       requiredConnectorVersion: CONNECTOR_VERSION,
       machineAliases: MACHINE_ALIASES,
       machineAccessAllowlist: MACHINE_ACCESS_ALLOWLIST,
+      transcriptRootDiscovery:
+        process.env.TMUX_MOBILE_TRANSCRIPT_ARCHIVE_ROOT_DISCOVERY === "1",
+      transcriptArchiveEnabledForMachine: TRANSCRIPT_ARCHIVE
+        ? ({ owner, machine }) => {
+            const machineKeys = [
+              machine.agentId,
+              machine.machineId,
+              machine.canonicalMachineId,
+            ]
+              .map((value) => String(value || "").trim().toLowerCase())
+              .filter(Boolean);
+            const machineAllowed = machineKeys.some((value) =>
+              TRANSCRIPT_ARCHIVE_MACHINE_ALLOWLIST.has(value),
+            );
+            if (!machineAllowed) return false;
+            if (TRANSCRIPT_ARCHIVE_OWNER_ALLOWLIST.size === 0) return true;
+            return [owner.userId, owner.email]
+              .map((value) => String(value || "").trim().toLowerCase())
+              .filter(Boolean)
+              .some((value) => TRANSCRIPT_ARCHIVE_OWNER_ALLOWLIST.has(value));
+          }
+        : null,
+      onTranscriptChunk: TRANSCRIPT_ARCHIVE
+        ? ({ owner, machine, chunk }) =>
+            TRANSCRIPT_ARCHIVE.commitChunk({
+              ownerId: owner.userId || owner.email,
+              machineId: machine.machineId,
+              agentId: machine.agentId,
+              chunk,
+            })
+        : null,
     });
   }
   stopAgentRoundWatcher = startAgentRoundNtfyWatcher({ hub });

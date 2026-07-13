@@ -508,6 +508,53 @@ recent history all populate the box; you review, then **Send** it to the pane.
 For Claude Code / Codex phone notification hooks, see
 [`docs/agent-notification-hooks.md`](docs/agent-notification-hooks.md).
 
+## Session transcript archive (experimental)
+
+The hook-free raw transcript replication and central event-decoding rules are
+documented in
+[`docs/session-transcript-archive.md`](docs/session-transcript-archive.md).
+The capability is off by default. A controller can enable the first archive
+slice with a separate private object-store prefix:
+
+```bash
+TMUX_MOBILE_TRANSCRIPT_ARCHIVE_ENABLED=1
+TMUX_MOBILE_TRANSCRIPT_ARCHIVE_MACHINE_ALLOWLIST=connector-agent-uuid
+# Optional second fence (comma-separated authenticated owner IDs/emails):
+TMUX_MOBILE_TRANSCRIPT_ARCHIVE_OWNER_ALLOWLIST=owner@example.com
+# Optional canary backfill of closed/non-active UUID-named transcript files:
+TMUX_MOBILE_TRANSCRIPT_ARCHIVE_ROOT_DISCOVERY=1
+TMUX_MOBILE_TRANSCRIPT_STORAGE=s3
+TMUX_MOBILE_TRANSCRIPT_S3_BUCKET=your-private-bucket
+TMUX_MOBILE_TRANSCRIPT_S3_REGION=us-east-1
+TMUX_MOBILE_TRANSCRIPT_S3_KEY_PREFIX=transcripts/
+```
+
+`gcs` is also supported. `local` requires the explicit development-only
+`TMUX_MOBILE_TRANSCRIPT_ALLOW_EPHEMERAL_LOCAL=1`; it must not back durable ACKs
+on an ephemeral controller. Startup probes object-store write/read access, and
+only allowlisted machines receive the capability after their authenticated
+HELLO identity is known. Updated connectors always discover active Claude/Codex
+session JSONL from their normal inventory. The separately gated root scanner
+recursively discovers UUID-named regular `.jsonl` files under the two
+allowlisted agent roots without following symlinks or parsing vendor JSON; this
+is how a canary can backfill closed/non-active sessions. Connectors upload
+newline-aligned chunks, persist pending bytes locally until a durable ACK, and
+never install a local Stop hook.
+
+Closed-session work is limited to eight sources per 10-second connector sync;
+`TMUX_MOBILE_TRANSCRIPT_BACKFILL_SESSIONS_PER_SYNC` can override that value in
+the connector's local environment.
+
+This first slice is raw-archive plumbing only. The checked-in decoder is a pure
+shadow/test state machine; it is not wired to archive commits, a durable index,
+an outbox, SQS, or Event Radio. Keep the feature off except for an explicit
+one-machine raw-archive canary whose production bucket/IAM has been verified.
+S3 ETag/GCS generation preconditions protect manifest writes across overlapping
+controller tasks. Do not enable event publication until the historical
+publication fence, durable source catalog, decoder checkpoint, and outbox
+exist. A known epoch is already replayable through immutable range records
+linked backward from its manifest.
+
 ## Voice transcription
 
 Voice mode uses the OpenAI transcription API from the local server. Set an API key before starting the server:

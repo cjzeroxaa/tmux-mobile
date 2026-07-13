@@ -6,6 +6,7 @@ import {
   findClaudeSessionFromBackend,
   findClaudeTranscriptFromSessionFile,
   readClaudeTranscriptFromSession,
+  selectNewestOpenTranscriptPath,
 } from "../lib/backend.mjs";
 
 const tmp = await mkdtemp(path.join(os.tmpdir(), "tmux-mobile-agent-transcript-"));
@@ -123,6 +124,21 @@ try {
   const secondTranscript = await readClaudeTranscriptFromSession(fakeRemoteBackend, secondSession);
   assert.equal(firstTranscript.turns.at(-1).text, "first response");
   assert.equal(secondTranscript.turns.at(-1).text, "second response");
+
+  const oldCodexTranscript = "/Users/test/.codex/sessions/old.jsonl";
+  const newCodexTranscript = "/Users/test/.codex/sessions/new.jsonl";
+  const mixedCodexLsof = [
+    `codex 123 test 40w REG 1,15 100 111 ${oldCodexTranscript}`,
+    `codex 123 test 48w REG 1,15 100 222 ${newCodexTranscript}`,
+  ].join("\n");
+  const newest = await selectNewestOpenTranscriptPath(mixedCodexLsof, "codex", async (filePath) => ({
+    mtimeMs: filePath === newCodexTranscript ? 200 : 100,
+  }));
+  assert.equal(
+    newest,
+    newCodexTranscript,
+    "Codex transcript selection uses the most recently written open rollout, not lsof order",
+  );
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
