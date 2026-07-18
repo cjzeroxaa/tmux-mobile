@@ -9,6 +9,7 @@ import {
   setSnippets as setStoredSnippets,
 } from "./snippets.js";
 import { windowKey, windowStableId, windowDescriptor, windowTitleText, windowHoverDetail, mergeRecent, pruneRecent } from "./window-id.js";
+import { fetchWithTimeout } from "./fetch-timeout.js";
 
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
@@ -641,7 +642,7 @@ const els = {
 };
 
 async function api(path, options = {}) {
-  const { machineId: _machineId, mux, ...requestOptions } = options;
+  const { machineId: _machineId, mux, timeoutMs, ...requestOptions } = options;
   const headers = { ...(requestOptions.headers || {}) };
   const hasBody = requestOptions.body !== undefined && requestOptions.body !== null;
   const isRawBody =
@@ -657,11 +658,15 @@ async function api(path, options = {}) {
     headers["x-mux"] = requestMux;
   }
 
-  const response = await fetch(path, {
-    cache: "no-store",
-    ...requestOptions,
-    headers,
-  });
+  // Bound the request (see fetch-timeout.js). Callers streaming large bodies
+  // (uploads, audio) pass timeoutMs: 0 to opt out; on the flaky-network hang
+  // this rejects with a `.timedOut` error the caller can surface + retry
+  // instead of the composer wedging forever.
+  const response = await fetchWithTimeout(
+    path,
+    { cache: "no-store", ...requestOptions, headers },
+    { timeoutMs },
+  );
   const json = await response.json();
   if (!response.ok) {
     const error = new Error(json.error || `HTTP ${response.status}`);
@@ -1986,6 +1991,7 @@ async function uploadFiles(fileList) {
         method: "POST",
         headers: { "content-type": file.type || "application/octet-stream" },
         body: file,
+        timeoutMs: 0, // large binary upload — let it run as long as it makes progress
       });
       if (data.path) composerAppendText(data.path);
     }
@@ -2063,8 +2069,17 @@ function clearPendingVoiceAudio() {
   renderVoiceRetry();
 }
 
+// True while a send is in flight. The disabled Send button guards click
+// re-entry, but the Enter keydown / beforeinput handlers call this directly and
+// don't look at the button — so on a slow network a second Enter (or an impatient
+// double-tap that beats the disable) could fire a duplicate send or race the
+// optimistic clear. This flag is the single source of truth for "a send is
+// already running"; every entry point funnels through it.
+let composerSendInFlight = false;
+
 async function submitTextComposer(event, { keepFocus = true } = {}) {
   event?.preventDefault();
+  if (composerSendInFlight) return; // a send is already running — ignore re-entry
   const text = composerGetText();
   if (!text.trim()) {
     composerFocus();
@@ -2077,6 +2092,7 @@ async function submitTextComposer(event, { keepFocus = true } = {}) {
 
   // Clear the box. Enter-to-send keeps focus (you're mid-flow typing); tapping
   // the Send button is an explicit "done" → blur so the virtual keyboard hides.
+  composerSendInFlight = true;
   composerClear();
   if (keepFocus) composerFocus();
   else composerBlur();
@@ -2094,7 +2110,16 @@ async function submitTextComposer(event, { keepFocus = true } = {}) {
     composerSetText(text);
     composerFocus();
     addChat("system", `Send failed: ${error.message}`, "send error");
+    // Surface it server-side too — send failures were previously invisible in
+    // the controller logs (they only showed in the client chat), so a slow-
+    // network "Send did nothing" was undiagnosable after the fact.
+    logClientEvent("send_failed", {
+      status: error.status ?? null,
+      timedOut: Boolean(error.timedOut),
+      message: String(error.message || "").slice(0, 200),
+    });
   } finally {
+    composerSendInFlight = false;
     els.submitText.disabled = false;
   }
 }
@@ -2416,6 +2441,7 @@ async function transcribePendingVoiceRecording() {
       "x-idempotency-key": state.voice.pendingIdempotencyKey || "",
     },
     body: blob,
+    timeoutMs: 0, // audio upload + Whisper round-trip — can legitimately be slow
   });
   const text = String(data.text || "").trim();
   if (!text) {
