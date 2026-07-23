@@ -3678,7 +3678,7 @@ async function loadWindowMetadataOnce() {
 // descriptors, and refresh the "needs you" indicators (pill/title/favicon span
 // all machines). Also keep the active window's seen-hash current so it doesn't
 // flag itself as unread.
-async function loadAttention() {
+async function loadAttentionOnce() {
   try {
     const data = await api("/api/attention");
     const descriptors = [];
@@ -3694,6 +3694,33 @@ async function loadAttention() {
   } catch {
     // transient failure — keep the last known attention
   }
+}
+
+// In-flight guard, same shape as loadWindowMetadata(). /api/attention is the
+// EXPENSIVE endpoint — the controller brokers listPanes+capturePane for every
+// window across every machine to the agent, taking ~5s. It's polled every 5s and
+// also nudged from several event handlers, so on a slow response the next poll's
+// call (and any nudges) would stack up on top of the pending one; against the
+// single maxScale=1 controller instance that saturates containerConcurrency and
+// 429s EVERYTHING (health, the browser, the agent). Coalescing concurrent callers
+// onto one request — with at most one trailing rerun — bounds it to a single
+// sweep at a time. Observed 2026-07-23: an unguarded loadAttention() flapped the
+// whole controller with sustained 429s.
+let attentionLoadInFlight = null;
+let attentionRerunQueued = false;
+function loadAttention() {
+  if (attentionLoadInFlight) {
+    attentionRerunQueued = true;
+    return attentionLoadInFlight;
+  }
+  attentionLoadInFlight = loadAttentionOnce().finally(() => {
+    attentionLoadInFlight = null;
+    if (attentionRerunQueued) {
+      attentionRerunQueued = false;
+      loadAttention();
+    }
+  });
+  return attentionLoadInFlight;
 }
 
 async function pollWindowActivity() {

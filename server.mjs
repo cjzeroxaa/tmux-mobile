@@ -2149,7 +2149,20 @@ async function computeSessionWindowMetadata(sessionId) {
 // contentHash so the client can apply its own unread comparison. Used by the
 // cross-machine /api/attention aggregate. Best-effort: a failing session is
 // skipped rather than failing the whole sweep.
-async function collectMachineAttention() {
+// Short-TTL in-flight-promise cache for the WHOLE cross-machine attention
+// aggregate, mirroring sessionMetadataCache. The per-session metadata sub-cost is
+// already cached, but listSessions+listWindows still run per sweep, and — more to
+// the point — this collapses CONCURRENT /api/attention callers (multiple browser
+// tabs, or a client without an in-flight guard) onto ONE computation. Without it
+// each tab drives its own ~5s cross-machine sweep against the single maxScale=1
+// controller instance, and enough of them saturate containerConcurrency and 429
+// everything (health, browsers, the agent). Keyed by the same backend+mux scope
+// as the metadata cache; TTL well under the 5s client poll so contentHash stays
+// fresh. Observed 2026-07-23: an unguarded client flapped the controller with
+// sustained 429s; this is the server-side backstop for that.
+const attentionAggregateCache = new Map(); // scope -> { at, promise }
+
+async function computeMachineAttention() {
   const muxes = currentRequestMux() ? [currentRequestMux()] : backendMuxKinds();
   const results = await Promise.all(
     muxes.map(async (mux) => {
@@ -2163,6 +2176,27 @@ async function collectMachineAttention() {
     }),
   );
   return results.flat();
+}
+
+async function collectMachineAttention() {
+  const now = Date.now();
+  const scope = currentMetadataScope();
+  const cached = attentionAggregateCache.get(scope);
+  if (cached && now - cached.at < SESSION_METADATA_TTL_MS) return cached.promise;
+  const promise = computeMachineAttention();
+  attentionAggregateCache.set(scope, { at: now, promise });
+  // Drop a rejected entry so the next caller retries instead of caching failure.
+  promise.catch(() => {
+    if (attentionAggregateCache.get(scope)?.promise === promise) {
+      attentionAggregateCache.delete(scope);
+    }
+  });
+  if (attentionAggregateCache.size > 256) {
+    for (const [key, entry] of attentionAggregateCache) {
+      if (now - entry.at >= SESSION_METADATA_TTL_MS) attentionAggregateCache.delete(key);
+    }
+  }
+  return promise;
 }
 
 async function collectMachineAttentionForRuntime(runtime) {
