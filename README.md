@@ -461,7 +461,7 @@ recent history all populate the box; you review, then **Send** it to the pane.
   contenteditable if the CDN fails). Enter sends, Shift+Enter newlines. The
   **mic** dictates into it; **Send** submits.
 - **Tactical snippets** — a horizontal chip row of reusable text (`yes`,
-  `continue`, `/clear`, `/btw `, `claude`, `codex`, `/goal ` by default). Tapping
+  `continue`, `/clear`, `/model`, `/btw `, `claude`, `codex`, `/goal ` by default). Tapping
   a chip **inserts** its text into the box (it doesn't send). The list icon opens
   the **Insert picker** with two sections: **Snippets** (curated; add/edit/reorder/
   delete) and **Recent** (auto-collected from what you've sent). Snippets are a

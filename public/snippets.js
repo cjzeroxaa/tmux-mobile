@@ -2,6 +2,7 @@ export const DEFAULT_SNIPPETS = Object.freeze([
   Object.freeze({ text: "yes" }),
   Object.freeze({ text: "continue" }),
   Object.freeze({ text: "/clear" }),
+  Object.freeze({ text: "/model" }),
   Object.freeze({ text: "/btw " }),
   Object.freeze({ text: "claude" }),
   Object.freeze({ text: "codex" }),

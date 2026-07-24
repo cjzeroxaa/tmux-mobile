@@ -152,7 +152,7 @@ active pane and sending targeted input, not for general terminal emulation.
 | | latest agent output scrolls here            |
 | +--------------------------------------------+
 +------------------------------------------------+
-| [yes] [continue] [/clear] [/btw ] [claude] [list]
+| [yes] [continue] [/clear] [/model] [/btw ] [claude] [list]
 | Message, dictate, or paste a file path... [file] [mode] [mic] [Send]
 | [Ent] [Esc] [^C] [Tab] [Up] [Backspace] [Del line] [Down]
 +------------------------------------------------+
@@ -277,7 +277,7 @@ Send behavior:
 
 Current default snippets:
 
-`yes`, `continue`, `/clear`, `/btw `, `claude`, `codex`, `/goal `
+`yes`, `continue`, `/clear`, `/model`, `/btw `, `claude`, `codex`, `/goal `
 
 Direct keys:
 

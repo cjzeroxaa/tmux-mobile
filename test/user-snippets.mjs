@@ -18,6 +18,12 @@ const {
 
 try {
   assert.deepEqual(
+    DEFAULT_SNIPPETS.map((item) => item.text),
+    ["yes", "continue", "/clear", "/model", "/btw ", "claude", "codex", "/goal "],
+    "default snippets include the model picker",
+  );
+
+  assert.deepEqual(
     sanitizeSnippetItems([{ text: "/btw " }]),
     [{ text: "/btw " }],
     "trailing spaces are preserved when meaningful",
