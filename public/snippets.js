@@ -1,14 +1,15 @@
 export const DEFAULT_SNIPPETS = Object.freeze([
-  Object.freeze({ text: "yes" }),
-  Object.freeze({ text: "continue" }),
   Object.freeze({ text: "/clear" }),
   Object.freeze({ text: "/model" }),
-  Object.freeze({ text: "/btw " }),
-  Object.freeze({ text: "claude" }),
-  Object.freeze({ text: "codex" }),
   Object.freeze({ text: "/goal " }),
+  Object.freeze({ text: "/rename " }),
+  Object.freeze({ text: "/btw " }),
 ]);
 
+const LEGACY_DEFAULT_SNIPPET_SETS = [
+  ["yes", "continue", "/clear", "/model", "/btw ", "claude", "codex", "/goal "],
+  ["yes", "continue", "/clear", "/model", "/goal ", "/btw ", "claude", "codex"],
+];
 const SNIPPETS_KEY = "tmux-mobile-snippets";
 const MIGRATED_KEY = "tmux-mobile-snippets-server-migrated-v1";
 const DIRTY_KEY = "tmux-mobile-snippets-server-dirty-v1";
@@ -31,6 +32,15 @@ function sanitizeSnippets(input, fallback = cloneDefaults()) {
     if (typeof raw !== "string") continue;
     const text = raw.slice(0, MAX_SNIPPET_CHARS);
     if (text.trim()) clean.push({ text });
+  }
+  if (
+    LEGACY_DEFAULT_SNIPPET_SETS.some(
+      (legacy) =>
+        legacy.length === clean.length &&
+        legacy.every((text, index) => text === clean[index]?.text),
+    )
+  ) {
+    return cloneDefaults();
   }
   return clean;
 }

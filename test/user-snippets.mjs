@@ -19,8 +19,23 @@ const {
 try {
   assert.deepEqual(
     DEFAULT_SNIPPETS.map((item) => item.text),
-    ["yes", "continue", "/clear", "/model", "/btw ", "claude", "codex", "/goal "],
-    "default snippets include the model picker",
+    ["/clear", "/model", "/goal ", "/rename ", "/btw "],
+    "default snippets are slash commands and include rename",
+  );
+
+  assert.deepEqual(
+    sanitizeSnippetItems([
+      { text: "yes" },
+      { text: "continue" },
+      { text: "/clear" },
+      { text: "/model" },
+      { text: "/btw " },
+      { text: "claude" },
+      { text: "codex" },
+      { text: "/goal " },
+    ]),
+    DEFAULT_SNIPPETS.map((item) => ({ ...item })),
+    "the old generated defaults migrate without affecting custom lists",
   );
 
   assert.deepEqual(
@@ -63,7 +78,7 @@ try {
   assert.equal((await describeUserSnippets(memory, "alice")).updatedAt, 123);
   assert.equal(
     (await describeUserSnippets(memory, "bob")).items[0].text,
-    "yes",
+    "/clear",
     "alice snippets do not leak to bob",
   );
 
