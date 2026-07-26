@@ -32,14 +32,11 @@ Current connectors auto-probe both `tmux` and `rmux` when no mux env var is set.
 The service examples below still set `TMUX_MOBILE_MUXES=tmux,rmux` explicitly so
 the intended runtimes are visible in the service config.
 
-Use the Google account whose visibility you want:
+Use the Google account that should own the machine:
 
-- Google Workspace users see machines registered by users in the same hosted
-  domain.
-- Personal Google accounts see only their own machines.
-- Super-admins configured on the controller see every machine.
-- Per-machine special allowlists configured on the controller can grant a
-  specific user access to a specific machine outside those rules.
+- `sonicgg@gmail.com` is the sole super-admin and sees every machine.
+- Every other account sees only machines registered by that same account.
+- Google Workspace hosted domains do not share machines.
 
 ## Fresh install
 

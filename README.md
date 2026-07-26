@@ -56,20 +56,17 @@ export GOOGLE_DEVICE_CLIENT_ID='...apps.googleusercontent.com'
 export GOOGLE_DEVICE_CLIENT_SECRET='...'
 export GOOGLE_OAUTH_REDIRECT_URI='https://YOUR-CLOUD-RUN-URL/auth/google/callback'
 export ALLOW_ALL_GOOGLE_USERS='1'
-export SUPER_ADMIN_EMAILS='sonicgg@gmail.com'
 export OPENAI_API_KEY='sk-...'
 export OPENAI_SECRET_NAME='tmux-mobile-openai-api-key'
 export SESSION_SECRET="$(openssl rand -hex 32)"
 ```
 
 By default, any verified Google account can sign in (`ALLOW_ALL_GOOGLE_USERS=1`).
-Machine visibility is separate from login permission: super-admin emails can
-see every machine, Google Workspace users share machines with users from the
-same `hd` hosted domain, and consumer Google accounts without `hd` only see
-their own machines. A deployment can also grant per-machine exceptions with
-`TMUX_MOBILE_MACHINE_ACCESS_ALLOWLIST` (`machine=email|email;other=email`) for
-special shares outside the owner/workspace rules; the built-in special case is
-`MSB-REBYTE -> xuc2078@gmail.com`. Set `ALLOW_ALL_GOOGLE_USERS=0` with
+Machine visibility is separate from login permission and is defined in
+`config/access-control.json`: `sonicgg@gmail.com` is the sole super-admin and
+sees every machine; every other account sees only machines registered by that
+same account. Hosted Google Workspace domains do not create shared machine
+pools. Set `ALLOW_ALL_GOOGLE_USERS=0` with
 `ALLOWED_GOOGLE_EMAILS` and/or `ALLOWED_GOOGLE_DOMAINS` for a closed controller.
 
 Controller mode requires `OPENAI_API_KEY` because voice transcription, target
@@ -104,7 +101,6 @@ GOOGLE_DEVICE_CLIENT_ID=${GOOGLE_DEVICE_CLIENT_ID},\
 GOOGLE_DEVICE_CLIENT_SECRET=${GOOGLE_DEVICE_CLIENT_SECRET},\
 GOOGLE_OAUTH_REDIRECT_URI=${GOOGLE_OAUTH_REDIRECT_URI},\
 ALLOW_ALL_GOOGLE_USERS=${ALLOW_ALL_GOOGLE_USERS},\
-SUPER_ADMIN_EMAILS=${SUPER_ADMIN_EMAILS},\
 SESSION_SECRET=${SESSION_SECRET}" \
   --set-secrets "OPENAI_API_KEY=${OPENAI_SECRET_NAME}:latest"
 ```
@@ -155,7 +151,7 @@ npm test
 
 It starts a controller with a fake Google OAuth server, signs in Workspace,
 consumer, and super-admin browser users, performs device login for multiple
-agents, verifies Workspace-domain sharing plus consumer isolation, creates real
+agents, verifies owner-only isolation plus super-admin visibility, creates real
 tmux sessions through the controller API, sends text into panes, and verifies
 captured pane output comes back through the correct user route.
 
@@ -183,9 +179,8 @@ By default this connects to `https://eng.impo.ai`; pass a URL to point it at
 another controller. In controller mode it starts the same Google
 device-login flow as connector registration, but stores a separate
 browser-session bearer token at `~/.config/tmux-mobile/terminal.json`. Machine
-visibility is the same as the web app: super-admins see every machine,
-Workspace users see their domain's machines, and personal accounts see their own
-machines.
+visibility is the same as the web app: the configured super-admin sees every
+machine and every other account sees only its own machines.
 
 Useful commands inside the terminal client:
 

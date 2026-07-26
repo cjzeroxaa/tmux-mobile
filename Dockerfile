@@ -13,6 +13,7 @@ COPY package*.json ./
 RUN npm ci
 
 COPY server.mjs ./
+COPY config ./config
 COPY lib ./lib
 COPY public ./public
 COPY scripts ./scripts

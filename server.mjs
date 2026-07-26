@@ -59,6 +59,7 @@ import {
   updateUserCardStars,
 } from "./lib/user-card-stars.mjs";
 import { appRevision } from "./lib/revision.mjs";
+import { readAccessControlFile } from "./lib/access-control.mjs";
 import {
   createAgentRoundNtfyNotifier,
   createNtfyConfig,
@@ -119,6 +120,10 @@ const PORT = Number(process.env.PORT || 3737);
 // Override with TMUX_MOBILE_APP_TITLE.
 const APP_TITLE = process.env.TMUX_MOBILE_APP_TITLE || "tmux Mobile";
 const APP_REVISION = appRevision(__dirname);
+const ACCESS_CONTROL = readAccessControlFile(
+  process.env.TMUX_MOBILE_ACCESS_CONTROL_FILE ||
+    path.join(__dirname, "config", "access-control.json"),
+);
 const CONNECTOR_VERSION =
   process.env.TMUX_MOBILE_CONNECTOR_VERSION || CONNECTOR_COMPAT_VERSION;
 const DEFAULT_MACHINE_ALIASES = {
@@ -133,16 +138,9 @@ const DEFAULT_MACHINE_ALIASES = {
   "msb-build-srp": "MSB-SRP",
   "msb-srp": "MSB-SRP",
 };
-const DEFAULT_MACHINE_ACCESS_ALLOWLIST = {
-  "MSB-REBYTE": ["xuc2078@gmail.com"],
-};
 const MACHINE_ALIASES = readMachineAliases(
   process.env.TMUX_MOBILE_MACHINE_ALIASES,
   DEFAULT_MACHINE_ALIASES,
-);
-const MACHINE_ACCESS_ALLOWLIST = readMachineAccessAllowlist(
-  process.env.TMUX_MOBILE_MACHINE_ACCESS_ALLOWLIST,
-  DEFAULT_MACHINE_ACCESS_ALLOWLIST,
 );
 function positiveIntEnv(name, fallback) {
   const value = Number(process.env[name]);
@@ -3505,55 +3503,6 @@ function readMachineAliases(value, defaults = {}) {
   return aliases;
 }
 
-function readMachineAccessAllowlist(value, defaults = {}) {
-  const allowlist = {};
-  for (const [machine, users] of Object.entries(defaults || {})) {
-    const key = String(machine || "").trim();
-    if (key) allowlist[key] = normalizeMachineAccessUsers(users);
-  }
-
-  const raw = String(value || "").trim();
-  if (!raw) return allowlist;
-
-  if (raw.startsWith("{")) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        for (const [machine, users] of Object.entries(parsed)) {
-          setMachineAccessAllowlist(allowlist, machine, users);
-        }
-        return allowlist;
-      }
-    } catch {
-      // Fall through to the compact entry format below.
-    }
-  }
-
-  // Compact format: "machine=email|email;other-machine=email".
-  for (const item of raw.split(";")) {
-    const [machine, ...rest] = item.split("=");
-    setMachineAccessAllowlist(allowlist, machine, rest.join("="));
-  }
-  return allowlist;
-}
-
-function setMachineAccessAllowlist(allowlist, machine, users) {
-  const key = String(machine || "").trim();
-  const values = normalizeMachineAccessUsers(users);
-  if (key && values.length) allowlist[key] = values;
-}
-
-function normalizeMachineAccessUsers(users) {
-  const raw = Array.isArray(users) ? users : String(users || "").split(/[,\s|]+/);
-  return [
-    ...new Set(
-      raw
-        .map((item) => String(item || "").trim().toLowerCase())
-        .filter(Boolean),
-    ),
-  ];
-}
-
 function setMachineAlias(aliases, key, alias) {
   const normalized = normalizeMachineAliasKey(key);
   const value = String(alias || "").trim();
@@ -5293,7 +5242,7 @@ try {
   PIN_INDEX = createMemoryPinIndex();
 }
 setPinIndex(PIN_INDEX);
-setPinSuperAdmins(splitCsv(process.env.SUPER_ADMIN_EMAILS));
+setPinSuperAdmins(ACCESS_CONTROL.superAdminEmails);
 try {
   await hydratePins();
 } catch (error) {
@@ -5979,14 +5928,13 @@ if (MODE.kind === "register") {
       authenticateAgent: MODE.kind === "controller"
         ? authenticateAgent
         : () => String(process.env.TMUX_MOBILE_USER || "default"),
-      superAdminEmails: splitCsv(process.env.SUPER_ADMIN_EMAILS),
+      superAdminEmails: ACCESS_CONTROL.superAdminEmails,
       currentRevision: APP_REVISION,
       expectedRevision: CONNECTOR_EXPECTED_REVISION,
       updateRef: CONNECTOR_UPDATE_REF,
       updateScriptUrl: CONNECTOR_UPDATE_SCRIPT_URL,
       requiredConnectorVersion: CONNECTOR_VERSION,
       machineAliases: MACHINE_ALIASES,
-      machineAccessAllowlist: MACHINE_ACCESS_ALLOWLIST,
       transcriptRootDiscovery:
         process.env.TMUX_MOBILE_TRANSCRIPT_ARCHIVE_ROOT_DISCOVERY === "1",
       transcriptArchiveEnabledForMachine: TRANSCRIPT_ARCHIVE

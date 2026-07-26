@@ -438,7 +438,6 @@ try {
     OPENAI_API_KEY: "test-openai-key",
     SESSION_SECRET: `session-secret-${process.pid}`,
     ALLOW_ALL_GOOGLE_USERS: "1",
-    SUPER_ADMIN_EMAILS: ADMIN,
     TMUX_MOBILE_EXPECTED_REVISION: "test-revision",
     TMUX_MOBILE_UPDATE_REF: "test-release",
   });
@@ -565,13 +564,13 @@ try {
     homedir(),
     "agent advertises home directory for start-agent defaults",
   );
-  await waitForMachines(baseUrl, bobCookie, [aliceOne]);
+  await waitForMachines(baseUrl, bobCookie, []);
   assert.deepEqual(await requestJson(baseUrl, "/api/machines", { cookie: consumerCookie }), []);
   assertAlive("alice-agent-one", aliceAgentOne);
 
   const aliceAgentTwo = startAgent(baseUrl, ALICE, aliceTwo, tmpDir);
   aliceMachines = await waitForMachines(baseUrl, aliceCookie, [aliceOne, aliceTwo]);
-  await waitForMachines(baseUrl, bobCookie, [aliceOne, aliceTwo]);
+  await waitForMachines(baseUrl, bobCookie, []);
   assertAlive("alice-agent-two", aliceAgentTwo);
 
   const aliceOneRoute = routeForMachine(aliceMachines, aliceOne);
@@ -585,17 +584,25 @@ try {
     machineId: aliceOneRoute,
     status: 503,
   });
-  await requestJson(baseUrl, "/api/sessions", { cookie: bobCookie, machineId: aliceOneRoute });
+  await requestJson(baseUrl, "/api/sessions", {
+    cookie: bobCookie,
+    machineId: aliceOneRoute,
+    status: 503,
+  });
 
   const bobAgent = startAgent(baseUrl, BOB, bobOne, tmpDir);
-  const bobMachines = await waitForMachines(baseUrl, bobCookie, [aliceOne, aliceTwo, bobOne]);
-  await waitForMachines(baseUrl, aliceCookie, [aliceOne, aliceTwo, bobOne]);
+  const bobMachines = await waitForMachines(baseUrl, bobCookie, [bobOne]);
+  await waitForMachines(baseUrl, aliceCookie, [aliceOne, aliceTwo]);
   assertAlive("bob-agent", bobAgent);
 
   const bobOneRoute = routeForMachine(bobMachines, bobOne);
-  await requestJson(baseUrl, "/api/sessions", { cookie: aliceCookie, machineId: bobOneRoute });
-  const bobCommandCenter = await requestJson(baseUrl, "/api/command-center", {
+  await requestJson(baseUrl, "/api/sessions", {
     cookie: aliceCookie,
+    machineId: bobOneRoute,
+    status: 503,
+  });
+  const bobCommandCenter = await requestJson(baseUrl, "/api/command-center", {
+    cookie: bobCookie,
     machineId: bobOneRoute,
   });
   assert.equal(bobCommandCenter.machines.length, 1, "per-machine command-center machine count");

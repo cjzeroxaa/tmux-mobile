@@ -45,9 +45,9 @@ Two principles drive the UI:
 Controller access is intentionally open at login and scoped at machine visibility:
 
 - `ALLOW_ALL_GOOGLE_USERS=1` allows any verified Google account to sign in.
-- super admins see every connected machine,
-- Google Workspace users share machines within the same hosted domain,
-- consumer Google accounts see only their own machines.
+- `sonicgg@gmail.com` is the sole super-admin and sees every connected machine,
+- every other Google account sees only machines registered by that account,
+- hosted Google Workspace domains do not create shared machine pools.
 
 The UI is the same in both modes. Machine controls appear only when more than one
 machine is visible.

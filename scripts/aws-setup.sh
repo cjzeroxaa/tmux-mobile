@@ -44,7 +44,6 @@ SECRET_NAMES=(
   GOOGLE_DEVICE_CLIENT_SECRET
 )
 ALLOW_ALL_GOOGLE_USERS="1"
-SUPER_ADMIN_EMAILS="sonicgg@gmail.com"
 ALLOWED_GOOGLE_EMAILS=""
 ALLOWED_GOOGLE_DOMAINS=""
 USER_PREFS_DYNAMO_TABLE="${USER_PREFS_DYNAMO_TABLE:-${NAME}-user-preferences}"
@@ -636,7 +635,6 @@ ENV_JSON="[
   {\"name\":\"HOST\",\"value\":\"0.0.0.0\"},
   {\"name\":\"PORT\",\"value\":\"$CONTAINER_PORT\"},
   {\"name\":\"ALLOW_ALL_GOOGLE_USERS\",\"value\":\"$ALLOW_ALL_GOOGLE_USERS\"},
-  {\"name\":\"SUPER_ADMIN_EMAILS\",\"value\":\"$SUPER_ADMIN_EMAILS\"},
   {\"name\":\"ALLOWED_GOOGLE_EMAILS\",\"value\":\"$ALLOWED_GOOGLE_EMAILS\"},
   {\"name\":\"ALLOWED_GOOGLE_DOMAINS\",\"value\":\"$ALLOWED_GOOGLE_DOMAINS\"},
   {\"name\":\"TMUX_MOBILE_SNIPPETS_STORE\",\"value\":\"dynamo\"},

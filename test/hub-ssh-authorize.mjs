@@ -17,11 +17,6 @@ const COLLEAGUE = {
   email: "colleague@example.com",
   hd: "example.com",
 };
-const ALLOWLISTED = {
-  userId: "friend@gmail.com",
-  email: "friend@gmail.com",
-  hd: "",
-};
 const ADMIN = { userId: "admin@gmail.com", email: "admin@gmail.com", hd: "" };
 const AGENT_ID = "00000000-0000-4000-8000-000000000071";
 
@@ -30,7 +25,6 @@ const hub = createHub(server, {
   authenticateAgent: () => OWNER,
   superAdminEmails: [ADMIN.email],
   machineAliases: { "owner-mac.local": "Owner Mac" },
-  machineAccessAllowlist: { "Owner Mac": [ALLOWLISTED.email] },
 });
 
 function waitFor(label, predicate, timeoutMs = 3_000) {
@@ -97,12 +91,7 @@ try {
   assert.equal(
     hub.sshAuthorizationTarget(COLLEAGUE, machine.id),
     null,
-    "same-domain visibility does not grant a permanent shell",
-  );
-  assert.equal(
-    hub.sshAuthorizationTarget(ALLOWLISTED, machine.id),
-    null,
-    "machine allowlist visibility does not grant a permanent shell",
+    "another account cannot grant a permanent shell",
   );
   assert.equal(
     hub.sshAuthorizationTarget(OWNER, "Owner Mac"),

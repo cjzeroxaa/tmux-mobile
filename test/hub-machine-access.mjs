@@ -5,19 +5,22 @@ import { createHub } from "../lib/hub.mjs";
 import { AGENT_WS_PATH, helloFrame } from "../lib/protocol.mjs";
 
 const OWNER = { userId: "owner@rebyte.ai", email: "owner@rebyte.ai", hd: "rebyte.ai" };
-const SPECIAL = { userId: "xuc2078@gmail.com", email: "xuc2078@gmail.com", hd: "" };
+const COLLEAGUE = {
+  userId: "colleague@rebyte.ai",
+  email: "colleague@rebyte.ai",
+  hd: "rebyte.ai",
+};
 const STRANGER = { userId: "stranger@gmail.com", email: "stranger@gmail.com", hd: "" };
+const ADMIN = { userId: "sonicgg@gmail.com", email: "sonicgg@gmail.com", hd: "" };
 const AGENT_ONE = "00000000-0000-4000-8000-000000000011";
 const AGENT_TWO = "00000000-0000-4000-8000-000000000012";
 
 const server = http.createServer();
 const hub = createHub(server, {
   authenticateAgent: () => OWNER,
+  superAdminEmails: [ADMIN.email],
   machineAliases: {
     "msb-build-rebyte": "MSB-REBYTE",
-  },
-  machineAccessAllowlist: {
-    "msb rebyte": [SPECIAL.email],
   },
 });
 
@@ -78,25 +81,28 @@ let rebyte;
 let other;
 try {
   rebyte = await connectMachine(port, "msb-build-rebyte", AGENT_ONE);
-  const specialMachine = await waitFor("special viewer sees MSB-REBYTE", () => {
-    const machines = hub.listMachines(SPECIAL);
+  const ownerMachine = await waitFor("owner sees MSB-REBYTE", () => {
+    const machines = hub.listMachines(OWNER);
     return machines.length === 1 && machines[0].hostname === "MSB-REBYTE" ? machines[0] : null;
   });
 
-  assert.equal(specialMachine.machineId, "MSB-REBYTE");
-  assert.equal(hub.hasMachine(SPECIAL, specialMachine.id), true);
-  assert.equal(hub.hasMachine(SPECIAL, "MSB-REBYTE"), true);
+  assert.equal(ownerMachine.machineId, "MSB-REBYTE");
+  assert.equal(hub.hasMachine(OWNER, ownerMachine.id), true);
+  assert.equal(hub.hasMachine(OWNER, "MSB-REBYTE"), true);
+  assert.deepEqual(hub.listMachines(COLLEAGUE), [], "same-domain user sees no owner machine");
   assert.deepEqual(hub.listMachines(STRANGER), [], "unlisted gmail user sees no owner machine");
+  assert.equal(hub.listMachines(ADMIN).length, 1, "super-admin sees the owner machine");
 
   other = await connectMachine(port, "owner-private-box", AGENT_TWO);
   await waitFor("owner sees both machines", () => hub.listMachines(OWNER).length === 2);
   assert.deepEqual(
-    hub.listMachines(SPECIAL).map((machine) => machine.hostname),
-    ["MSB-REBYTE"],
-    "special allowlist is scoped to the named machine only",
+    hub.listMachines(COLLEAGUE),
+    [],
+    "same-domain user remains isolated when more machines connect",
   );
+  assert.equal(hub.listMachines(ADMIN).length, 2, "super-admin sees every machine");
 
-  console.log("hub machine access allowlist tests passed");
+  console.log("hub owner-only machine access tests passed");
 } finally {
   rebyte?.disconnect();
   other?.disconnect();
