@@ -24,6 +24,8 @@ STATE_FILE="$ROOT_DIR/scripts/aws-state.env"
 
 AWS_REGION="${AWS_REGION:-us-east-1}"
 NAME="${NAME:-tmux-mobile-controller}"
+EVENT_RADIO_QUEUE_NAME="${EVENT_RADIO_QUEUE_NAME:-tmux-mobile-event-radio}"
+EVENT_RADIO_DLQ_NAME="${EVENT_RADIO_DLQ_NAME:-tmux-mobile-event-radio-dlq}"
 
 DRY_RUN=false
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
@@ -61,6 +63,26 @@ for td in "${TD_ARNS[@]}"; do
   say aws ecs deregister-task-definition --region "$AWS_REGION" --task-definition "$td" >/dev/null
   note "deregistered $td"
 done
+
+# ---------------------- SQS event radio ----------------------
+section "SQS event radio"
+delete_queue() {
+  local queue_name="$1" queue_url="${2:-}"
+  if [[ -z "$queue_url" || "$queue_url" == "None" ]]; then
+    queue_url="$(aws sqs get-queue-url --region "$AWS_REGION" \
+      --queue-name "$queue_name" --query 'QueueUrl' --output text 2>/dev/null || true)"
+  fi
+  if [[ -n "$queue_url" && "$queue_url" != "None" ]]; then
+    say aws sqs delete-queue --region "$AWS_REGION" --queue-url "$queue_url"
+    note "deleted $queue_name"
+  else
+    note "$queue_name: missing (skip)"
+  fi
+}
+
+# Delete the source queue before the DLQ referenced by its redrive policy.
+delete_queue "$EVENT_RADIO_QUEUE_NAME" "${EVENT_RADIO_QUEUE_URL:-}"
+delete_queue "$EVENT_RADIO_DLQ_NAME" "${EVENT_RADIO_DLQ_URL:-}"
 
 # ---------------------- ALB listeners / TG / ALB ----------------------
 section "ALB listeners + target group + load balancer"

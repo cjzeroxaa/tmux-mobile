@@ -27,17 +27,20 @@ assert.equal(hello.features.commandCenterInventory, true, "1 advertises inventor
 // 1b. helloFrame also advertises writefile (the upload op).
 assert.ok(hello.ops.includes(OP.WRITEFILE), "1b advertises writefile");
 assert.ok(hello.ops.includes(OP.RMUX_WEB_SHARE), "1b advertises rmux web share");
+assert.ok(hello.ops.includes(OP.SSH_AUTHORIZE_KEY), "1b advertises SSH key authorization");
 
 // 2. legacy op set does NOT include readfile/writefile (the skew cases).
 assert.ok(!LEGACY_AGENT_OPS.includes(OP.READFILE), "2 legacy lacks readfile");
 assert.ok(!LEGACY_AGENT_OPS.includes(OP.WRITEFILE), "2 legacy lacks writefile");
 assert.ok(!LEGACY_AGENT_OPS.includes(OP.RMUX_WEB_SHARE), "2 legacy lacks rmux web share");
+assert.ok(!LEGACY_AGENT_OPS.includes(OP.SSH_AUTHORIZE_KEY), "2 legacy lacks SSH authorization");
 
 // 3. localBackend reports supportsOp(true) for everything (runs current code).
 assert.equal(localBackend.supportsOp(OP.READFILE), true, "3 local supports readfile");
 assert.equal(localBackend.supportsOp(OP.WRITEFILE), true, "3 local supports writefile");
 assert.equal(localBackend.supportsOp(OP.TMUX), true, "3 local supports tmux");
 assert.equal(localBackend.supportsOp(OP.RMUX_WEB_SHARE), true, "3 local supports rmux web share");
+assert.equal(localBackend.supportsOp(OP.SSH_AUTHORIZE_KEY), true, "3 local supports SSH authorization");
 assert.equal(isAllowedTmux(["load-buffer", "-b", "name", "-"]), true, "3 load-buffer allowed");
 
 // 4. Simulate the hub's agentSupportsOp logic for a current vs. legacy agent.

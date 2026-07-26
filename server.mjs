@@ -10,6 +10,7 @@ import {
   currentBackend,
   findClaudeSessionFromBackend,
   localBackend,
+  processTreeFromSnapshot,
   readClaudeTranscriptFromSession,
   withBackend,
 } from "./lib/backend.mjs";
@@ -92,6 +93,11 @@ import {
 import { createCommentIndex } from "./lib/comment-index.mjs";
 import { buildAgentLaunchCommand } from "./lib/agent-launch-command.mjs";
 import { stampAids } from "./lib/anchor-stamp.mjs";
+import {
+  cjmuxIosAuthorizedKeyMarker,
+  normalizeIosDeviceLabel,
+  normalizeSshEd25519PublicKey,
+} from "./lib/ssh-authorized-keys.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -1302,7 +1308,6 @@ function sendWebManifest(res) {
       { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
       { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
       { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
-      { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
     ],
   });
   res.writeHead(200, {
@@ -2512,7 +2517,7 @@ async function safeAgentLastResponse(pane) {
   }
 }
 
-async function safeAgentTranscript(pane) {
+async function safeAgentTranscript(pane, processes = null, openFiles = null) {
   if (!pane?.pid) return null;
   const backend = currentBackend();
   let exactClaudeSession = null;
@@ -2520,6 +2525,7 @@ async function safeAgentTranscript(pane) {
     exactClaudeSession = await findClaudeSessionFromBackend(backend, {
       rootPid: pane.pid,
       cwd: pane.cwd || "",
+      ...(Array.isArray(processes) ? { processes } : {}),
     });
     const exactTranscript = exactClaudeSession
       ? await readClaudeTranscriptFromSession(backend, exactClaudeSession)
@@ -2544,6 +2550,8 @@ async function safeAgentTranscript(pane) {
       // The pane's foreground command breaks codex/claude ties so a backgrounded
       // codex doesn't shadow the foreground agent (see locateAgentTranscript).
       foregroundCommand: pane.command || "",
+      ...(Array.isArray(processes) ? { processes } : {}),
+      ...(openFiles instanceof Map ? { openFiles } : {}),
     });
     if (
       exactClaudeSession &&
@@ -2558,7 +2566,7 @@ async function safeAgentTranscript(pane) {
   }
 }
 
-async function detectCommandCenterAgent(pane) {
+async function detectCommandCenterAgent(pane, processes = null) {
   const direct = detectCommandCenterAgentType([
     pane?.command || "",
     pane?.title || "",
@@ -2566,8 +2574,11 @@ async function detectCommandCenterAgent(pane) {
   if (direct) return direct;
   if (!pane?.pid || typeof currentBackend().processTree !== "function") return "";
   try {
-    const processes = await currentBackend().processTree(pane.pid);
-    const commands = processes.map((processInfo) => processInfo.command || "");
+    const tree =
+      Array.isArray(processes)
+        ? processes
+        : await currentBackend().processTree(pane.pid);
+    const commands = tree.map((processInfo) => processInfo.command || "");
     return detectCommandCenterAgentType(commands) || "";
   } catch {
     return "";
@@ -2593,6 +2604,10 @@ async function detectCommandCenterAgent(pane) {
  * time of the slowest pane.
  */
 const runtimeVersionCache = new Map();
+const COMMAND_CENTER_INVENTORY_CONCURRENCY = positiveIntEnv(
+  "TMUX_MOBILE_INVENTORY_CONCURRENCY",
+  4,
+);
 
 async function runtimeVersion(runtime) {
   const key = `${runtime.kind}:${runtime.commandName?.() || runtime.kind}`;
@@ -2606,12 +2621,35 @@ async function runtimeVersion(runtime) {
 }
 
 async function listAgentSessions() {
+  const backend = currentBackend();
+  let processSnapshot = null;
+  let openFiles = null;
+  if (typeof backend.processSnapshot === "function") {
+    try {
+      processSnapshot = await backend.processSnapshot();
+    } catch {
+      processSnapshot = null;
+    }
+  }
+  if (
+    Array.isArray(processSnapshot) &&
+    typeof backend.agentOpenFilesSnapshot === "function"
+  ) {
+    try {
+      openFiles = await backend.agentOpenFilesSnapshot(processSnapshot);
+    } catch {
+      openFiles = null;
+    }
+  }
   const muxes = currentRequestMux() ? [currentRequestMux()] : backendMuxKinds();
   const results = await Promise.all(
     muxes.map(async (mux) => {
       const runtime = windowRuntimeForMux(mux);
       try {
-        return await listAgentSessionsForRuntime(runtime);
+        return await listAgentSessionsForRuntime(runtime, {
+          processSnapshot,
+          openFiles,
+        });
       } catch (error) {
         if (isNoServerError(error) || muxes.length > 1) return { agents: [] };
         throw error;
@@ -2621,44 +2659,102 @@ async function listAgentSessions() {
   return { agents: results.flatMap((result) => result.agents || []) };
 }
 
-async function listAgentSessionsForRuntime(runtime) {
-  let sessions = [];
+async function inventoryTreeForRuntime(runtime) {
+  let bulkError = null;
+  if (typeof runtime.listTree === "function") {
+    try {
+      return await runtime.listTree();
+    } catch (error) {
+      if (isNoServerError(error)) return { sessions: [], windows: [] };
+      bulkError = error;
+    }
+  }
+
+  // Older rmux builds do not implement `list-windows -a`. Preserve their
+  // original session-by-session inventory path while current tmux/rmux use
+  // the single-command tree above.
+  let sessions;
   try {
     sessions = await runtime.listSessions();
   } catch (error) {
-    if (isNoServerError(error)) return { agents: [] };
-    throw error;
+    if (isNoServerError(error)) return { sessions: [], windows: [] };
+    throw bulkError || error;
   }
+  const windows = [];
+  for (const session of sessions || []) {
+    try {
+      const sessionWindows = await runtime.listWindows({
+        sessionId: session.id,
+      });
+      windows.push(
+        ...(sessionWindows || []).map((win) => ({
+          ...win,
+          sessionId: session.id,
+        })),
+      );
+    } catch (error) {
+      if (isNoServerError(error)) continue;
+      continue;
+    }
+  }
+  return { sessions: sessions || [], windows };
+}
+
+async function listAgentSessionsForRuntime(
+  runtime,
+  { processSnapshot = null, openFiles = null } = {},
+) {
+  const tree = await inventoryTreeForRuntime(runtime);
   const mux = runtime.kind || "tmux";
   const muxCommand = runtime.commandName?.() || mux;
   const muxVersion = await runtimeVersion(runtime);
 
-  // Flatten every window into one queue with its session context.
-  const queue = [];
-  for (const session of sessions) {
-    let windows;
+  const sessionsById = new Map(
+    (tree?.sessions || []).map((session) => [session.id, session]),
+  );
+  const queue = (tree?.windows || [])
+    .map((win) => ({ session: sessionsById.get(win.sessionId), win }))
+    .filter(({ session }) => Boolean(session));
+
+  // tmux/rmux can return every pane in one command. Keep the per-window path
+  // as a compatibility fallback for older rmux builds.
+  let surfacesByWindow = null;
+  if (typeof runtime.listAllWindowSurfaces === "function") {
     try {
-      windows = await runtime.listWindows({ sessionId: session.id });
+      surfacesByWindow = new Map();
+      for (const pane of await runtime.listAllWindowSurfaces()) {
+        if (!surfacesByWindow.has(pane.windowId)) {
+          surfacesByWindow.set(pane.windowId, []);
+        }
+        surfacesByWindow.get(pane.windowId).push(pane);
+      }
     } catch {
-      continue;
+      surfacesByWindow = null;
     }
-    for (const win of windows) queue.push({ session, win });
   }
 
-  const rows_ = await Promise.all(
-    queue.map(async ({ session, win }) => {
+  const rows_ = await mapWithConcurrency(
+    queue,
+    COMMAND_CENTER_INVENTORY_CONCURRENCY,
+    async ({ session, win }) => {
       let panes;
       try {
-        panes = await runtime.listWindowSurfaces({ windowId: win.id });
+        panes =
+          surfacesByWindow?.has(win.id)
+            ? surfacesByWindow.get(win.id)
+            : await runtime.listWindowSurfaces({ windowId: win.id });
       } catch {
         return null;
       }
       const pane = panes.find((p) => p.active) || panes[0];
       if (!pane?.pid) return null;
+      const paneProcesses = Array.isArray(processSnapshot)
+        ? processTreeFromSnapshot(processSnapshot, pane.pid)
+        : null;
 
-      let info = await safeAgentTranscript(pane);
+      let info = await safeAgentTranscript(pane, paneProcesses, openFiles);
       if (!info?.kind) {
-        const kind = await detectCommandCenterAgent(pane);
+        const kind = await detectCommandCenterAgent(pane, paneProcesses);
         if (!kind) return null;
         info = {
           kind,
@@ -2734,10 +2830,31 @@ async function listAgentSessionsForRuntime(runtime) {
         // Center; null for transcripts that predate per-turn timestamps.
         lastActivityAt: lastTurn?.t || null,
       };
-    }),
+    },
   );
 
   return { agents: rows_.filter(Boolean) };
+}
+
+async function mapWithConcurrency(items, limit, worker) {
+  const values = Array.from(items || []);
+  if (values.length === 0) return [];
+  const results = new Array(values.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(
+    values.length,
+    Math.max(1, Math.floor(Number(limit) || 1)),
+  );
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < values.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await worker(values[index], index);
+      }
+    }),
+  );
+  return results;
 }
 
 async function localCommandCenterMachine(agentCount = 0) {
@@ -2761,11 +2878,14 @@ async function localCommandCenterMachine(agentCount = 0) {
   };
   const ownerId = String(process.env.TMUX_MOBILE_USER || "");
   const hostname = os.hostname();
+  const username = os.userInfo().username;
   return {
     id: "local",
     machineId: "local",
     hostname: machineAliasFor(hostname) || hostname,
     rawHostname: hostname,
+    systemHostname: hostname,
+    sshHosts: [hostname],
     machineAlias: machineAliasFor(hostname),
     ownerId,
     ownerEmail: ownerId,
@@ -2781,6 +2901,7 @@ async function localCommandCenterMachine(agentCount = 0) {
     connectorVersion: CONNECTOR_VERSION,
     agentCwd: __dirname,
     homeDir: os.homedir(),
+    username,
     nodePath: process.execPath,
     expectedRevision: CONNECTOR_EXPECTED_REVISION,
     updateRef: CONNECTOR_UPDATE_REF,
@@ -3143,8 +3264,8 @@ async function createRealtimeClientSecret() {
   };
 }
 
-async function readJsonBody(req) {
-  const body = await readRequestBuffer(req, MAX_BODY_BYTES);
+async function readJsonBody(req, maxBytes = MAX_BODY_BYTES) {
+  const body = await readRequestBuffer(req, maxBytes);
   if (body.length === 0) return {};
   return JSON.parse(body.toString("utf8"));
 }
@@ -5672,6 +5793,105 @@ if (MODE.kind === "register") {
               ok: true,
               revision: APP_REVISION,
               connectorVersion: CONNECTOR_VERSION,
+            });
+            return;
+          }
+          if (url.pathname === "/api/ssh/authorize") {
+            if (req.method !== "POST") {
+              sendJson(res, 405, { error: "Method not allowed" });
+              return;
+            }
+            // This endpoint grants a durable OS login. Require the native
+            // client's explicit Bearer credential even when a browser cookie is
+            // also present, avoiding a cookie-authenticated CSRF mutation.
+            const authorizationViewer = verifySignedToken(
+              bearerToken(req),
+              "session",
+            );
+            if (!authorizationViewer) {
+              sendJson(res, 401, { error: "Bearer authentication required" });
+              return;
+            }
+            const requestedMachineId = String(req.headers["x-machine-id"] || "").trim();
+            if (!requestedMachineId) {
+              sendJson(res, 400, { error: "x-machine-id is required" });
+              return;
+            }
+            const machine = hub.sshAuthorizationTarget(
+              authorizationViewer,
+              requestedMachineId,
+            );
+            if (!machine) {
+              sendJson(res, 403, {
+                error:
+                  "Only the machine owner can authorize iOS SSH access, using its exact machine id.",
+              });
+              return;
+            }
+
+            const body = await readJsonBody(req, 16 * 1024);
+            normalizeIosDeviceLabel(body.deviceLabel);
+            const normalizedKey = normalizeSshEd25519PublicKey(body.publicKey);
+            const marker = cjmuxIosAuthorizedKeyMarker(
+              authorizationViewer.userId,
+              body.deviceId,
+            );
+
+            let result;
+            try {
+              result = await hub.authorizeSshKey(
+                authorizationViewer,
+                requestedMachineId,
+                {
+                  publicKey: normalizedKey.publicKey,
+                  marker,
+                },
+              );
+            } catch (error) {
+              if (error.status === 501 || /unknown op/i.test(error.message)) {
+                sendJson(res, 501, {
+                  error:
+                    "This machine's connector is out of date — update it before authorizing iOS SSH access.",
+                });
+                return;
+              }
+              throw error;
+            }
+            if (
+              result.fingerprint &&
+              result.fingerprint !== normalizedKey.fingerprint
+            ) {
+              const error = new Error("Connector installed an unexpected SSH public key");
+              error.status = 502;
+              throw error;
+            }
+            const sshHosts = [
+              ...new Set(
+                [
+                  result.systemHostname,
+                  machine.systemHostname,
+                  machine.rawHostname,
+                  ...(Array.isArray(result.sshHosts) ? result.sshHosts : []),
+                  ...(Array.isArray(machine.sshHosts) ? machine.sshHosts : []),
+                ]
+                  .map((host) => String(host || "").trim().replace(/\.$/u, ""))
+                  .filter(Boolean),
+              ),
+            ];
+            const port =
+              Number.isInteger(result.port) && result.port > 0 && result.port <= 65_535
+                ? result.port
+                : 22;
+            sendJson(res, 200, {
+              ok: true,
+              authorized: true,
+              installed: Boolean(result.installed),
+              present: Boolean(result.present || result.installed),
+              fingerprint: normalizedKey.fingerprint,
+              host: sshHosts[0] || "",
+              user: result.username || machine.username || "",
+              port,
+              sshHosts,
             });
             return;
           }

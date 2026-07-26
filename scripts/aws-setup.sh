@@ -48,6 +48,12 @@ SUPER_ADMIN_EMAILS="sonicgg@gmail.com"
 ALLOWED_GOOGLE_EMAILS=""
 ALLOWED_GOOGLE_DOMAINS=""
 USER_PREFS_DYNAMO_TABLE="${USER_PREFS_DYNAMO_TABLE:-${NAME}-user-preferences}"
+EVENT_RADIO_QUEUE_NAME="${EVENT_RADIO_QUEUE_NAME:-tmux-mobile-event-radio}"
+EVENT_RADIO_DLQ_NAME="${EVENT_RADIO_DLQ_NAME:-tmux-mobile-event-radio-dlq}"
+EVENT_RADIO_MESSAGE_RETENTION_SECONDS=1209600
+EVENT_RADIO_RECEIVE_WAIT_SECONDS=20
+EVENT_RADIO_VISIBILITY_TIMEOUT_SECONDS=300
+EVENT_RADIO_MAX_RECEIVE_COUNT=5
 
 # ---------------------- bootstrap ----------------------
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -303,6 +309,100 @@ else
   note "exists  $TASK_ROLE_ARN"
 fi
 state_set TASK_ROLE_ARN "$TASK_ROLE_ARN"
+
+# ---------------------- SQS event radio ----------------------
+section "SQS event radio"
+
+# Create the dead-letter queue first so its ARN can be embedded in the main
+# queue's redrive policy. Reconcile attributes on every run as create-queue
+# returns the existing queue unchanged when one already exists.
+EVENT_RADIO_DLQ_URL="$(aws sqs get-queue-url --region "$AWS_REGION" \
+  --queue-name "$EVENT_RADIO_DLQ_NAME" \
+  --query 'QueueUrl' --output text 2>/dev/null || true)"
+if [[ -z "$EVENT_RADIO_DLQ_URL" || "$EVENT_RADIO_DLQ_URL" == "None" ]]; then
+  EVENT_RADIO_DLQ_URL="$(aws_run sqs create-queue --region "$AWS_REGION" \
+    --queue-name "$EVENT_RADIO_DLQ_NAME" \
+    --attributes "MessageRetentionPeriod=$EVENT_RADIO_MESSAGE_RETENTION_SECONDS,ReceiveMessageWaitTimeSeconds=$EVENT_RADIO_RECEIVE_WAIT_SECONDS,VisibilityTimeout=$EVENT_RADIO_VISIBILITY_TIMEOUT_SECONDS,SqsManagedSseEnabled=true" \
+    --tags Project=tmux-mobile,Purpose=event-radio,Role=dead-letter \
+    --query 'QueueUrl' --output text)"
+  note "created $EVENT_RADIO_DLQ_NAME"
+else
+  note "exists  $EVENT_RADIO_DLQ_NAME"
+fi
+aws_run sqs set-queue-attributes --region "$AWS_REGION" \
+  --queue-url "$EVENT_RADIO_DLQ_URL" \
+  --attributes "MessageRetentionPeriod=$EVENT_RADIO_MESSAGE_RETENTION_SECONDS,ReceiveMessageWaitTimeSeconds=$EVENT_RADIO_RECEIVE_WAIT_SECONDS,VisibilityTimeout=$EVENT_RADIO_VISIBILITY_TIMEOUT_SECONDS,SqsManagedSseEnabled=true"
+EVENT_RADIO_DLQ_ARN="$(aws sqs get-queue-attributes --region "$AWS_REGION" \
+  --queue-url "$EVENT_RADIO_DLQ_URL" --attribute-names QueueArn \
+  --query 'Attributes.QueueArn' --output text)"
+state_set EVENT_RADIO_DLQ_NAME "$EVENT_RADIO_DLQ_NAME"
+state_set EVENT_RADIO_DLQ_URL "$EVENT_RADIO_DLQ_URL"
+state_set EVENT_RADIO_DLQ_ARN "$EVENT_RADIO_DLQ_ARN"
+
+EVENT_RADIO_QUEUE_URL="$(aws sqs get-queue-url --region "$AWS_REGION" \
+  --queue-name "$EVENT_RADIO_QUEUE_NAME" \
+  --query 'QueueUrl' --output text 2>/dev/null || true)"
+if [[ -z "$EVENT_RADIO_QUEUE_URL" || "$EVENT_RADIO_QUEUE_URL" == "None" ]]; then
+  EVENT_RADIO_QUEUE_URL="$(aws_run sqs create-queue --region "$AWS_REGION" \
+    --queue-name "$EVENT_RADIO_QUEUE_NAME" \
+    --attributes "MessageRetentionPeriod=$EVENT_RADIO_MESSAGE_RETENTION_SECONDS,ReceiveMessageWaitTimeSeconds=$EVENT_RADIO_RECEIVE_WAIT_SECONDS,VisibilityTimeout=$EVENT_RADIO_VISIBILITY_TIMEOUT_SECONDS,SqsManagedSseEnabled=true" \
+    --tags Project=tmux-mobile,Purpose=event-radio,Role=ingress \
+    --query 'QueueUrl' --output text)"
+  note "created $EVENT_RADIO_QUEUE_NAME"
+else
+  note "exists  $EVENT_RADIO_QUEUE_NAME"
+fi
+EVENT_RADIO_QUEUE_ATTRIBUTES="$(jq -cn \
+  --arg retention "$EVENT_RADIO_MESSAGE_RETENTION_SECONDS" \
+  --arg wait "$EVENT_RADIO_RECEIVE_WAIT_SECONDS" \
+  --arg visibility "$EVENT_RADIO_VISIBILITY_TIMEOUT_SECONDS" \
+  --arg dlqArn "$EVENT_RADIO_DLQ_ARN" \
+  --arg maxReceiveCount "$EVENT_RADIO_MAX_RECEIVE_COUNT" \
+  '{
+    MessageRetentionPeriod: $retention,
+    ReceiveMessageWaitTimeSeconds: $wait,
+    VisibilityTimeout: $visibility,
+    SqsManagedSseEnabled: "true",
+    RedrivePolicy: ({
+      deadLetterTargetArn: $dlqArn,
+      maxReceiveCount: $maxReceiveCount
+    } | tojson)
+  }')"
+aws_run sqs set-queue-attributes --region "$AWS_REGION" \
+  --queue-url "$EVENT_RADIO_QUEUE_URL" \
+  --attributes "$EVENT_RADIO_QUEUE_ATTRIBUTES"
+EVENT_RADIO_QUEUE_ARN="$(aws sqs get-queue-attributes --region "$AWS_REGION" \
+  --queue-url "$EVENT_RADIO_QUEUE_URL" --attribute-names QueueArn \
+  --query 'Attributes.QueueArn' --output text)"
+
+# Restrict the DLQ so only this source queue may use it for redrive.
+EVENT_RADIO_REDRIVE_ALLOW_POLICY="$(jq -cn \
+  --arg sourceQueueArn "$EVENT_RADIO_QUEUE_ARN" \
+  '{
+    RedriveAllowPolicy: ({
+      redrivePermission: "byQueue",
+      sourceQueueArns: [$sourceQueueArn]
+    } | tojson)
+  }')"
+aws_run sqs set-queue-attributes --region "$AWS_REGION" \
+  --queue-url "$EVENT_RADIO_DLQ_URL" \
+  --attributes "$EVENT_RADIO_REDRIVE_ALLOW_POLICY"
+state_set EVENT_RADIO_QUEUE_NAME "$EVENT_RADIO_QUEUE_NAME"
+state_set EVENT_RADIO_QUEUE_URL "$EVENT_RADIO_QUEUE_URL"
+state_set EVENT_RADIO_QUEUE_ARN "$EVENT_RADIO_QUEUE_ARN"
+
+EVENT_RADIO_PUBLISH_POLICY_DOC='{
+  "Version":"2012-10-17",
+  "Statement":[{
+    "Effect":"Allow",
+    "Action":"sqs:SendMessage",
+    "Resource":"'"$EVENT_RADIO_QUEUE_ARN"'"
+  }]
+}'
+aws_run iam put-role-policy --role-name "$TASK_ROLE" \
+  --policy-name tmux-mobile-event-radio-publish \
+  --policy-document "$EVENT_RADIO_PUBLISH_POLICY_DOC" >/dev/null
+note "task role can send messages to $EVENT_RADIO_QUEUE_NAME only"
 
 # ---------------------- DynamoDB user preferences ----------------------
 section "DynamoDB user preferences"

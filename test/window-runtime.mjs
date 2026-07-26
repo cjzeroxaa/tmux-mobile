@@ -17,6 +17,12 @@ const backend = {
         "$1\twork\t2\t0\tcreated\t@2\t1\tshell\t0\t1\t-\tzsh\t/dev/ttys002\t/tmp\t",
       ].join("\n");
     }
+    if (cmd === "list-panes" && args.includes("-a")) {
+      return [
+        "@1\t%1\t0\t1\tcodex\t/repo\t100\t32\tcopy-mode\t123\tCodex pane",
+        "@2\t%2\t0\t1\tzsh\t/tmp\t80\t24\t\t456\tShell pane",
+      ].join("\n");
+    }
     if (cmd === "list-panes") {
       return "%1\t0\t1\tcodex\t/repo\t100\t32\tcopy-mode\t123\tCodex pane";
     }
@@ -76,6 +82,21 @@ assert.equal(surfaces[0].id, "%1");
 assert.equal(surfaces[0].surfaceId, "%1");
 assert.equal(surfaces[0].kind, "tmux-pane");
 assert.equal(surfaces[0].inCopyMode, true);
+
+const allSurfaces = await runtime.listAllWindowSurfaces();
+assert.deepEqual(
+  allSurfaces.map(({ windowId, id, pid }) => ({ windowId, id, pid })),
+  [
+    { windowId: "@1", id: "%1", pid: 123 },
+    { windowId: "@2", id: "%2", pid: 456 },
+  ],
+  "one list-panes -a call returns surfaces for every window",
+);
+assert.deepEqual(
+  calls.at(-1).slice(0, 2),
+  ["list-panes", "-a"],
+  "bulk surface inventory uses one all-windows command",
+);
 
 const captured = await runtime.captureSurface({
   surfaceId: "%1",
