@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import {
   fetchWithTimeout,
+  fetchJsonWithTimeout,
   isTimeoutError,
   DEFAULT_FETCH_TIMEOUT_MS,
 } from "../public/fetch-timeout.js";
@@ -131,6 +132,112 @@ function makeAbortError() {
 {
   assert.ok(DEFAULT_FETCH_TIMEOUT_MS > 15_000, "default deadline is above the server RPC timeout");
   assert.ok(DEFAULT_FETCH_TIMEOUT_MS <= 60_000, "default deadline is bounded");
+}
+
+// ===========================================================================
+// fetchJsonWithTimeout — the deadline must span fetch() AND the body read.
+// ===========================================================================
+
+// A Response whose json() resolves immediately.
+function okJsonResponse(body) {
+  return { ok: true, status: 200, json: async () => body };
+}
+
+// A Response whose HEADERS arrived (fetch resolved) but whose body read hangs
+// until the signal aborts — the exact flaky-network case that wedged the app:
+// the old code cleared its deadline once headers arrived, so response.json()
+// hung forever and api() never settled (Send button stuck disabled).
+function headersThenHangingBodyFetch() {
+  return (_input, init) =>
+    Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () =>
+        new Promise((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) return; // no deadline → truly hangs (the OLD bug)
+          if (signal.aborted) return reject(makeAbortError());
+          signal.addEventListener("abort", () => reject(makeAbortError()));
+        }),
+    });
+}
+
+// --- 6. fetchJsonWithTimeout: happy path returns {response, json} ---
+{
+  const { response, json } = await fetchJsonWithTimeout(
+    "/x",
+    {},
+    {
+      fetchImpl: async () => okJsonResponse({ hello: "world" }),
+      AbortImpl: FakeAbortController,
+      timeoutMs: 50,
+    },
+  );
+  assert.equal(response.ok, true, "response passed through");
+  assert.deepEqual(json, { hello: "world" }, "json body parsed");
+}
+
+// --- 7. ROOT CAUSE: headers arrive but the BODY stalls → still times out ---
+{
+  let threw = null;
+  try {
+    await fetchJsonWithTimeout(
+      "/slowbody",
+      {},
+      {
+        fetchImpl: headersThenHangingBodyFetch(),
+        AbortImpl: FakeAbortController,
+        timeoutMs: 20,
+      },
+    );
+  } catch (error) {
+    threw = error;
+  }
+  assert.ok(threw, "a stalled body read rejects (does not hang forever)");
+  assert.equal(threw.timedOut, true, "stalled body → .timedOut error");
+  assert.equal(threw.status, 0, "timeout error has status 0");
+  assert.ok(isTimeoutError(threw), "isTimeoutError recognizes the body-stall timeout");
+}
+
+// --- 8. fetchJsonWithTimeout: a non-JSON / empty body is not fatal → json=null ---
+{
+  const { response, json } = await fetchJsonWithTimeout(
+    "/empty",
+    {},
+    {
+      fetchImpl: async () => ({
+        ok: false,
+        status: 502,
+        json: async () => {
+          throw new SyntaxError("Unexpected end of JSON input");
+        },
+      }),
+      AbortImpl: FakeAbortController,
+      timeoutMs: 50,
+    },
+  );
+  assert.equal(response.status, 502, "response still available on non-JSON body");
+  assert.equal(json, null, "non-JSON body yields json=null, not a throw");
+}
+
+// --- 9. fetchJsonWithTimeout: timeoutMs:0 disables the deadline (slow upload) ---
+{
+  let settled = "pending";
+  const p = fetchJsonWithTimeout(
+    "/slowbody",
+    {},
+    {
+      fetchImpl: headersThenHangingBodyFetch(),
+      AbortImpl: FakeAbortController,
+      timeoutMs: 0,
+    },
+  ).then(
+    () => (settled = "resolved"),
+    () => (settled = "rejected"),
+  );
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(settled, "pending", "timeoutMs:0 leaves a slow body pending (no deadline)");
+  void p;
 }
 
 console.log("fetch-timeout unit tests passed");

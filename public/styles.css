@@ -1136,6 +1136,19 @@ input {
   height: 44px;
 }
 
+/* Network unreachable: grey + block the action controls so the UI signals
+   "you can't act right now" rather than accepting input that silently fails.
+   Distinct from :disabled's busy `cursor: wait` — this is "unavailable". */
+.input-area.offline .voice-button,
+.input-area.offline .input-submit,
+.input-area.offline .direct-key-picker,
+.input-area.offline .direct-key,
+.input-area.offline .attach-button {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+
 @keyframes listen-glow {
   0%, 100% { box-shadow: 0 0 0 2px rgba(167, 53, 53, 0.16), 0 0 12px rgba(167, 53, 53, 0.18); }
   50% { box-shadow: 0 0 0 2px rgba(167, 53, 53, 0.28), 0 0 22px rgba(167, 53, 53, 0.30); }

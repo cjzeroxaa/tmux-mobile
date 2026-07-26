@@ -9,7 +9,7 @@ import {
   setSnippets as setStoredSnippets,
 } from "./snippets.js";
 import { windowKey, windowStableId, windowDescriptor, windowTitleText, windowHoverDetail, mergeRecent, pruneRecent } from "./window-id.js";
-import { fetchWithTimeout } from "./fetch-timeout.js";
+import { fetchJsonWithTimeout } from "./fetch-timeout.js";
 
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
@@ -387,6 +387,13 @@ const state = {
   knownHostnames: {},
   lines: readPersistedLines(),
   autoRefreshTimer: null,
+  // Client network reachability. Distinct from reconnect-grace (which is about a
+  // MACHINE dropping server-side): this is OUR device having no usable network.
+  // Set from navigator offline/online events AND from repeated request timeouts
+  // (navigator.onLine only means "has a link" — a captive/half-open wifi reports
+  // online while every request stalls). Drives greying-out of the action buttons.
+  networkTrouble: false,
+  networkTroubleReason: "",
   chat: [],
   targetPickerOpen: false,
   directoryPickerOpen: false,
@@ -658,18 +665,35 @@ async function api(path, options = {}) {
     headers["x-mux"] = requestMux;
   }
 
-  // Bound the request (see fetch-timeout.js). Callers streaming large bodies
-  // (uploads, audio) pass timeoutMs: 0 to opt out; on the flaky-network hang
-  // this rejects with a `.timedOut` error the caller can surface + retry
-  // instead of the composer wedging forever.
-  const response = await fetchWithTimeout(
-    path,
-    { cache: "no-store", ...requestOptions, headers },
-    { timeoutMs },
-  );
-  const json = await response.json();
+  // Bound the request (see fetch-timeout.js) across the WHOLE round-trip —
+  // headers AND body. The earlier version bounded only fetch() (headers) and
+  // then read response.json() with no deadline, so a body that stalled after
+  // the headers arrived hung api() forever: the Send button's finally never
+  // ran and it stayed disabled — the "send does nothing" wedge. fetchJson-
+  // WithTimeout keeps the deadline armed until the body is parsed, so any stall
+  // becomes a `.timedOut` error the caller can surface + retry. Callers
+  // streaming large bodies (uploads, audio) pass timeoutMs: 0 to opt out.
+  let response, json;
+  try {
+    ({ response, json } = await fetchJsonWithTimeout(
+      path,
+      { cache: "no-store", ...requestOptions, headers },
+      { timeoutMs },
+    ));
+  } catch (error) {
+    // A deadline timeout on a normal (bounded) request means the network is
+    // unreachable in practice even if navigator.onLine says otherwise — grey
+    // the action buttons. Don't treat opted-out (timeoutMs:0) uploads as a
+    // reachability signal; they can be legitimately slow.
+    if (error && error.timedOut && timeoutMs !== 0) {
+      setNetworkTrouble("Network unreachable — reconnecting…");
+    }
+    throw error;
+  }
+  // A completed round-trip proves we're reachable — clear any greying.
+  clearNetworkTrouble();
   if (!response.ok) {
-    const error = new Error(json.error || `HTTP ${response.status}`);
+    const error = new Error((json && json.error) || `HTTP ${response.status}`);
     error.status = response.status;
     throw error;
   }
@@ -2120,7 +2144,95 @@ async function submitTextComposer(event, { keepFocus = true } = {}) {
     });
   } finally {
     composerSendInFlight = false;
+    // Re-enable Send — unless we're offline, in which case the offline UI keeps
+    // it greyed (applyNetworkTroubleUi is the single authority on that state).
     els.submitText.disabled = false;
+    applyNetworkTroubleUi();
+  }
+}
+
+// --- Client network reachability → grey out action buttons -----------------
+//
+// When the device has no usable network, the controls that make a round-trip
+// (Send, Attach, Dictate, the direct-key buttons) can't do anything — so we
+// grey + disable them instead of accepting input that silently fails. Two
+// signals feed this: the browser's online/offline events, and request timeouts
+// (a captive/half-open wifi reports navigator.onLine=true while every request
+// stalls, so onLine alone is not enough). A successful request clears it.
+
+// The action controls disabled while offline. Voice while RECORDING is left
+// alone (local audio capture works offline; the transcribe upload will surface
+// its own failure), so we only touch the mic when idle.
+function networkActionButtons() {
+  return [
+    els.submitText,
+    els.attachButton,
+    ...document.querySelectorAll("[data-key]"),
+  ].filter(Boolean);
+}
+
+// Reflect state.networkTrouble onto the DOM. Idempotent — safe to call anytime
+// (send finally, online/offline event, api() success/failure).
+function applyNetworkTroubleUi() {
+  const trouble = state.networkTrouble;
+  els.inputArea?.classList.toggle("offline", trouble);
+  for (const btn of networkActionButtons()) {
+    if (trouble) {
+      btn.disabled = true;
+    } else if (btn === els.submitText) {
+      // Only the composer's own in-flight guard may re-disable Send; don't
+      // fight it here.
+      if (!composerSendInFlight) btn.disabled = false;
+    } else {
+      btn.disabled = false;
+    }
+  }
+  // Reuse the reconnect banner strip for the offline notice. Client-offline is
+  // more fundamental than a single machine dropping, so it takes precedence.
+  if (els.reconnectBanner && els.reconnectBannerText) {
+    if (trouble) {
+      els.reconnectBannerText.textContent =
+        state.networkTroubleReason || "You're offline — reconnecting…";
+      els.reconnectBanner.hidden = false;
+    } else if (!inReconnectGrace()) {
+      // Only hide if the machine-reconnect banner isn't the one showing.
+      els.reconnectBanner.hidden = true;
+    }
+  }
+}
+
+function setNetworkTrouble(reason) {
+  const changed = !state.networkTrouble;
+  state.networkTrouble = true;
+  state.networkTroubleReason = reason || "You're offline — reconnecting…";
+  applyNetworkTroubleUi();
+  if (changed) logClientEvent("network_trouble", { reason: state.networkTroubleReason });
+}
+
+function clearNetworkTrouble() {
+  if (!state.networkTrouble) return;
+  state.networkTrouble = false;
+  state.networkTroubleReason = "";
+  applyNetworkTroubleUi();
+  logClientEvent("network_recovered", {});
+}
+
+// navigator.onLine flipping to false is a definitive "no network" — grey out
+// immediately. Flipping to true only means a link exists; let the next real
+// request confirm reachability before clearing (a timeout will re-assert).
+function initNetworkReachability() {
+  if (typeof window === "undefined") return;
+  window.addEventListener("offline", () =>
+    setNetworkTrouble("You're offline — reconnecting…"),
+  );
+  window.addEventListener("online", () => {
+    // Link back; optimistically clear the greying so the user can act, and let
+    // any still-failing request re-assert trouble.
+    clearNetworkTrouble();
+  });
+  // Reflect the initial state at load.
+  if (navigator && navigator.onLine === false) {
+    setNetworkTrouble("You're offline — reconnecting…");
   }
 }
 
@@ -3138,6 +3250,13 @@ const RECONNECT_RETRY_MS = 1000;
 // Show/hide the non-destructive "Reconnecting…" banner over the current view.
 function setReconnectingBanner(show, machineId = "") {
   if (!els.reconnectBanner) return;
+  // Client-offline takes precedence over a single machine's reconnect: if OUR
+  // network is down, keep the offline notice and don't let a machine-drop
+  // message overwrite it or hide it.
+  if (state.networkTrouble) {
+    applyNetworkTroubleUi();
+    return;
+  }
   if (show && els.reconnectBannerText) {
     els.reconnectBannerText.textContent = machineId
       ? `Reconnecting to ${machineLabelFor(machineId)}…`
@@ -6015,6 +6134,10 @@ window.addEventListener("popstate", () => {
 
 renderComposerMode();
 initComposerEditor();
+// Grey out action buttons when the device loses network (offline events +
+// request-timeout signal). Wired before the first refresh so a page opened
+// while already offline greys immediately.
+initNetworkReachability();
 // Start with Read disabled — refreshAgentDetection in loadPanes() will
 // turn it on for Codex/Claude panes once the first window loads.
 renderReadButtonsEnabled();
