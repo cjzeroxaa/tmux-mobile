@@ -2768,6 +2768,7 @@ async function listAgentSessionsForRuntime(
       const lastAssistantTurn = [...turns].reverse().find((t) => t.role === "assistant") || null;
       const lastUserTurn = [...turns].reverse().find((t) => t.role === "user") || null;
       let turn = null;
+      let agentMode = null;
       let waitingForInput = false;
       let waitingConfidence = "";
       try {
@@ -2775,6 +2776,10 @@ async function listAgentSessionsForRuntime(
           await runtime.captureSurface({ surfaceId: pane.id, mode: "screen" }),
         );
         const lines = screen.split("\n");
+        agentMode = detectAgentMode(info.kind, {
+          title: pane.title,
+          paneTail: lines.slice(-28).join("\n"),
+        });
         turn = detectTurn(info.kind, {
           title: pane.title,
           paneTail: lines.slice(-12).join("\n"),
@@ -2816,6 +2821,7 @@ async function listAgentSessionsForRuntime(
         lastRole: lastTurn?.role || "",
         turn: turnState,
         turnConfidence: turn?.confidence || "low",
+        agentMode,
         waitingForInput,
         waitingConfidence,
         // Prefer the agent's pre-slice total (added with the larger 32 MB tail

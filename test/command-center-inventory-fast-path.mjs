@@ -111,7 +111,9 @@ if (tmuxArgs[0] === "-V") {
   const target = tmuxArgs[tmuxArgs.indexOf("-t") + 1];
   process.stdout.write((target === "@2" ? panes[1] : panes[0]) + "\\n");
 } else if (command === "capture-pane") {
-  process.stdout.write("ready\\n");
+  process.stdout.write(
+    "ready\\n  gpt-5.6-terra high · Context 90% left · /repo · gpt-5.6-terra\\n",
+  );
 } else {
   process.stderr.write("unexpected fake tmux call: " + tmuxArgs.join(" ") + "\\n");
   process.exitCode = 2;
@@ -235,7 +237,17 @@ async function runInventory(mode) {
 }
 
 {
-  const { calls } = await runInventory("fast");
+  const { body, calls } = await runInventory("fast");
+  assert.deepEqual(
+    body.agents[0].agentMode,
+    {
+      mode: "fullAccess",
+      label: "Full access",
+      effort: "high",
+      model: "gpt-5.6-terra",
+    },
+    "inventory carries the model and reasoning effort parsed from the pane footer",
+  );
   assert.equal(
     matching(
       calls,
