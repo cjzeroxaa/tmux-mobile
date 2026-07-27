@@ -120,10 +120,21 @@ const PORT = Number(process.env.PORT || 3737);
 // Override with TMUX_MOBILE_APP_TITLE.
 const APP_TITLE = process.env.TMUX_MOBILE_APP_TITLE || "tmux Mobile";
 const APP_REVISION = appRevision(__dirname);
-const ACCESS_CONTROL = readAccessControlFile(
-  process.env.TMUX_MOBILE_ACCESS_CONTROL_FILE ||
-    path.join(__dirname, "config", "access-control.json"),
-);
+// The clone-free Connector bundle is a single-file artifact and never serves
+// browser/controller traffic, so it must not depend on the controller's
+// adjacent deployment config. The controller still fails closed if its real
+// access-control file is missing or invalid.
+const ACCESS_CONTROL =
+  process.env.TMUX_MOBILE_CONNECTOR_BUNDLE === "1"
+    ? Object.freeze({
+        version: 1,
+        machineVisibility: "owner-only",
+        superAdminEmails: Object.freeze([]),
+      })
+    : readAccessControlFile(
+        process.env.TMUX_MOBILE_ACCESS_CONTROL_FILE ||
+          path.join(__dirname, "config", "access-control.json"),
+      );
 const CONNECTOR_VERSION =
   process.env.TMUX_MOBILE_CONNECTOR_VERSION || CONNECTOR_COMPAT_VERSION;
 const DEFAULT_MACHINE_ALIASES = {
