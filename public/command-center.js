@@ -9,6 +9,7 @@ import {
 } from "./command-center-grace.mjs";
 import { filePathFromLocalHref, linkifyEscaped, linkifyFilesEscaped } from "./linkify.js";
 import { renderMarkdown } from "./markdown.js";
+import { compareMachinesByOwnerAndName } from "./machine-order.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
 import { openViewerUrl } from "./viewer-navigation.js";
 import {
@@ -655,20 +656,8 @@ function loadStatusForMachine(machine) {
   return "loaded";
 }
 
-function compareMachineLabel(aLabel, aKey, bLabel, bKey) {
-  const labelOrder = String(aLabel || "").localeCompare(String(bLabel || ""), undefined, {
-    numeric: true,
-    sensitivity: "base",
-  });
-  if (labelOrder !== 0) return labelOrder;
-  return String(aKey || "").localeCompare(String(bKey || ""), undefined, {
-    numeric: true,
-    sensitivity: "base",
-  });
-}
-
 function compareMachines(a, b) {
-  return compareMachineLabel(machineLabel(a), machineKey(a), machineLabel(b), machineKey(b));
+  return compareMachinesByOwnerAndName(a, b);
 }
 
 function inferHomeDirectory(value) {
@@ -707,6 +696,8 @@ function startAgentMachines() {
         id,
         machineId: id,
         hostname: agent.machineHostname || id,
+        ownerId: agent.machineOwnerId || "",
+        ownerEmail: agent.machineOwnerId || "",
         agentCwd: agent.cwd || "",
         mux: agent.machineMux || agent.mux || "",
         muxCommand: agent.machineMuxCommand || agent.muxCommand || "",
@@ -1669,30 +1660,35 @@ function renderFilterRow() {
   row.innerHTML = "";
   // Agentless machines stay visible without adding separate machine cards to
   // the agent feed.
-  const machines = new Map(); // id -> hostname
+  const machines = new Map(); // id -> machine
   for (const machine of state.machines) {
     const id = machineKey(machine);
     if (!id) continue;
-    if (!machines.has(id)) machines.set(id, machineLabel(machine));
+    if (!machines.has(id)) machines.set(id, machine);
   }
   if (machines.size === 0) {
     for (const a of state.agents) {
       const id = agentMachineKey(a);
       if (!id) continue;
-      if (!machines.has(id)) machines.set(id, a.machineHostname || id);
+      if (!machines.has(id)) {
+        machines.set(id, {
+          id,
+          hostname: a.machineHostname || id,
+          ownerEmail: a.machineOwnerId || "",
+        });
+      }
     }
   }
   if (machines.size > 0) {
     const sep = document.createElement("span");
     sep.className = "cc-filter-sep";
     row.append(sep);
-    const sortedMachines = [...machines].sort(([aId, aLabel], [bId, bLabel]) =>
-      compareMachineLabel(aLabel, aId, bLabel, bId),
-    );
-    for (const [id, hostname] of sortedMachines) {
+    const sortedMachines = [...machines.values()].sort(compareMachines);
+    for (const machine of sortedMachines) {
+      const id = machineKey(machine);
       const active = state.filterMachines.has(id);
       row.append(chipButton({
-        label: hostname,
+        label: machineLabel(machine),
         active,
         kind: "machine",
         value: id,
