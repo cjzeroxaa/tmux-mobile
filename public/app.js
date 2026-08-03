@@ -681,16 +681,18 @@ async function api(path, options = {}) {
       { timeoutMs },
     ));
   } catch (error) {
-    // A deadline timeout on a normal (bounded) request means the network is
-    // unreachable in practice even if navigator.onLine says otherwise — grey
-    // the action buttons. Don't treat opted-out (timeoutMs:0) uploads as a
-    // reachability signal; they can be legitimately slow.
-    if (error && error.timedOut && timeoutMs !== 0) {
-      setNetworkTrouble("Network unreachable — reconnecting…");
-    }
+    // NOTE: a timeout here does NOT grey the Send button. api() is used by
+    // background POLLS (window-metadata, attention) that fire every few
+    // seconds; on a flaky connection a poll can stall while the send path is
+    // perfectly fine. Greying Send off a poll timeout made the button look
+    // dead ("tap Send, nothing happens") and — worse — blocked the one action
+    // that would have worked. Button-greying is now driven ONLY by a genuine
+    // navigator offline event and by an actual SEND failure (see
+    // submitTextComposer). We still rethrow so the caller can surface/retry.
     throw error;
   }
-  // A completed round-trip proves we're reachable — clear any greying.
+  // A completed round-trip proves we're reachable — clear any greying so a
+  // stale "offline" state doesn't linger once connectivity is back.
   clearNetworkTrouble();
   if (!response.ok) {
     const error = new Error((json && json.error) || `HTTP ${response.status}`);
@@ -2142,6 +2144,14 @@ async function submitTextComposer(event, { keepFocus = true } = {}) {
       timedOut: Boolean(error.timedOut),
       message: String(error.message || "").slice(0, 200),
     });
+    // Grey the action buttons ONLY when an actual SEND timed out (the request
+    // never reached the server). This is the real "you can't send right now"
+    // signal — unlike a background poll timeout, which no longer greys anything.
+    // A plain HTTP error (server reached, returned non-2xx) is not a reachability
+    // problem, so don't grey on those.
+    if (error && error.timedOut) {
+      setNetworkTrouble("Network unreachable — reconnecting…");
+    }
   } finally {
     composerSendInFlight = false;
     // Re-enable Send — unless we're offline, in which case the offline UI keeps
