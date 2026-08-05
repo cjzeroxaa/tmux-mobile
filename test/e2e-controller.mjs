@@ -397,6 +397,30 @@ async function exerciseTmux(baseUrl, cookie, email, machineId) {
     assert.match(capture.text, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   });
 
+  // "Report a problem" feedback endpoint: an authenticated report is accepted;
+  // an unauthenticated one is rejected (it lives behind the browser-auth gate).
+  const feedbackAck = await requestJson(baseUrl, "/api/feedback", {
+    cookie,
+    machineId,
+    body: {
+      note: "e2e: send button did nothing",
+      at: new Date().toISOString(),
+      pageUptimeMs: 1234,
+      composer: { sendInFlight: false, submitDisabled: true, textLen: 12 },
+      network: { onLine: true, networkTrouble: false },
+      selection: { paneId: panes[0].id },
+      env: { userAgent: "e2e" },
+      recentApiCalls: [{ t: 1, path: "/api/send", method: "POST", status: 200, ms: 5, ok: true }],
+      recentClientEvents: [{ t: 2, event: "send_click", details: {} }],
+    },
+  });
+  assert.equal(feedbackAck.ok, true, "authenticated feedback report is accepted");
+  await requestJson(baseUrl, "/api/feedback", {
+    machineId,
+    body: { note: "unauth" },
+    status: 401,
+  });
+
   const finalWindows = await requestJson(
     baseUrl,
     `/api/windows?sessionId=${encodeURIComponent(session.id)}`,
