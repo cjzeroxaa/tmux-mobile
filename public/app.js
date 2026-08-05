@@ -580,6 +580,13 @@ const els = {
   newBranchCommand: document.querySelector("#newBranchCommand"),
   newBranchStatus: document.querySelector("#newBranchStatus"),
   confirmNewBranch: document.querySelector("#confirmNewBranch"),
+  reportProblem: document.querySelector("#reportProblem"),
+  reportSheet: document.querySelector("#reportSheet"),
+  reportBackdrop: document.querySelector("#reportBackdrop"),
+  closeReport: document.querySelector("#closeReport"),
+  reportNote: document.querySelector("#reportNote"),
+  reportStatus: document.querySelector("#reportStatus"),
+  confirmReport: document.querySelector("#confirmReport"),
   lineCount: document.querySelector("#lineCount"),
   snapshotNote: document.querySelector("#snapshotNote"),
   autoRefresh: document.querySelector("#autoRefresh"),
@@ -648,6 +655,33 @@ const els = {
   speakWindow: document.querySelector("#speakWindow"),
 };
 
+// --- Diagnostic ring buffers -------------------------------------------------
+//
+// A "Report a problem" tap (More menu) captures not just the instantaneous
+// state but the recent HISTORY leading up to it — the sequence is usually the
+// smoking gun for an intermittent freeze (a poll storm, a stuck flag, a series
+// of timeouts). These are tiny in-memory rings; nothing is persisted or sent
+// until the user explicitly reports.
+const RECENT_API_MAX = 24;
+const RECENT_EVENT_MAX = 40;
+const recentApiCalls = []; // {t, path, method, status, ms, ok, err}
+const recentClientEvents = []; // {t, event, details}
+
+function ringPush(arr, item, max) {
+  arr.push(item);
+  if (arr.length > max) arr.splice(0, arr.length - max);
+}
+
+// Short relative timestamp (ms since page load) — no wall clock, avoids TZ noise
+// and keeps the report compact. pageLoadedAt is set once at startup.
+const pageLoadedAt =
+  typeof performance !== "undefined" && performance.now ? performance.now() : 0;
+function relNow() {
+  const now =
+    typeof performance !== "undefined" && performance.now ? performance.now() : 0;
+  return Math.round(now - pageLoadedAt);
+}
+
 async function api(path, options = {}) {
   const { machineId: _machineId, mux, timeoutMs, ...requestOptions } = options;
   const headers = { ...(requestOptions.headers || {}) };
@@ -666,13 +700,19 @@ async function api(path, options = {}) {
   }
 
   // Bound the request (see fetch-timeout.js) across the WHOLE round-trip —
-  // headers AND body. The earlier version bounded only fetch() (headers) and
-  // then read response.json() with no deadline, so a body that stalled after
-  // the headers arrived hung api() forever: the Send button's finally never
-  // ran and it stayed disabled — the "send does nothing" wedge. fetchJson-
-  // WithTimeout keeps the deadline armed until the body is parsed, so any stall
-  // becomes a `.timedOut` error the caller can surface + retry. Callers
-  // streaming large bodies (uploads, audio) pass timeoutMs: 0 to opt out.
+  // headers AND body — AND record every outcome into the diagnostic ring so a
+  // "Report a problem" tap shows what happened just before it. Only the
+  // pathname/method/status/latency are stored (no query strings / bodies), so
+  // it stays small and non-sensitive.
+  const startedAt = relNow();
+  const method = String(requestOptions.method || "GET").toUpperCase();
+  const shortPath = (() => {
+    try {
+      return new URL(path, window.location.origin).pathname;
+    } catch {
+      return String(path).split("?")[0];
+    }
+  })();
   let response, json;
   try {
     ({ response, json } = await fetchJsonWithTimeout(
@@ -681,6 +721,12 @@ async function api(path, options = {}) {
       { timeoutMs },
     ));
   } catch (error) {
+    // Record the failed attempt (timeout / network abort → status 0).
+    ringPush(
+      recentApiCalls,
+      { t: startedAt, path: shortPath, method, status: error && error.status ? error.status : 0, ms: relNow() - startedAt, ok: false, err: String((error && (error.timedOut ? "timeout" : error.name)) || "error") },
+      RECENT_API_MAX,
+    );
     // NOTE: a timeout here does NOT grey the Send button. api() is used by
     // background POLLS (window-metadata, attention) that fire every few
     // seconds; on a flaky connection a poll can stall while the send path is
@@ -691,6 +737,11 @@ async function api(path, options = {}) {
     // submitTextComposer). We still rethrow so the caller can surface/retry.
     throw error;
   }
+  ringPush(
+    recentApiCalls,
+    { t: startedAt, path: shortPath, method, status: response.status, ms: relNow() - startedAt, ok: response.ok },
+    RECENT_API_MAX,
+  );
   // A completed round-trip proves we're reachable — clear any greying so a
   // stale "offline" state doesn't linger once connectivity is back.
   clearNetworkTrouble();
@@ -721,6 +772,8 @@ function shouldAttachMachineHeader(path, method) {
 }
 
 function logClientEvent(event, details = {}) {
+  // Mirror into the ring so a feedback report includes the recent event trail.
+  ringPush(recentClientEvents, { t: relNow(), event, details }, RECENT_EVENT_MAX);
   const headers = { "content-type": "application/json" };
   if (state.machineId) headers["x-machine-id"] = state.machineId;
   fetch("/api/client-log", {
@@ -728,6 +781,100 @@ function logClientEvent(event, details = {}) {
     headers,
     body: JSON.stringify({ event, details }),
   }).catch(() => {});
+}
+
+// --- "Report a problem" feedback capture -------------------------------------
+//
+// Snapshot rich client context + the recent-activity rings and POST it to the
+// controller so it lands in the logs for analysis. Built for the intermittent
+// "send button doesn't respond" report: capture EVERYTHING that could explain a
+// frozen composer without needing the user to describe it. No secrets: no
+// composer TEXT (only its length), no tokens, no query strings.
+function captureFeedbackContext(note) {
+  const conn =
+    (typeof navigator !== "undefined" && navigator.connection) || null;
+  let composerLen = 0;
+  try {
+    composerLen = (composerGetText() || "").length;
+  } catch {}
+  return {
+    note: String(note || "").slice(0, 500),
+    at: new Date().toISOString(),
+    pageUptimeMs: relNow(),
+    revision: state.serverRevision || null,
+    // Composer / send path — the prime suspects for a frozen Send button.
+    composer: {
+      sendInFlight: Boolean(
+        typeof composerSendInFlight !== "undefined" && composerSendInFlight,
+      ),
+      submitDisabled: Boolean(els.submitText && els.submitText.disabled),
+      textLen: composerLen,
+      lexicalLoaded: Boolean(
+        typeof composerEditor !== "undefined" && composerEditor,
+      ),
+      metadataInFlight: Boolean(
+        typeof metadataLoadInFlight !== "undefined" && metadataLoadInFlight,
+      ),
+      attentionInFlight: Boolean(
+        typeof attentionLoadInFlight !== "undefined" && attentionLoadInFlight,
+      ),
+    },
+    // Network / reachability.
+    network: {
+      onLine: typeof navigator !== "undefined" ? navigator.onLine : null,
+      networkTrouble: Boolean(state.networkTrouble),
+      networkTroubleReason: state.networkTroubleReason || "",
+      inReconnectGrace:
+        typeof inReconnectGrace === "function" ? inReconnectGrace() : null,
+      effectiveType: conn ? conn.effectiveType : null,
+      downlink: conn ? conn.downlink : null,
+      rtt: conn ? conn.rtt : null,
+    },
+    // Current selection / routing.
+    selection: {
+      machineId: state.machineId || "",
+      sessionId: state.sessionId || "",
+      paneId: state.paneId || "",
+      windowId: state.windowId || "",
+      runtimeMode: state.runtimeMode || "",
+      mux: state.mux || "",
+      machineCount: Array.isArray(state.machines) ? state.machines.length : 0,
+    },
+    // Environment.
+    env: {
+      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+      standalone:
+        typeof window !== "undefined" && window.matchMedia
+          ? window.matchMedia("(display-mode: standalone)").matches
+          : null,
+      visibility:
+        typeof document !== "undefined" ? document.visibilityState : "",
+      viewport:
+        typeof window !== "undefined"
+          ? `${window.innerWidth}x${window.innerHeight}`
+          : "",
+    },
+    // Recent activity leading up to the report — usually the smoking gun.
+    recentApiCalls: recentApiCalls.slice(),
+    recentClientEvents: recentClientEvents.slice(),
+  };
+}
+
+async function submitFeedbackReport(note) {
+  const report = captureFeedbackContext(note);
+  const headers = { "content-type": "application/json" };
+  if (state.machineId) headers["x-machine-id"] = state.machineId;
+  // Best-effort; the endpoint just logs it. Return ok so the UI can confirm.
+  try {
+    const res = await fetch("/api/feedback", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(report),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 function selectedSession() {
@@ -5745,6 +5892,44 @@ if (els.newBranchWindow) {
   els.newBranchBackdrop.addEventListener("click", closeNewBranchSheet);
   els.newBranchName.addEventListener("keydown", (event) => {
     if (event.key === "Enter") confirmNewBranch();
+  });
+}
+
+// --- "Report a problem" sheet wiring ---------------------------------------
+function openReportSheet() {
+  setMoreActionsOpen(false);
+  if (!els.reportSheet) return;
+  els.reportNote.value = "";
+  els.reportStatus.textContent = "";
+  els.reportStatus.classList.remove("error");
+  els.confirmReport.disabled = false;
+  els.reportSheet.hidden = false;
+  els.reportNote.focus();
+}
+function closeReportSheet() {
+  if (els.reportSheet) els.reportSheet.hidden = true;
+}
+async function sendReport() {
+  els.confirmReport.disabled = true;
+  els.reportStatus.classList.remove("error");
+  els.reportStatus.textContent = "Sending…";
+  const ok = await submitFeedbackReport(els.reportNote.value);
+  if (ok) {
+    els.reportStatus.textContent = "Report sent — thank you.";
+    window.setTimeout(closeReportSheet, 1200);
+  } else {
+    els.reportStatus.textContent = "Could not send — check your connection and retry.";
+    els.reportStatus.classList.add("error");
+    els.confirmReport.disabled = false;
+  }
+}
+if (els.reportProblem) {
+  els.reportProblem.addEventListener("click", openReportSheet);
+  els.confirmReport.addEventListener("click", sendReport);
+  els.closeReport.addEventListener("click", closeReportSheet);
+  els.reportBackdrop.addEventListener("click", closeReportSheet);
+  els.reportNote.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") sendReport();
   });
 }
 els.duplicateCommand.addEventListener("keydown", (event) => {
