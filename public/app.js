@@ -2252,6 +2252,25 @@ let composerSendInFlight = false;
 
 async function submitTextComposer(event, { keepFocus = true } = {}) {
   event?.preventDefault();
+  // Permanent lightweight telemetry: record which branch a submit takes so a
+  // "Report a problem" capture shows what happened when "tap Send did nothing".
+  // The silent early-returns below (in-flight guard, empty-text, no-pane) all
+  // look identical to the user — a dead button — so log the branch + the inputs
+  // that decided it. This is the send-side counterpart to the api() ring.
+  {
+    const _t = composerGetText();
+    let _branch = "proceed";
+    if (composerSendInFlight) _branch = "inflight";
+    else if (!_t.trim()) _branch = "empty-text";
+    else if (!state.paneId) _branch = "no-pane";
+    logClientEvent("send_attempt", {
+      branch: _branch,
+      via: event?.type || "programmatic",
+      len: _t.length,
+      lexical: Boolean(composerEditor),
+      disabled: Boolean(els.submitText && els.submitText.disabled),
+    });
+  }
   if (composerSendInFlight) return; // a send is already running — ignore re-entry
   const text = composerGetText();
   if (!text.trim()) {
@@ -6166,9 +6185,20 @@ if (els.attachButton && els.fileInput) {
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
 // Submit: send the box contents to the pane.
 // Send button = explicit "done": submit and hide the virtual keyboard.
-els.submitText.addEventListener("click", (event) =>
-  submitTextComposer(event, { keepFocus: false }),
-);
+els.submitText.addEventListener("click", (event) => {
+  // Permanent telemetry (see submitTextComposer): prove the CLICK reaches the
+  // handler. If a feedback report shows send_pointerup but no send_click, the
+  // tap is being swallowed between pointerup and click (an iOS WebKit hazard);
+  // if it shows send_click but no send_attempt, dispatch broke; if all three
+  // fire with branch=proceed but nothing sends, it's downstream.
+  logClientEvent("send_click", {
+    disabled: Boolean(els.submitText.disabled),
+  });
+  submitTextComposer(event, { keepFocus: false });
+});
+els.submitText.addEventListener("pointerup", () => {
+  logClientEvent("send_pointerup", {});
+});
 els.clearText?.addEventListener("click", () => {
   composerClear();
   composerFocus();
