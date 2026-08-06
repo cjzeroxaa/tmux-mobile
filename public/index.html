@@ -78,6 +78,14 @@
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="13" height="13" x="9" y="9" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               <span data-copy-label>Copy window id</span>
             </button>
+            <!-- One-tap bug report: snapshots client state + recent activity
+                 (send flags, network, selection, env, last api calls/events) and
+                 sends it to the controller logs for analysis. For intermittent
+                 issues like "send button didn't respond". -->
+            <button id="reportProblem" class="more-actions-item" type="button" role="menuitem" title="Send a diagnostic report to help debug an issue you just hit">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span>Report a problem</span>
+            </button>
             <button id="renameWindow" class="more-actions-item" type="button" role="menuitem">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
               <span>Rename window</span>
@@ -588,6 +596,28 @@
         <div class="settings-actions">
           <span id="newBranchStatus" class="settings-status" role="status" aria-live="polite"></span>
           <button id="confirmNewBranch" class="small-button submit" type="button">Create</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- "Report a problem" sheet (More -> Report a problem). One tap captures a
+         diagnostic snapshot + recent activity and sends it to the controller
+         logs. The note is optional; the useful data is auto-collected. -->
+    <div id="reportSheet" class="settings-sheet" hidden>
+      <button id="reportBackdrop" class="settings-backdrop" type="button" aria-label="Cancel report"></button>
+      <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
+        <div class="settings-panel-header">
+          <h2 id="reportTitle">Report a problem</h2>
+          <button id="closeReport" class="icon-button" type="button" title="Cancel">X</button>
+        </div>
+        <p class="settings-hint">Sends a diagnostic snapshot (current state + the last few actions — no message text, no credentials) so the issue can be analyzed. Add a note if you like, then tap Send. Best used right after something goes wrong (e.g. the send button didn't respond).</p>
+        <label class="settings-field">
+          <span>What happened? (optional)</span>
+          <input id="reportNote" type="text" autocomplete="off" autocapitalize="sentences" autocorrect="on" spellcheck="true" placeholder="e.g. tapped Send, nothing happened" />
+        </label>
+        <div class="settings-actions">
+          <span id="reportStatus" class="settings-status" role="status" aria-live="polite"></span>
+          <button id="confirmReport" class="small-button submit" type="button">Send report</button>
         </div>
       </section>
     </div>
