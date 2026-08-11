@@ -2284,37 +2284,50 @@ async function submitTextComposer(event, { keepFocus = true } = {}) {
 
   // Clear the box. Enter-to-send keeps focus (you're mid-flow typing); tapping
   // the Send button is an explicit "done" → blur so the virtual keyboard hides.
+  //
+  // HARDENING: these UI steps call Lexical editor.update()/blur() and localStorage
+  // (composerClear/composerBlur/pushComposerHistory), any of which can THROW on
+  // iOS WebKit. Before, a throw HERE (outside the try below) escaped uncaught —
+  // the send never fired, no send_failed logged, and it looked like "tap Send did
+  // nothing". Diagnosed from a feedback report: send reached branch=proceed but
+  // /api/send was never issued and no send_failed fired. So we wrap each UI step:
+  // a decorative failure (clearing/blurring/history) must NEVER block the send.
   composerSendInFlight = true;
-  composerClear();
-  if (keepFocus) composerFocus();
-  else composerBlur();
-  els.submitText.disabled = true;
-  // Remember what was sent so it shows under "Recent" in the Insert picker.
-  pushComposerHistory(text);
+  const step = (label, fn) => {
+    try {
+      fn();
+    } catch (uiError) {
+      logClientEvent("send_ui_step_failed", {
+        step: label,
+        message: String((uiError && uiError.message) || uiError || "").slice(0, 200),
+      });
+    }
+  };
+  step("clear", () => composerClear());
+  step("blurfocus", () => (keepFocus ? composerFocus() : composerBlur()));
+  step("disable", () => {
+    els.submitText.disabled = true;
+  });
+  step("history", () => pushComposerHistory(text));
   try {
     await sendMessage(text, true);
   } catch (error) {
-    // Optimistic clear is great on the happy path, but if the send actually
-    // failed the user has lost their text. Put it back in the composer so
-    // they can fix-and-retry without re-typing, and re-focus so the keyboard
-    // pops back up on mobile. The error chat row + box-still-has-the-text
-    // is the unambiguous "submit didn't go through" signal.
-    composerSetText(text);
-    composerFocus();
-    addChat("system", `Send failed: ${error.message}`, "send error");
-    // Surface it server-side too — send failures were previously invisible in
-    // the controller logs (they only showed in the client chat), so a slow-
-    // network "Send did nothing" was undiagnosable after the fact.
+    // Log the failure FIRST, before any recovery step that could itself throw
+    // (composerSetText restores text via Lexical editor.update, which can throw
+    // on iOS WebKit — if it did, it used to swallow this send_failed entirely).
     logClientEvent("send_failed", {
       status: error.status ?? null,
       timedOut: Boolean(error.timedOut),
       message: String(error.message || "").slice(0, 200),
     });
-    // Grey the action buttons ONLY when an actual SEND timed out (the request
-    // never reached the server). This is the real "you can't send right now"
-    // signal — unlike a background poll timeout, which no longer greys anything.
-    // A plain HTTP error (server reached, returned non-2xx) is not a reachability
-    // problem, so don't grey on those.
+    // Now recover the UI, each step guarded so one failure can't abort the rest:
+    // put the text back (the send failed — don't lose it), re-focus, and show the
+    // error row. box-still-has-the-text is the "submit didn't go through" signal.
+    step("restore-text", () => composerSetText(text));
+    step("restore-focus", () => composerFocus());
+    step("error-row", () => addChat("system", `Send failed: ${error.message}`, "send error"));
+    // Grey the action buttons ONLY when an actual SEND timed out (request never
+    // reached the server) — not on a plain HTTP error (server reached, non-2xx).
     if (error && error.timedOut) {
       setNetworkTrouble("Network unreachable — reconnecting…");
     }
@@ -4791,7 +4804,19 @@ async function sendMessage(text, enter, { submitNudge = false } = {}) {
     return;
   }
 
-  addChat("user", text || "[Enter]", enter ? "send + Enter" : "send");
+  // The chat echo is decorative — it must not be able to block the actual send.
+  // addChat() touches localStorage (saveChat) + renders, either of which can
+  // throw on iOS WebKit (quota / DOM); a throw here used to abort the send
+  // BEFORE api("/api/send") was ever issued, so the request never reached the
+  // server and no send_failed fired — the exact "tap Send does nothing" shape.
+  try {
+    addChat("user", text || "[Enter]", enter ? "send + Enter" : "send");
+  } catch (chatError) {
+    logClientEvent("send_ui_step_failed", {
+      step: "echo",
+      message: String((chatError && chatError.message) || chatError || "").slice(0, 200),
+    });
+  }
   await api("/api/send", {
     method: "POST",
     body: JSON.stringify({ paneId: state.paneId, text, enter, submitNudge }),
