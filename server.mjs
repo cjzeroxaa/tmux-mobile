@@ -2358,10 +2358,19 @@ async function getPaneContext(paneId) {
   return currentWindowRuntime().getSurfaceContext({ surfaceId: paneId });
 }
 
+// Match an executable name in a command line in three shapes: whole token
+// (`/usr/bin/codex`, `codex --flag`), path segment (`…/codex/…`, e.g. the npm
+// install `node …/@openai/codex/dist/cli.js` where the name only survives as
+// the package dir), and filename stem (`…/codex.js`). Bounded by slash /
+// whitespace / extension so `codex-cli`, `codextools/`, `codex-notes.md` do NOT
+// match. Kept in sync with the twin in lib/backend.mjs.
 function commandHasExecutable(command, executable) {
-  const escaped = executable.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`(^|[\\s/])${escaped}([\\s]|$)`, "i");
-  return pattern.test(String(command || ""));
+  const cmd = String(command || "");
+  const esc = executable.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const asToken = new RegExp(`(^|[\\s/])${esc}([\\s]|$)`, "i");
+  const asSegment = new RegExp(`[\\s/]${esc}/`, "i");
+  const asFile = new RegExp(`(^|[\\s/])${esc}\\.(?:c|m)?js([\\s]|$)`, "i");
+  return asToken.test(cmd) || asSegment.test(cmd) || asFile.test(cmd);
 }
 
 function detectForkableAgent(pane, processes) {

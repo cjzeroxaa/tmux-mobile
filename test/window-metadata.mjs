@@ -48,6 +48,24 @@ assert.equal(detectAgentFromCommandLine("node /usr/bin/claude"), "claude");
 assert.equal(detectAgentFromCommandLine("/usr/bin/gemini chat"), "gemini");
 assert.equal(detectAgentFromCommandLine("node server.mjs --foo"), null);
 assert.equal(detectAgentFromCommandLine("vim --codex-notes"), null); // flag, not a basename
+// Regression (2026-08-18 user report "codex session recognized as just node"):
+// the modern npm install runs `node <pkg>/…/cli.js`, so the basename is `cli`
+// and `codex` only survives as the PACKAGE DIRECTORY. Detect it via the path
+// segment — otherwise the session is mislabeled "node" and Codex UI is hidden.
+assert.equal(
+  detectAgentFromCommandLine("node /home/u/.nvm/versions/node/v22/lib/node_modules/@openai/codex/dist/cli.js"),
+  "codex",
+  "codex via @openai/codex package path with cli.js entry",
+);
+assert.equal(
+  detectAgentFromCommandLine("node --experimental-vm-modules /opt/@openai/codex/cli.js chat"),
+  "codex",
+  "codex package path with extra interpreter flags",
+);
+// The path-segment fallback must stay bounded — these must NOT be codex:
+assert.equal(detectAgentFromCommandLine("node /home/u/codex-cli/index.js"), null, "codex-cli dir is not codex");
+assert.equal(detectAgentFromCommandLine("node /home/u/codextools/app.js"), null, "codextools dir is not codex");
+assert.equal(detectAgentFromCommandLine("vim /home/u/notes/codex-ideas.md"), null, "codex-ideas file is not codex");
 assert.equal(
   detectCommandCenterAgentType(["bash", "/home/homo/.local/bin/codex --dangerously-bypass-approvals-and-sandbox"]),
   "codex",
