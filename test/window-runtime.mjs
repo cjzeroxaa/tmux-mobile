@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   createTmuxWindowRuntime,
   createWindowRuntime,
+  defaultDuplicateCommand,
 } from "../lib/window-runtime.mjs";
 
 const calls = [];
@@ -155,5 +156,49 @@ await assert.rejects(
   /Connector is out of date/,
   "large text needs the new load-buffer connector path",
 );
+
+// --- defaultDuplicateCommand: what the Duplicate dialog prefills ---
+// The raw pane_start_command of an agent is the full launch line (flags, a
+// --settings JSON blob, an inline multi-KB task prompt, attached upload paths).
+// Duplicating an agent window should prefill the BARE agent, not that wall of
+// text (user report 2026-08-19: "Duplicate a codex window shows like
+// /tmp/tmux-mobile-uploads/IMG_1113.jpeg — that's not helpful").
+assert.equal(defaultDuplicateCommand("codex"), "codex", "bare codex stays codex");
+assert.equal(defaultDuplicateCommand("claude"), "claude", "bare claude stays claude");
+assert.equal(
+  defaultDuplicateCommand(
+    "claude '--model' 'opus' '--dangerously-skip-permissions' '--settings' '{\"hooks\":{}}' '# Task: do a very long thing ...'",
+  ),
+  "claude",
+  "full claude launch line collapses to the bare agent",
+);
+assert.equal(
+  defaultDuplicateCommand("codex --yolo /tmp/tmux-mobile-uploads/IMG_1113.jpeg"),
+  "codex",
+  "codex with an attached upload path collapses to bare codex",
+);
+assert.equal(
+  defaultDuplicateCommand("node /usr/bin/codex --resume"),
+  "codex",
+  "interpreter-launched codex collapses to the agent name",
+);
+assert.equal(
+  defaultDuplicateCommand("npm run dev"),
+  "npm run dev",
+  "a non-agent command is left intact",
+);
+assert.equal(
+  defaultDuplicateCommand("vim /tmp/tmux-mobile-uploads/IMG_1113.jpeg notes.md"),
+  "vim notes.md",
+  "a non-agent command only loses its transient upload-path argument",
+);
+// A stray agent name inside a non-agent command's arguments must NOT trigger a
+// collapse — detection is anchored to the launched program, not the whole line.
+assert.equal(
+  defaultDuplicateCommand("grep claude ./notes.md"),
+  "grep claude ./notes.md",
+  "an agent word in args does not collapse a non-agent command",
+);
+assert.equal(defaultDuplicateCommand(""), "", "empty stays empty");
 
 console.log("window-runtime unit tests passed");
