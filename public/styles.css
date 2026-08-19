@@ -1693,12 +1693,6 @@ input {
   display: none;
 }
 
-.follow-latest-button {
-  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
-  color: var(--accent-dark);
-}
-
 .toolbar #fullscreenSnapshot {
   margin-left: auto;
 }

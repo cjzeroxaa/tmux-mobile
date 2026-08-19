@@ -1,7 +1,6 @@
 import { escapeHtml, filePathFromLocalHref, linkifyEscaped } from "./linkify.js";
 import { playNotifySound, shouldChime } from "./notify-sound.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
-import { nextSnapshotFollowState } from "./snapshot-follow.js";
 import { openViewerUrl } from "./viewer-navigation.js";
 import {
   getSnippets as getStoredSnippets,
@@ -11,6 +10,7 @@ import {
 } from "./snippets.js";
 import { windowKey, windowStableId, windowDescriptor, windowTitleText, windowHoverDetail, mergeRecent, pruneRecent } from "./window-id.js";
 
+const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
 const WAVEFORM_SAMPLE_INTERVAL_MS = 200;
 
@@ -391,7 +391,7 @@ const state = {
   directoryPickerOpen: false,
   actionsOpen: false,
   snapshotFullscreen: false,
-  snapshotFollowEnabled: true,
+  snapshotPinnedToBottom: true,
   pendingSnapshotText: null,
   snapshotText: null,
   viewLoadGeneration: 0,
@@ -541,7 +541,6 @@ const els = {
   agentTranscriptMeta: document.querySelector("#agentTranscriptMeta"),
   agentTranscriptBody: document.querySelector("#agentTranscriptBody"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
-  followLatest: document.querySelector("#followLatest"),
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
   fullscreenRead: document.querySelector("#fullscreenRead"),
   paneInput: document.querySelector("#paneInput"),
@@ -2815,53 +2814,17 @@ function excerptForChat(text) {
   return `${trimmed.slice(-4500)}\n\n[showing last 4500 chars]`;
 }
 
-let snapshotProgrammaticScrollGeneration = 0;
-let snapshotProgrammaticScrollActive = false;
-
-function snapshotDistanceFromBottom() {
-  return Math.max(
-    0,
-    els.snapshot.scrollHeight - els.snapshot.scrollTop - els.snapshot.clientHeight,
-  );
-}
-
-function renderSnapshotFollow() {
-  if (!els.followLatest) return;
-  els.followLatest.hidden = state.snapshotFollowEnabled;
-  els.followLatest.setAttribute("aria-pressed", String(state.snapshotFollowEnabled));
-}
-
-function setSnapshotFollowEnabled(enabled) {
-  state.snapshotFollowEnabled = Boolean(enabled);
-  renderSnapshotFollow();
-}
-
-// Scroll events fire for our own scrollTop writes and for DOM/layout changes.
-// Keep those events from being mistaken for a change in user intent. Two
-// animation frames cover the scroll event dispatched after layout/paint.
-function suppressProgrammaticSnapshotScroll() {
-  const generation = ++snapshotProgrammaticScrollGeneration;
-  snapshotProgrammaticScrollActive = true;
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      if (snapshotProgrammaticScrollGeneration === generation) {
-        snapshotProgrammaticScrollActive = false;
-      }
-    });
-  });
-}
-
-function markSnapshotUserScrollIntent() {
-  snapshotProgrammaticScrollGeneration += 1;
-  snapshotProgrammaticScrollActive = false;
-}
-
-function scrollSnapshotToBottom({ resumeFollow = true } = {}) {
-  if (resumeFollow) setSnapshotFollowEnabled(true);
-  suppressProgrammaticSnapshotScroll();
+function scrollSnapshotToBottom() {
   requestAnimationFrame(() => {
     els.snapshot.scrollTop = els.snapshot.scrollHeight;
+    state.snapshotPinnedToBottom = true;
   });
+}
+
+function isSnapshotAtBottom() {
+  const distanceFromBottom =
+    els.snapshot.scrollHeight - els.snapshot.scrollTop - els.snapshot.clientHeight;
+  return distanceFromBottom <= SNAPSHOT_BOTTOM_SLOP_PX;
 }
 
 // Tango-ish 16-color palette (0-7 normal, 8-15 bright), reads well on the dark
@@ -3047,16 +3010,16 @@ function updateSnapshotText(text, { forceScrollBottom = false } = {}) {
   }
   state.pendingSnapshotText = null;
 
-  if (forceScrollBottom) setSnapshotFollowEnabled(true);
-  const shouldScrollToBottom = forceScrollBottom || state.snapshotFollowEnabled;
+  const shouldScrollToBottom =
+    forceScrollBottom || state.snapshotPinnedToBottom || isSnapshotAtBottom();
   const previousScrollTop = els.snapshot.scrollTop;
 
-  suppressProgrammaticSnapshotScroll();
   els.snapshot.innerHTML = ansiToHtml(text);
 
   requestAnimationFrame(() => {
     if (shouldScrollToBottom) {
       els.snapshot.scrollTop = els.snapshot.scrollHeight;
+      state.snapshotPinnedToBottom = true;
       return;
     }
 
@@ -3065,15 +3028,15 @@ function updateSnapshotText(text, { forceScrollBottom = false } = {}) {
       els.snapshot.scrollHeight - els.snapshot.clientHeight,
     );
     els.snapshot.scrollTop = Math.min(previousScrollTop, maxScrollTop);
+    state.snapshotPinnedToBottom = isSnapshotAtBottom();
   });
 }
 
 function setSnapshotFullscreen(enabled) {
   state.snapshotFullscreen = enabled;
-  suppressProgrammaticSnapshotScroll();
   document.body.classList.toggle("snapshot-fullscreen", enabled);
   els.fullscreenSnapshot.setAttribute("aria-pressed", String(enabled));
-  if (state.snapshotFollowEnabled) scrollSnapshotToBottom({ resumeFollow: false });
+  scrollSnapshotToBottom();
   if (enabled && isWideViewport()) {
     focusPaneInput();
   } else {
@@ -3122,7 +3085,6 @@ function schedulePaneSnapshotRefresh() {
 
 async function sendPaneText(text) {
   if (!state.paneId || !text) return;
-  scrollSnapshotToBottom();
   await api("/api/send", {
     method: "POST",
     body: JSON.stringify({ paneId: state.paneId, text, enter: false }),
@@ -3132,7 +3094,6 @@ async function sendPaneText(text) {
 
 async function sendPaneKey(key) {
   if (!state.paneId) return;
-  scrollSnapshotToBottom();
   await api("/api/key", {
     method: "POST",
     body: JSON.stringify({ paneId: state.paneId, key }),
@@ -4509,7 +4470,6 @@ async function sendMessage(text, enter, { submitNudge = false } = {}) {
     return;
   }
 
-  scrollSnapshotToBottom();
   addChat("user", text || "[Enter]", enter ? "send + Enter" : "send");
   await api("/api/send", {
     method: "POST",
@@ -4523,7 +4483,6 @@ async function sendKey(key) {
     addChat("system", "Select a window first.", "system");
     return;
   }
-  scrollSnapshotToBottom();
   addChat("user", `[${key}]`, "key");
   await api("/api/key", {
     method: "POST",
@@ -5202,9 +5161,7 @@ document.addEventListener("keydown", (event) => {
 // so the user can tap a few times to dial in the right size in one go.
 function applySnapshotFontSize(px) {
   const clamped = clampSnapshotFont(px);
-  suppressProgrammaticSnapshotScroll();
   document.documentElement.style.setProperty("--snapshot-font-size", `${clamped}px`);
-  if (state.snapshotFollowEnabled) scrollSnapshotToBottom({ resumeFollow: false });
   els.fontSizeValue.textContent = String(clamped);
   els.fontSizeDecrease.disabled = clamped <= SNAPSHOT_FONT_MIN;
   els.fontSizeIncrease.disabled = clamped >= SNAPSHOT_FONT_MAX;
@@ -5309,7 +5266,6 @@ document.addEventListener("keydown", (event) => {
   }
 });
 els.refreshSnapshot.addEventListener("click", () => refreshSnapshot());
-els.followLatest.addEventListener("click", () => scrollSnapshotToBottom());
 els.fullscreenSnapshot.addEventListener("click", () => {
   setSnapshotFullscreen(!state.snapshotFullscreen);
 });
@@ -5610,25 +5566,10 @@ els.paneInput.addEventListener("input", () => {
 els.snapshot.addEventListener(
   "scroll",
   () => {
-    const following = nextSnapshotFollowState({
-      following: state.snapshotFollowEnabled,
-      distanceFromBottom: snapshotDistanceFromBottom(),
-      userInitiated: !snapshotProgrammaticScrollActive,
-    });
-    if (following !== state.snapshotFollowEnabled) {
-      setSnapshotFollowEnabled(following);
-    }
+    state.snapshotPinnedToBottom = isSnapshotAtBottom();
   },
   { passive: true },
 );
-els.snapshot.addEventListener("wheel", markSnapshotUserScrollIntent, { passive: true });
-els.snapshot.addEventListener("touchstart", markSnapshotUserScrollIntent, { passive: true });
-els.snapshot.addEventListener("pointerdown", markSnapshotUserScrollIntent, { passive: true });
-els.snapshot.addEventListener("keydown", (event) => {
-  if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) {
-    markSnapshotUserScrollIntent();
-  }
-});
 els.renameWindow.addEventListener("click", renameSelectedWindow);
 els.answerQuestion.addEventListener("click", openAskOverlay);
 els.closeAsk.addEventListener("click", closeAskOverlay);

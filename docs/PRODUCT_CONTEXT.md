@@ -218,11 +218,9 @@ Toolbar:
 Behavior:
 
 - auto-refreshes every **3s**,
-- follows new output while at the live tail and resumes following after sends,
+- auto-scrolls to bottom after sends and refreshes,
 - respects active text selection so copying is not broken by refresh,
-- pauses following only after a deliberate upward scroll, preserves that choice
-  across refreshes/layout changes, and shows a Follow button until the user
-  returns to the bottom,
+- unpins when the user scrolls up,
 - shows a stale indicator when refresh fails,
 - shows a copy/view-mode banner after a short grace period when tmux scrollback is
   active; Exit scroll mode sends input back to the program,
