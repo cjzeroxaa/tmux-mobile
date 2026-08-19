@@ -2395,6 +2395,65 @@ input {
   color: var(--muted);
 }
 
+/* Repo group header (top level of the switcher tree). Slightly stronger than a
+   plain session header — it's the primary grouping now (repo -> dir -> windows).
+   The short repo name (e.g. "kernel") reads as the section title. */
+.window-repo-header {
+  font-size: 12px;
+}
+.window-repo-header.window-repo-none {
+  color: var(--muted);
+  border-bottom-style: dashed;
+}
+
+/* Directory sub-header: the working copy under a repo (its cwd basename), with
+   an optional branch chip. Indented under the repo, quieter than the repo row.
+   Multiple sibling worktrees of one repo appear as sibling directory rows. */
+.window-dir-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 6px 2px 3px 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.window-dir-name {
+  font-weight: 700;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60%;
+}
+.window-dir-branch {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.window-dir-wt {
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+/* Windows are nested one level under their directory. A left rail ties the
+   window rows to the directory they belong to. */
+.window-item-nested {
+  margin-left: 12px;
+  width: calc(100% - 12px);
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+}
+.window-item-nested-row {
+  margin-left: 12px;
+  width: calc(100% - 12px);
+}
+.window-item-nested-row .window-item-nested {
+  margin-left: 0;
+  width: 100%;
+}
+
 /* Per-window follow-up note, shown indented under its window button. Reads as a
    sticky note when set, a subtle "+ add note" when empty. */
 .window-annotation {

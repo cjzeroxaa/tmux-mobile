@@ -1283,9 +1283,83 @@ function renderSnapshotNote() {
   el.onclick = () => editWindowAnnotation(win);
 }
 
-// One flat list of every window, grouped under a session header — no session
-// dropdown, so any window is one tap away — with a Recent section on top for
-// quick switching back to where you just were.
+// Short repo label from the window's repo metadata, e.g.
+// git@github.com:sycamore-labs/kernel.git -> "kernel". repo is resolved by the
+// agent (parseGitRemote) and CAN be stale — that's acceptable; it's a
+// navigation hint, not an authority. Windows with no resolved repo fall into a
+// single "No repo" bucket.
+const NO_REPO_KEY = " no-repo";
+function repoGroupLabel(meta) {
+  const name = meta?.repo?.name;
+  return name ? String(name) : "";
+}
+
+// Group the current machine's windows into a repo -> directory -> windows tree
+// so the switcher reads as "which project, which working copy, which session":
+//
+//   kernel                       (repo, short name)
+//     ~/w/kernel  ⎇ main         (directory + branch)
+//       0: claude   [claude ●]    (windows, sorted by session then index)
+//       0: shell
+//     ~/wt/kernel/fix-x  ⎇ fix-x  (a sibling git worktree of the same repo)
+//       ...
+//   No repo                       (windows whose cwd isn't a git repo)
+//     ~/tmp
+//       ...
+//
+// Repos are sorted alphabetically (No-repo bucket last); directories within a
+// repo alphabetically; windows within a directory by session name then index.
+// The tree is rebuilt every metadata refresh from state.windows + metadata, so
+// it stays live as agents start, cwds change, and repos resolve.
+function buildWindowTree() {
+  const sessionName = (id) => state.sessions.find((s) => s.id === id)?.name ?? id ?? "";
+  const repos = new Map(); // repoKey -> { label, dirs: Map<cwd, {branch, worktree, wins:[]}> }
+  for (const win of state.windows) {
+    const meta = state.windowMetadata[win.id] || {};
+    const label = repoGroupLabel(meta);
+    const repoKey = label || NO_REPO_KEY;
+    if (!repos.has(repoKey)) repos.set(repoKey, { label, dirs: new Map() });
+    const repo = repos.get(repoKey);
+    const cwd = win.cwd || "";
+    if (!repo.dirs.has(cwd)) {
+      repo.dirs.set(cwd, {
+        cwd,
+        branch: meta.git?.branch || "",
+        worktree: Boolean(meta.git?.worktree),
+        wins: [],
+      });
+    }
+    const dir = repo.dirs.get(cwd);
+    // A directory's branch/worktree is uniform across its windows in practice;
+    // keep the first non-empty branch we see so the header stays populated even
+    // if one window's metadata hasn't resolved yet.
+    if (!dir.branch && meta.git?.branch) dir.branch = meta.git.branch;
+    if (meta.git?.worktree) dir.worktree = true;
+    dir.wins.push({ win, meta, sessionName: sessionName(win.sessionId) });
+  }
+
+  const repoList = [...repos.values()].sort((a, b) => {
+    // Real repos alphabetically; the No-repo bucket (empty label) sinks last.
+    if (!a.label && b.label) return 1;
+    if (a.label && !b.label) return -1;
+    return a.label.localeCompare(b.label);
+  });
+  for (const repo of repoList) {
+    repo.dirList = [...repo.dirs.values()].sort((a, b) => a.cwd.localeCompare(b.cwd));
+    for (const dir of repo.dirList) {
+      dir.wins.sort(
+        (a, b) =>
+          a.sessionName.localeCompare(b.sessionName) || (a.win.index - b.win.index),
+      );
+    }
+  }
+  return repoList;
+}
+
+// One flat browser of every window on this machine, grouped repo -> directory
+// -> windows so any window is one tap away and sessions are organized by the
+// project + working copy they live in. (Quick-switch-to-recent lives in the
+// dedicated global recents popup in the topbar, so it isn't duplicated here.)
 function renderWindows() {
   els.mobileWindows.innerHTML = "";
 
@@ -1294,63 +1368,71 @@ function renderWindows() {
     return;
   }
 
-  // The picker is now solely the full, all-windows browser (grouped by session)
-  // — no Recent section. Quick-switch-to-recent lives in the dedicated global
-  // recents popup in the topbar, so it isn't duplicated here.
-  for (const session of state.sessions) {
-    const wins = windowsForSession(session.id);
-    if (wins.length === 0) continue;
-
-    const header = document.createElement("div");
-    header.className = "window-group-header";
-    header.innerHTML = `
-      <span>${escapeHtml(session.name)}</span>
-      <span class="window-group-count">${wins.length} win${wins.length === 1 ? "" : "s"}${session.attached ? " · attached" : ""}</span>
+  const tree = buildWindowTree();
+  for (const repo of tree) {
+    const repoLabel = repo.label || "No repo";
+    const winCount = repo.dirList.reduce((n, d) => n + d.wins.length, 0);
+    const repoHeader = document.createElement("div");
+    repoHeader.className = `window-group-header window-repo-header${repo.label ? "" : " window-repo-none"}`;
+    repoHeader.innerHTML = `
+      <span>${escapeHtml(repoLabel)}</span>
+      <span class="window-group-count">${winCount} win${winCount === 1 ? "" : "s"}</span>
     `;
-    els.mobileWindows.append(header);
+    els.mobileWindows.append(repoHeader);
 
-    for (const win of wins) {
-      const live = Boolean(state.windowActivity[win.id]);
-      const meta = state.windowMetadata[win.id] || {};
-      const branch = meta.git?.branch || "";
-      const worktree = Boolean(meta.git?.worktree);
-      const agentType = meta.agentType || "";
-      const turn = meta.turn || "";
-      const waitingForInput = Boolean(meta.waitingForInput) && win.id !== state.windowId;
-      const waitingConfidence = meta.waitingConfidence || "";
-      const unread = isWindowUnread(win) && win.id !== state.windowId;
-      // Show the cwd's basename only when it carries new info — i.e. when it
-      // differs from the branch name. With `git worktree add ../foo foo` the
-      // dir and branch usually share a name, in which case the cwd row would
-      // just be visual noise.
-      const dirBasename = pathLabel(win.cwd) || "";
-      const cwdLabel = branch && dirBasename === branch ? "" : dirBasename;
-      const windowButton = itemButton({
-        active: win.id === state.windowId,
-        title: `${win.index}: ${win.name}`,
-        meta: win.activeCommand || win.id,
-        badge: live ? "live" : "",
-        badgeGreen: live,
-        onClick: () => selectWindow(win.id),
-        className: state.mux === "rmux" ? "item window-item-main" : "",
-        cwd: cwdLabel,
-        branch,
-        worktree,
-        agentType,
-        turn,
-        unread,
-        waitingForInput,
-        waitingConfidence,
-      });
-      if (state.mux === "rmux") {
-        const row = document.createElement("div");
-        row.className = "window-item-row";
-        row.append(windowButton, rmuxShareWindowButton(win));
-        els.mobileWindows.append(row);
-      } else {
-        els.mobileWindows.append(windowButton);
+    for (const dir of repo.dirList) {
+      // Directory sub-header: basename of the cwd, plus the branch when it adds
+      // info. With `git worktree add ../foo foo` the dir and branch usually
+      // share a name, so we only show the branch chip when it differs.
+      const dirBasename = pathLabel(dir.cwd) || (dir.cwd ? dir.cwd : "(no cwd)");
+      const showBranch = dir.branch && dir.branch !== dirBasename;
+      const dirHeader = document.createElement("div");
+      dirHeader.className = "window-dir-header";
+      dirHeader.innerHTML = `
+        <span class="window-dir-name" title="${escapeHtml(dir.cwd || "(no cwd)")}">${escapeHtml(dirBasename)}</span>
+        ${showBranch ? `<span class="window-dir-branch" title="${escapeHtml(dir.branch)}${dir.worktree ? " (linked worktree)" : ""}">⎇ ${escapeHtml(dir.branch)}</span>` : ""}
+        ${dir.worktree ? `<span class="window-dir-wt">↳ wt</span>` : ""}
+      `;
+      els.mobileWindows.append(dirHeader);
+
+      for (const { win, meta, sessionName } of dir.wins) {
+        const live = Boolean(state.windowActivity[win.id]);
+        const agentType = meta.agentType || "";
+        const turn = meta.turn || "";
+        const waitingForInput = Boolean(meta.waitingForInput) && win.id !== state.windowId;
+        const waitingConfidence = meta.waitingConfidence || "";
+        const unread = isWindowUnread(win) && win.id !== state.windowId;
+        // The directory header already carries cwd + branch, so per-window we
+        // drop the redundant cwd/branch chips and instead surface the session
+        // name (windows in one directory can span sessions) alongside the
+        // running command.
+        const metaBits = [sessionName ? `⧉ ${sessionName}` : "", win.activeCommand || ""]
+          .filter(Boolean)
+          .join("  ·  ");
+        const windowButton = itemButton({
+          active: win.id === state.windowId,
+          title: `${win.index}: ${win.name}`,
+          meta: metaBits || win.id,
+          badge: live ? "live" : "",
+          badgeGreen: live,
+          onClick: () => selectWindow(win.id),
+          className: `${state.mux === "rmux" ? "item window-item-main" : "item"} window-item-nested`,
+          agentType,
+          turn,
+          unread,
+          waitingForInput,
+          waitingConfidence,
+        });
+        if (state.mux === "rmux") {
+          const row = document.createElement("div");
+          row.className = "window-item-row window-item-nested-row";
+          row.append(windowButton, rmuxShareWindowButton(win));
+          els.mobileWindows.append(row);
+        } else {
+          els.mobileWindows.append(windowButton);
+        }
+        els.mobileWindows.append(windowAnnotationRow(win));
       }
-      els.mobileWindows.append(windowAnnotationRow(win));
     }
   }
 }
