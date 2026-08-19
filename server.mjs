@@ -4915,6 +4915,42 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  // User-triggered diagnostic report ("More -> Report a problem"). The browser
+  // POSTs a self-contained snapshot (composer/send state, network, selection,
+  // env, and the recent api-call / client-event rings). We log it as ONE
+  // structured event so it's queryable in the controller logs; we attribute it
+  // to the authenticated viewer (best-effort from the session cookie) and cap
+  // the payload so a report can't balloon the logs. No secrets are collected
+  // client-side (no message text, no tokens).
+  if (req.method === "POST" && url.pathname === "/api/feedback") {
+    const body = await readJsonBody(req);
+    let reporter = "";
+    try {
+      const session =
+        verifySignedToken(parseCookies(req)[SESSION_COOKIE], "session") ||
+        verifySignedToken(bearerToken(req), "session");
+      reporter = session ? String(session.email || "").toLowerCase() : "";
+    } catch {}
+    // Bound the arrays so a runaway client can't flood a single log line.
+    const clip = (arr, n) => (Array.isArray(arr) ? arr.slice(-n) : []);
+    logServerEvent("user_feedback", {
+      reporter,
+      machineId: req.headers["x-machine-id"] || "",
+      note: String(body.note || "").slice(0, 500),
+      at: String(body.at || "").slice(0, 40),
+      pageUptimeMs: Number(body.pageUptimeMs) || 0,
+      revision: String(body.revision || "").slice(0, 80),
+      composer: body.composer || {},
+      network: body.network || {},
+      selection: body.selection || {},
+      env: body.env || {},
+      recentApiCalls: clip(body.recentApiCalls, 24),
+      recentClientEvents: clip(body.recentClientEvents, 40),
+    });
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/key") {
     const body = await readJsonBody(req);
     const paneId = requireId(body.paneId, "pane");

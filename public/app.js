@@ -9,6 +9,7 @@ import {
   setSnippets as setStoredSnippets,
 } from "./snippets.js";
 import { windowKey, windowStableId, windowDescriptor, windowTitleText, windowHoverDetail, mergeRecent, pruneRecent } from "./window-id.js";
+import { fetchJsonWithTimeout } from "./fetch-timeout.js";
 
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
@@ -386,6 +387,13 @@ const state = {
   knownHostnames: {},
   lines: readPersistedLines(),
   autoRefreshTimer: null,
+  // Client network reachability. Distinct from reconnect-grace (which is about a
+  // MACHINE dropping server-side): this is OUR device having no usable network.
+  // Set from navigator offline/online events AND from repeated request timeouts
+  // (navigator.onLine only means "has a link" — a captive/half-open wifi reports
+  // online while every request stalls). Drives greying-out of the action buttons.
+  networkTrouble: false,
+  networkTroubleReason: "",
   chat: [],
   targetPickerOpen: false,
   directoryPickerOpen: false,
@@ -572,6 +580,13 @@ const els = {
   newBranchCommand: document.querySelector("#newBranchCommand"),
   newBranchStatus: document.querySelector("#newBranchStatus"),
   confirmNewBranch: document.querySelector("#confirmNewBranch"),
+  reportProblem: document.querySelector("#reportProblem"),
+  reportSheet: document.querySelector("#reportSheet"),
+  reportBackdrop: document.querySelector("#reportBackdrop"),
+  closeReport: document.querySelector("#closeReport"),
+  reportNote: document.querySelector("#reportNote"),
+  reportStatus: document.querySelector("#reportStatus"),
+  confirmReport: document.querySelector("#confirmReport"),
   lineCount: document.querySelector("#lineCount"),
   snapshotNote: document.querySelector("#snapshotNote"),
   autoRefresh: document.querySelector("#autoRefresh"),
@@ -640,8 +655,35 @@ const els = {
   speakWindow: document.querySelector("#speakWindow"),
 };
 
+// --- Diagnostic ring buffers -------------------------------------------------
+//
+// A "Report a problem" tap (More menu) captures not just the instantaneous
+// state but the recent HISTORY leading up to it — the sequence is usually the
+// smoking gun for an intermittent freeze (a poll storm, a stuck flag, a series
+// of timeouts). These are tiny in-memory rings; nothing is persisted or sent
+// until the user explicitly reports.
+const RECENT_API_MAX = 24;
+const RECENT_EVENT_MAX = 40;
+const recentApiCalls = []; // {t, path, method, status, ms, ok, err}
+const recentClientEvents = []; // {t, event, details}
+
+function ringPush(arr, item, max) {
+  arr.push(item);
+  if (arr.length > max) arr.splice(0, arr.length - max);
+}
+
+// Short relative timestamp (ms since page load) — no wall clock, avoids TZ noise
+// and keeps the report compact. pageLoadedAt is set once at startup.
+const pageLoadedAt =
+  typeof performance !== "undefined" && performance.now ? performance.now() : 0;
+function relNow() {
+  const now =
+    typeof performance !== "undefined" && performance.now ? performance.now() : 0;
+  return Math.round(now - pageLoadedAt);
+}
+
 async function api(path, options = {}) {
-  const { machineId: _machineId, mux, ...requestOptions } = options;
+  const { machineId: _machineId, mux, timeoutMs, ...requestOptions } = options;
   const headers = { ...(requestOptions.headers || {}) };
   const hasBody = requestOptions.body !== undefined && requestOptions.body !== null;
   const isRawBody =
@@ -657,14 +699,54 @@ async function api(path, options = {}) {
     headers["x-mux"] = requestMux;
   }
 
-  const response = await fetch(path, {
-    cache: "no-store",
-    ...requestOptions,
-    headers,
-  });
-  const json = await response.json();
+  // Bound the request (see fetch-timeout.js) across the WHOLE round-trip —
+  // headers AND body — AND record every outcome into the diagnostic ring so a
+  // "Report a problem" tap shows what happened just before it. Only the
+  // pathname/method/status/latency are stored (no query strings / bodies), so
+  // it stays small and non-sensitive.
+  const startedAt = relNow();
+  const method = String(requestOptions.method || "GET").toUpperCase();
+  const shortPath = (() => {
+    try {
+      return new URL(path, window.location.origin).pathname;
+    } catch {
+      return String(path).split("?")[0];
+    }
+  })();
+  let response, json;
+  try {
+    ({ response, json } = await fetchJsonWithTimeout(
+      path,
+      { cache: "no-store", ...requestOptions, headers },
+      { timeoutMs },
+    ));
+  } catch (error) {
+    // Record the failed attempt (timeout / network abort → status 0).
+    ringPush(
+      recentApiCalls,
+      { t: startedAt, path: shortPath, method, status: error && error.status ? error.status : 0, ms: relNow() - startedAt, ok: false, err: String((error && (error.timedOut ? "timeout" : error.name)) || "error") },
+      RECENT_API_MAX,
+    );
+    // NOTE: a timeout here does NOT grey the Send button. api() is used by
+    // background POLLS (window-metadata, attention) that fire every few
+    // seconds; on a flaky connection a poll can stall while the send path is
+    // perfectly fine. Greying Send off a poll timeout made the button look
+    // dead ("tap Send, nothing happens") and — worse — blocked the one action
+    // that would have worked. Button-greying is now driven ONLY by a genuine
+    // navigator offline event and by an actual SEND failure (see
+    // submitTextComposer). We still rethrow so the caller can surface/retry.
+    throw error;
+  }
+  ringPush(
+    recentApiCalls,
+    { t: startedAt, path: shortPath, method, status: response.status, ms: relNow() - startedAt, ok: response.ok },
+    RECENT_API_MAX,
+  );
+  // A completed round-trip proves we're reachable — clear any greying so a
+  // stale "offline" state doesn't linger once connectivity is back.
+  clearNetworkTrouble();
   if (!response.ok) {
-    const error = new Error(json.error || `HTTP ${response.status}`);
+    const error = new Error((json && json.error) || `HTTP ${response.status}`);
     error.status = response.status;
     throw error;
   }
@@ -690,6 +772,8 @@ function shouldAttachMachineHeader(path, method) {
 }
 
 function logClientEvent(event, details = {}) {
+  // Mirror into the ring so a feedback report includes the recent event trail.
+  ringPush(recentClientEvents, { t: relNow(), event, details }, RECENT_EVENT_MAX);
   const headers = { "content-type": "application/json" };
   if (state.machineId) headers["x-machine-id"] = state.machineId;
   fetch("/api/client-log", {
@@ -697,6 +781,100 @@ function logClientEvent(event, details = {}) {
     headers,
     body: JSON.stringify({ event, details }),
   }).catch(() => {});
+}
+
+// --- "Report a problem" feedback capture -------------------------------------
+//
+// Snapshot rich client context + the recent-activity rings and POST it to the
+// controller so it lands in the logs for analysis. Built for the intermittent
+// "send button doesn't respond" report: capture EVERYTHING that could explain a
+// frozen composer without needing the user to describe it. No secrets: no
+// composer TEXT (only its length), no tokens, no query strings.
+function captureFeedbackContext(note) {
+  const conn =
+    (typeof navigator !== "undefined" && navigator.connection) || null;
+  let composerLen = 0;
+  try {
+    composerLen = (composerGetText() || "").length;
+  } catch {}
+  return {
+    note: String(note || "").slice(0, 500),
+    at: new Date().toISOString(),
+    pageUptimeMs: relNow(),
+    revision: state.serverRevision || null,
+    // Composer / send path — the prime suspects for a frozen Send button.
+    composer: {
+      sendInFlight: Boolean(
+        typeof composerSendInFlight !== "undefined" && composerSendInFlight,
+      ),
+      submitDisabled: Boolean(els.submitText && els.submitText.disabled),
+      textLen: composerLen,
+      lexicalLoaded: Boolean(
+        typeof composerEditor !== "undefined" && composerEditor,
+      ),
+      metadataInFlight: Boolean(
+        typeof metadataLoadInFlight !== "undefined" && metadataLoadInFlight,
+      ),
+      attentionInFlight: Boolean(
+        typeof attentionLoadInFlight !== "undefined" && attentionLoadInFlight,
+      ),
+    },
+    // Network / reachability.
+    network: {
+      onLine: typeof navigator !== "undefined" ? navigator.onLine : null,
+      networkTrouble: Boolean(state.networkTrouble),
+      networkTroubleReason: state.networkTroubleReason || "",
+      inReconnectGrace:
+        typeof inReconnectGrace === "function" ? inReconnectGrace() : null,
+      effectiveType: conn ? conn.effectiveType : null,
+      downlink: conn ? conn.downlink : null,
+      rtt: conn ? conn.rtt : null,
+    },
+    // Current selection / routing.
+    selection: {
+      machineId: state.machineId || "",
+      sessionId: state.sessionId || "",
+      paneId: state.paneId || "",
+      windowId: state.windowId || "",
+      runtimeMode: state.runtimeMode || "",
+      mux: state.mux || "",
+      machineCount: Array.isArray(state.machines) ? state.machines.length : 0,
+    },
+    // Environment.
+    env: {
+      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+      standalone:
+        typeof window !== "undefined" && window.matchMedia
+          ? window.matchMedia("(display-mode: standalone)").matches
+          : null,
+      visibility:
+        typeof document !== "undefined" ? document.visibilityState : "",
+      viewport:
+        typeof window !== "undefined"
+          ? `${window.innerWidth}x${window.innerHeight}`
+          : "",
+    },
+    // Recent activity leading up to the report — usually the smoking gun.
+    recentApiCalls: recentApiCalls.slice(),
+    recentClientEvents: recentClientEvents.slice(),
+  };
+}
+
+async function submitFeedbackReport(note) {
+  const report = captureFeedbackContext(note);
+  const headers = { "content-type": "application/json" };
+  if (state.machineId) headers["x-machine-id"] = state.machineId;
+  // Best-effort; the endpoint just logs it. Return ok so the UI can confirm.
+  try {
+    const res = await fetch("/api/feedback", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(report),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 function selectedSession() {
@@ -1986,6 +2164,7 @@ async function uploadFiles(fileList) {
         method: "POST",
         headers: { "content-type": file.type || "application/octet-stream" },
         body: file,
+        timeoutMs: 0, // large binary upload — let it run as long as it makes progress
       });
       if (data.path) composerAppendText(data.path);
     }
@@ -2063,8 +2242,36 @@ function clearPendingVoiceAudio() {
   renderVoiceRetry();
 }
 
+// True while a send is in flight. The disabled Send button guards click
+// re-entry, but the Enter keydown / beforeinput handlers call this directly and
+// don't look at the button — so on a slow network a second Enter (or an impatient
+// double-tap that beats the disable) could fire a duplicate send or race the
+// optimistic clear. This flag is the single source of truth for "a send is
+// already running"; every entry point funnels through it.
+let composerSendInFlight = false;
+
 async function submitTextComposer(event, { keepFocus = true } = {}) {
   event?.preventDefault();
+  // Permanent lightweight telemetry: record which branch a submit takes so a
+  // "Report a problem" capture shows what happened when "tap Send did nothing".
+  // The silent early-returns below (in-flight guard, empty-text, no-pane) all
+  // look identical to the user — a dead button — so log the branch + the inputs
+  // that decided it. This is the send-side counterpart to the api() ring.
+  {
+    const _t = composerGetText();
+    let _branch = "proceed";
+    if (composerSendInFlight) _branch = "inflight";
+    else if (!_t.trim()) _branch = "empty-text";
+    else if (!state.paneId) _branch = "no-pane";
+    logClientEvent("send_attempt", {
+      branch: _branch,
+      via: event?.type || "programmatic",
+      len: _t.length,
+      lexical: Boolean(composerEditor),
+      disabled: Boolean(els.submitText && els.submitText.disabled),
+    });
+  }
+  if (composerSendInFlight) return; // a send is already running — ignore re-entry
   const text = composerGetText();
   if (!text.trim()) {
     composerFocus();
@@ -2077,25 +2284,144 @@ async function submitTextComposer(event, { keepFocus = true } = {}) {
 
   // Clear the box. Enter-to-send keeps focus (you're mid-flow typing); tapping
   // the Send button is an explicit "done" → blur so the virtual keyboard hides.
-  composerClear();
-  if (keepFocus) composerFocus();
-  else composerBlur();
-  els.submitText.disabled = true;
-  // Remember what was sent so it shows under "Recent" in the Insert picker.
-  pushComposerHistory(text);
+  //
+  // HARDENING: these UI steps call Lexical editor.update()/blur() and localStorage
+  // (composerClear/composerBlur/pushComposerHistory), any of which can THROW on
+  // iOS WebKit. Before, a throw HERE (outside the try below) escaped uncaught —
+  // the send never fired, no send_failed logged, and it looked like "tap Send did
+  // nothing". Diagnosed from a feedback report: send reached branch=proceed but
+  // /api/send was never issued and no send_failed fired. So we wrap each UI step:
+  // a decorative failure (clearing/blurring/history) must NEVER block the send.
+  composerSendInFlight = true;
+  const step = (label, fn) => {
+    try {
+      fn();
+    } catch (uiError) {
+      logClientEvent("send_ui_step_failed", {
+        step: label,
+        message: String((uiError && uiError.message) || uiError || "").slice(0, 200),
+      });
+    }
+  };
+  step("clear", () => composerClear());
+  step("blurfocus", () => (keepFocus ? composerFocus() : composerBlur()));
+  step("disable", () => {
+    els.submitText.disabled = true;
+  });
+  step("history", () => pushComposerHistory(text));
   try {
     await sendMessage(text, true);
   } catch (error) {
-    // Optimistic clear is great on the happy path, but if the send actually
-    // failed the user has lost their text. Put it back in the composer so
-    // they can fix-and-retry without re-typing, and re-focus so the keyboard
-    // pops back up on mobile. The error chat row + box-still-has-the-text
-    // is the unambiguous "submit didn't go through" signal.
-    composerSetText(text);
-    composerFocus();
-    addChat("system", `Send failed: ${error.message}`, "send error");
+    // Log the failure FIRST, before any recovery step that could itself throw
+    // (composerSetText restores text via Lexical editor.update, which can throw
+    // on iOS WebKit — if it did, it used to swallow this send_failed entirely).
+    logClientEvent("send_failed", {
+      status: error.status ?? null,
+      timedOut: Boolean(error.timedOut),
+      message: String(error.message || "").slice(0, 200),
+    });
+    // Now recover the UI, each step guarded so one failure can't abort the rest:
+    // put the text back (the send failed — don't lose it), re-focus, and show the
+    // error row. box-still-has-the-text is the "submit didn't go through" signal.
+    step("restore-text", () => composerSetText(text));
+    step("restore-focus", () => composerFocus());
+    step("error-row", () => addChat("system", `Send failed: ${error.message}`, "send error"));
+    // Grey the action buttons ONLY when an actual SEND timed out (request never
+    // reached the server) — not on a plain HTTP error (server reached, non-2xx).
+    if (error && error.timedOut) {
+      setNetworkTrouble("Network unreachable — reconnecting…");
+    }
   } finally {
+    composerSendInFlight = false;
+    // Re-enable Send — unless we're offline, in which case the offline UI keeps
+    // it greyed (applyNetworkTroubleUi is the single authority on that state).
     els.submitText.disabled = false;
+    applyNetworkTroubleUi();
+  }
+}
+
+// --- Client network reachability → grey out action buttons -----------------
+//
+// When the device has no usable network, the controls that make a round-trip
+// (Send, Attach, Dictate, the direct-key buttons) can't do anything — so we
+// grey + disable them instead of accepting input that silently fails. Two
+// signals feed this: the browser's online/offline events, and request timeouts
+// (a captive/half-open wifi reports navigator.onLine=true while every request
+// stalls, so onLine alone is not enough). A successful request clears it.
+
+// The action controls disabled while offline. Voice while RECORDING is left
+// alone (local audio capture works offline; the transcribe upload will surface
+// its own failure), so we only touch the mic when idle.
+function networkActionButtons() {
+  return [
+    els.submitText,
+    els.attachButton,
+    ...document.querySelectorAll("[data-key]"),
+  ].filter(Boolean);
+}
+
+// Reflect state.networkTrouble onto the DOM. Idempotent — safe to call anytime
+// (send finally, online/offline event, api() success/failure).
+function applyNetworkTroubleUi() {
+  const trouble = state.networkTrouble;
+  els.inputArea?.classList.toggle("offline", trouble);
+  for (const btn of networkActionButtons()) {
+    if (trouble) {
+      btn.disabled = true;
+    } else if (btn === els.submitText) {
+      // Only the composer's own in-flight guard may re-disable Send; don't
+      // fight it here.
+      if (!composerSendInFlight) btn.disabled = false;
+    } else {
+      btn.disabled = false;
+    }
+  }
+  // Reuse the reconnect banner strip for the offline notice. Client-offline is
+  // more fundamental than a single machine dropping, so it takes precedence.
+  if (els.reconnectBanner && els.reconnectBannerText) {
+    if (trouble) {
+      els.reconnectBannerText.textContent =
+        state.networkTroubleReason || "You're offline — reconnecting…";
+      els.reconnectBanner.hidden = false;
+    } else if (!inReconnectGrace()) {
+      // Only hide if the machine-reconnect banner isn't the one showing.
+      els.reconnectBanner.hidden = true;
+    }
+  }
+}
+
+function setNetworkTrouble(reason) {
+  const changed = !state.networkTrouble;
+  state.networkTrouble = true;
+  state.networkTroubleReason = reason || "You're offline — reconnecting…";
+  applyNetworkTroubleUi();
+  if (changed) logClientEvent("network_trouble", { reason: state.networkTroubleReason });
+}
+
+function clearNetworkTrouble() {
+  if (!state.networkTrouble) return;
+  state.networkTrouble = false;
+  state.networkTroubleReason = "";
+  applyNetworkTroubleUi();
+  logClientEvent("network_recovered", {});
+}
+
+// navigator.onLine flipping to false is a definitive "no network" — grey out
+// immediately. Flipping to true only means a link exists; let the next real
+// request confirm reachability before clearing (a timeout will re-assert).
+function initNetworkReachability() {
+  if (typeof window === "undefined") return;
+  window.addEventListener("offline", () =>
+    setNetworkTrouble("You're offline — reconnecting…"),
+  );
+  window.addEventListener("online", () => {
+    // Link back; optimistically clear the greying so the user can act, and let
+    // any still-failing request re-assert trouble.
+    clearNetworkTrouble();
+  });
+  // Reflect the initial state at load.
+  if (navigator && navigator.onLine === false) {
+    setNetworkTrouble("You're offline — reconnecting…");
   }
 }
 
@@ -2416,6 +2742,7 @@ async function transcribePendingVoiceRecording() {
       "x-idempotency-key": state.voice.pendingIdempotencyKey || "",
     },
     body: blob,
+    timeoutMs: 0, // audio upload + Whisper round-trip — can legitimately be slow
   });
   const text = String(data.text || "").trim();
   if (!text) {
@@ -3112,6 +3439,13 @@ const RECONNECT_RETRY_MS = 1000;
 // Show/hide the non-destructive "Reconnecting…" banner over the current view.
 function setReconnectingBanner(show, machineId = "") {
   if (!els.reconnectBanner) return;
+  // Client-offline takes precedence over a single machine's reconnect: if OUR
+  // network is down, keep the offline notice and don't let a machine-drop
+  // message overwrite it or hide it.
+  if (state.networkTrouble) {
+    applyNetworkTroubleUi();
+    return;
+  }
   if (show && els.reconnectBannerText) {
     els.reconnectBannerText.textContent = machineId
       ? `Reconnecting to ${machineLabelFor(machineId)}…`
@@ -4470,7 +4804,19 @@ async function sendMessage(text, enter, { submitNudge = false } = {}) {
     return;
   }
 
-  addChat("user", text || "[Enter]", enter ? "send + Enter" : "send");
+  // The chat echo is decorative — it must not be able to block the actual send.
+  // addChat() touches localStorage (saveChat) + renders, either of which can
+  // throw on iOS WebKit (quota / DOM); a throw here used to abort the send
+  // BEFORE api("/api/send") was ever issued, so the request never reached the
+  // server and no send_failed fired — the exact "tap Send does nothing" shape.
+  try {
+    addChat("user", text || "[Enter]", enter ? "send + Enter" : "send");
+  } catch (chatError) {
+    logClientEvent("send_ui_step_failed", {
+      step: "echo",
+      message: String((chatError && chatError.message) || chatError || "").slice(0, 200),
+    });
+  }
   await api("/api/send", {
     method: "POST",
     body: JSON.stringify({ paneId: state.paneId, text, enter, submitNudge }),
@@ -5592,6 +5938,44 @@ if (els.newBranchWindow) {
     if (event.key === "Enter") confirmNewBranch();
   });
 }
+
+// --- "Report a problem" sheet wiring ---------------------------------------
+function openReportSheet() {
+  setMoreActionsOpen(false);
+  if (!els.reportSheet) return;
+  els.reportNote.value = "";
+  els.reportStatus.textContent = "";
+  els.reportStatus.classList.remove("error");
+  els.confirmReport.disabled = false;
+  els.reportSheet.hidden = false;
+  els.reportNote.focus();
+}
+function closeReportSheet() {
+  if (els.reportSheet) els.reportSheet.hidden = true;
+}
+async function sendReport() {
+  els.confirmReport.disabled = true;
+  els.reportStatus.classList.remove("error");
+  els.reportStatus.textContent = "Sending…";
+  const ok = await submitFeedbackReport(els.reportNote.value);
+  if (ok) {
+    els.reportStatus.textContent = "Report sent — thank you.";
+    window.setTimeout(closeReportSheet, 1200);
+  } else {
+    els.reportStatus.textContent = "Could not send — check your connection and retry.";
+    els.reportStatus.classList.add("error");
+    els.confirmReport.disabled = false;
+  }
+}
+if (els.reportProblem) {
+  els.reportProblem.addEventListener("click", openReportSheet);
+  els.confirmReport.addEventListener("click", sendReport);
+  els.closeReport.addEventListener("click", closeReportSheet);
+  els.reportBackdrop.addEventListener("click", closeReportSheet);
+  els.reportNote.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") sendReport();
+  });
+}
 els.duplicateCommand.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
@@ -5826,9 +6210,20 @@ if (els.attachButton && els.fileInput) {
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
 // Submit: send the box contents to the pane.
 // Send button = explicit "done": submit and hide the virtual keyboard.
-els.submitText.addEventListener("click", (event) =>
-  submitTextComposer(event, { keepFocus: false }),
-);
+els.submitText.addEventListener("click", (event) => {
+  // Permanent telemetry (see submitTextComposer): prove the CLICK reaches the
+  // handler. If a feedback report shows send_pointerup but no send_click, the
+  // tap is being swallowed between pointerup and click (an iOS WebKit hazard);
+  // if it shows send_click but no send_attempt, dispatch broke; if all three
+  // fire with branch=proceed but nothing sends, it's downstream.
+  logClientEvent("send_click", {
+    disabled: Boolean(els.submitText.disabled),
+  });
+  submitTextComposer(event, { keepFocus: false });
+});
+els.submitText.addEventListener("pointerup", () => {
+  logClientEvent("send_pointerup", {});
+});
 els.clearText?.addEventListener("click", () => {
   composerClear();
   composerFocus();
@@ -5989,6 +6384,10 @@ window.addEventListener("popstate", () => {
 
 renderComposerMode();
 initComposerEditor();
+// Grey out action buttons when the device loses network (offline events +
+// request-timeout signal). Wired before the first refresh so a page opened
+// while already offline greys immediately.
+initNetworkReachability();
 // Start with Read disabled — refreshAgentDetection in loadPanes() will
 // turn it on for Codex/Claude panes once the first window loads.
 renderReadButtonsEnabled();
