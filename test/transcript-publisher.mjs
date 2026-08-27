@@ -100,6 +100,41 @@ try {
   assert.equal(ignored.trackedSessions, 0);
   ignored.stop();
 
+  // Losing control disables archive traffic. Once the in-flight upload
+  // settles, the same sync pass must not advance to another transcript.
+  const pausedUploads = [];
+  let pausedPublisher;
+  pausedPublisher = createAgentTranscriptPublisher({
+    stateStore: createFileTranscriptStateStore({ filePath: path.join(dir, "paused.json") }),
+    stat: fakeStat,
+    readRange: fakeReadRange,
+    realpathImpl: identityRealpath,
+    createFileEpoch: ({ sessionKey }) => `epoch-${sessionKey}`,
+    setIntervalImpl: () => ({ unref() {} }),
+    clearIntervalImpl: () => {},
+    uploadChunk: async (chunk) => {
+      pausedUploads.push(chunk);
+      pausedPublisher.setEnabled(false);
+      return { ack: true, chunkId: chunk.chunkId };
+    },
+  });
+  await pausedPublisher.observeAgents([
+    {
+      kind: "codex",
+      agentSessionId: "pause-a",
+      transcriptPath: path.join(transcriptDir, "pause-a.jsonl"),
+    },
+    {
+      kind: "codex",
+      agentSessionId: "pause-b",
+      transcriptPath: path.join(transcriptDir, "pause-b.jsonl"),
+    },
+  ]);
+  pausedPublisher.setEnabled(true);
+  await pausedPublisher.syncNow();
+  assert.equal(pausedUploads.length, 1, "disabled publisher stops before the next source");
+  pausedPublisher.stop();
+
   // Root discovery can register closed/non-active files, and two physical
   // files carrying the same vendor session id remain independent sources.
   const discoveredPublisher = createAgentTranscriptPublisher({
