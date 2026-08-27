@@ -17,6 +17,8 @@ const server = http.createServer((req, res) => {
 const hub = createHub(server, {
   authenticateAgent: () => viewer,
   currentRevision: "test",
+  livenessIntervalMs: 100,
+  pingTimeoutMs: 200,
 });
 
 function waitFor(label, predicate, timeoutMs = 3_000) {
@@ -68,6 +70,8 @@ try {
           kind: "codex",
           status: "idle",
           turnCount: 1,
+          lastUserText: "🙂".repeat(600_000),
+          lastAssistantText: "x".repeat(2 * 1024 * 1024),
         },
       ],
     }),
@@ -82,6 +86,17 @@ try {
 
   assert.equal(machine.machine.agentCount, 1);
   assert.equal(machine.agents[0].sessionName, "publish");
+  assert.ok(
+    Buffer.byteLength(machine.agents[0].lastUserText) <= 4 * 1024,
+    "multi-byte user preview is bounded by UTF-8 bytes",
+  );
+  assert.ok(
+    Buffer.byteLength(machine.agents[0].lastAssistantText) <= 4 * 1024,
+    "multi-megabyte assistant preview is bounded before it reaches the control socket",
+  );
+  assert.doesNotMatch(machine.agents[0].lastUserText, /\uFFFD/, "preview keeps valid Unicode");
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal(hub.listAllMachines().length, 1, "heartbeats survive oversized inventory input");
 
   console.log("agent inventory publish test passed");
 } finally {
