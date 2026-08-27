@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
@@ -9,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { io } from "socket.io-client";
 import { createHub } from "../lib/hub.mjs";
 import {
+  AGENT_TRANSCRIPT_UPLOAD_PATH,
   AGENT_WS_PATH,
   MSG,
   helloFrame,
@@ -99,6 +101,7 @@ try {
   const info = await infoPromise;
   assert.equal(info.features.transcriptArchive, true);
   assert.equal(info.features.transcriptRootDiscovery, true);
+  assert.equal(info.features.transcriptUploadPath, AGENT_TRANSCRIPT_UPLOAD_PATH);
 
   const body = Buffer.from('{"type":"session_meta"}\n');
   const chunk = {
@@ -163,6 +166,7 @@ try {
     const deniedInfo = await deniedInfoPromise;
     assert.equal(deniedInfo.features.transcriptArchive, false);
     assert.equal(deniedInfo.features.transcriptRootDiscovery, false);
+    assert.equal(deniedInfo.features.transcriptUploadPath, "");
     const deniedAckPromise = waitForFrame(
       deniedSocket,
       (frame) => frame.t === MSG.TRANSCRIPT_ACK && frame.id === "denied-chunk",
@@ -289,6 +293,38 @@ async function controllerTranscriptFeature({
       false,
       "ALLOW_ALL does not implicitly enable root discovery",
     );
+    if (info.features.transcriptArchive) {
+      const bytes = Buffer.from('{"type":"session_meta"}\n');
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      const metadata = {
+        chunkId: sha256,
+        agentKind: "codex",
+        agentSessionId: "http-session",
+        fileEpoch: "http-epoch",
+        startOffset: 0,
+        endOffsetExclusive: bytes.length,
+        firstLineSeq: 0,
+        nextLineSeq: 1,
+        previousChunkSha256: "",
+        sha256,
+      };
+      const upload = await fetch(`${baseUrl}${AGENT_TRANSCRIPT_UPLOAD_PATH}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-ndjson",
+          "content-length": String(bytes.length),
+          "x-agent-secret": secret,
+          "x-agent-id": "00000000-0000-4000-8000-000000000299",
+          "x-machine-id": machine,
+          "x-transcript-metadata": Buffer.from(JSON.stringify(metadata)).toString("base64url"),
+        },
+        body: bytes,
+      });
+      const payload = await upload.json();
+      assert.equal(upload.status, 200, JSON.stringify(payload));
+      assert.equal(payload.ok, true);
+      assert.equal(payload.result.committedOffset, bytes.length);
+    }
     return info.features.transcriptArchive;
   } finally {
     childSocket?.disconnect();

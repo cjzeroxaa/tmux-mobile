@@ -14,7 +14,12 @@ import {
   readClaudeTranscriptFromSession,
   withBackend,
 } from "./lib/backend.mjs";
-import { CONNECTOR_COMPAT_VERSION, OP } from "./lib/protocol.mjs";
+import {
+  AGENT_TRANSCRIPT_UPLOAD_PATH,
+  CONNECTOR_COMPAT_VERSION,
+  MAX_TRANSCRIPT_CHUNK_BYTES,
+  OP,
+} from "./lib/protocol.mjs";
 import {
   computeWindowMetadata,
   createMetadataCache,
@@ -3294,6 +3299,35 @@ async function readJsonBody(req, maxBytes = MAX_BODY_BYTES) {
   return JSON.parse(body.toString("utf8"));
 }
 
+function decodeTranscriptMetadata(value) {
+  const encoded = String(Array.isArray(value) ? value[0] : value || "").trim();
+  if (!encoded || encoded.length > 16 * 1024) {
+    const error = new Error("Transcript metadata header is missing or too large");
+    error.code = "invalid_transcript_chunk";
+    error.status = 400;
+    throw error;
+  }
+  try {
+    const metadata = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw new Error();
+    return metadata;
+  } catch {
+    const error = new Error("Transcript metadata header is invalid");
+    error.code = "invalid_transcript_chunk";
+    error.status = 400;
+    throw error;
+  }
+}
+
+function transcriptUploadStatus(error) {
+  if (Number.isInteger(error?.status)) return error.status;
+  if (error?.code === "transcript_cursor_mismatch") return 409;
+  if (error?.code === "transcript_chain_mismatch") return 409;
+  if (error?.code === "transcript_epoch_conflict") return 409;
+  if (error?.code === "invalid_transcript_chunk") return 400;
+  return 500;
+}
+
 async function readRequestBuffer(req, maxBytes) {
   const chunks = [];
   let bytes = 0;
@@ -5423,6 +5457,48 @@ if (MODE.kind === "register") {
       }
 
       if (await serveConnectorArtifact(req, res, url)) {
+        return;
+      }
+
+      // Transcript bytes use a dedicated HTTP request so a multi-megabyte
+      // archive catch-up can never sit in front of control-socket heartbeats or
+      // tmux RPC responses. Authenticate with the same agent token as the
+      // Socket.IO handshake, but handle this before browser-session auth.
+      if (req.method === "POST" && url.pathname === AGENT_TRANSCRIPT_UPLOAD_PATH) {
+        const owner = MODE.kind === "controller"
+          ? authenticateAgent(req)
+          : { userId: String(process.env.TMUX_MOBILE_USER || "default") };
+        if (!owner) {
+          sendJson(res, 401, { ok: false, error: { message: "Unauthorized agent" } });
+          return;
+        }
+        if (!hub || typeof hub.commitTranscriptChunk !== "function") {
+          sendJson(res, 503, {
+            ok: false,
+            error: { message: "Transcript ingestion is unavailable" },
+          });
+          return;
+        }
+        try {
+          const metadata = decodeTranscriptMetadata(req.headers["x-transcript-metadata"]);
+          const bytes = await readRequestBuffer(req, MAX_TRANSCRIPT_CHUNK_BYTES);
+          const result = await hub.commitTranscriptChunk({
+            owner,
+            agentId: req.headers["x-agent-id"],
+            machineId: req.headers["x-machine-id"],
+            chunk: { ...metadata, bytes },
+          });
+          sendJson(res, 200, { ok: true, result });
+        } catch (error) {
+          sendJson(res, transcriptUploadStatus(error), {
+            ok: false,
+            error: {
+              message: error.message || String(error),
+              code: error.code,
+              expected: error.expected,
+            },
+          });
+        }
         return;
       }
 

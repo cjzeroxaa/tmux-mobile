@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { AGENT_TRANSCRIPT_UPLOAD_PATH } from "../lib/protocol.mjs";
 
 const dir = await mkdtemp(path.join(os.tmpdir(), "tmux-mobile-agent-archive-"));
 const transcriptRoot = path.join(dir, "codex-sessions");
@@ -10,6 +11,7 @@ const transcriptPath = path.join(transcriptRoot, "session.jsonl");
 process.env.TMUX_MOBILE_CODEX_TRANSCRIPT_ROOT = transcriptRoot;
 process.env.TMUX_MOBILE_TRANSCRIPT_STATE = path.join(dir, "publisher-state.json");
 process.env.TMUX_MOBILE_TRANSCRIPT_SYNC_MS = "1000";
+process.env.TMUX_MOBILE_TRANSCRIPT_UPLOAD_BYTES_PER_SECOND = String(32 * 1024);
 
 const { createTranscriptArchive } = await import("../lib/transcript-archive.mjs");
 const { createHub } = await import("../lib/hub.mjs");
@@ -33,18 +35,47 @@ const archive = createTranscriptArchive({
   storage,
   onChunkCommitted: async (item) => commits.push(item),
 });
-const server = http.createServer((req, res) => {
+let hub;
+let httpUploads = 0;
+const server = http.createServer(async (req, res) => {
   if (req.url === "/api/health") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: true, revision: "test" }));
     return;
   }
+  if (req.method === "POST" && req.url === AGENT_TRANSCRIPT_UPLOAD_PATH) {
+    httpUploads += 1;
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const metadata = JSON.parse(
+      Buffer.from(String(req.headers["x-transcript-metadata"] || ""), "base64url").toString(),
+    );
+    try {
+      const result = await hub.commitTranscriptChunk({
+        owner: OWNER,
+        agentId: req.headers["x-agent-id"],
+        machineId: req.headers["x-machine-id"],
+        chunk: { ...metadata, bytes: Buffer.concat(chunks) },
+      });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true, result }));
+    } catch (error) {
+      res.writeHead(error.status || 500, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        ok: false,
+        error: { message: error.message, code: error.code, expected: error.expected },
+      }));
+    }
+    return;
+  }
   res.writeHead(404);
   res.end();
 });
-const hub = createHub(server, {
+hub = createHub(server, {
   authenticateAgent: () => OWNER,
   currentRevision: "test",
+  livenessIntervalMs: 100,
+  pingTimeoutMs: 200,
   onTranscriptChunk: ({ owner, machine, chunk }) =>
     archive.commitChunk({
       ownerId: owner.userId,
@@ -134,6 +165,24 @@ try {
   assert.equal(state.cursor.lineSeq, 2);
   assert.equal(state.pending, null);
 
+  // A deliberately slow, large archive upload must not delay the independent
+  // Socket.IO control path. This reproduces the production failure mode where
+  // a multi-megabyte JSONL record previously trapped pong and tmux responses
+  // behind the same ordered WebSocket frame.
+  const largeLine = `${JSON.stringify({ type: "tool_result", payload: "x".repeat(128 * 1024) })}\n`;
+  await appendFile(transcriptPath, largeLine);
+  await waitFor("slow HTTP transcript upload to start", () => httpUploads >= 2, 5_000);
+  const machine = hub.listAllMachines()[0];
+  assert.ok(machine, "control socket stays registered while HTTP upload is in flight");
+  const startedAt = Date.now();
+  const version = await hub.backendFor(OWNER, machine.id).tmux(["list-sessions"]);
+  assert.equal(version, "tmux 3.5\n");
+  assert.ok(Date.now() - startedAt < 500, "control RPC is not queued behind transcript bytes");
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal(hub.listAllMachines().length, 1, "heartbeats survive the slow upload");
+  await waitFor("large transcript commit", () => commits.length === 2, 10_000);
+  assert.equal(commits[1].bytes.toString(), largeLine);
+
   console.log("agent transcript archive publish test passed");
 } finally {
   agent?.stop();
@@ -142,5 +191,6 @@ try {
   delete process.env.TMUX_MOBILE_CODEX_TRANSCRIPT_ROOT;
   delete process.env.TMUX_MOBILE_TRANSCRIPT_STATE;
   delete process.env.TMUX_MOBILE_TRANSCRIPT_SYNC_MS;
+  delete process.env.TMUX_MOBILE_TRANSCRIPT_UPLOAD_BYTES_PER_SECOND;
   await rm(dir, { recursive: true, force: true });
 }

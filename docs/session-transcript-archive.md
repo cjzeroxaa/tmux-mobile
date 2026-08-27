@@ -94,7 +94,7 @@ Claude Code / Codex
         v
 local transcript file
         |
-        | raw byte ranges over the existing outbound connector channel
+        | rate-limited raw byte ranges over authenticated HTTP
         v
 controller ingest -> raw object archive -> central decoder -> event outbox -> SQS
                            |                    |
@@ -230,8 +230,11 @@ for diagnostics but receives no `rawLineSeq` and is never JSON-decoded.
 
 ## Ingest object
 
-One connector frame carries metadata plus raw bytes. The exact transport may be
-binary WebSocket data or base64 JSON; the logical object is:
+One authenticated HTTP request carries metadata plus an
+`application/x-ndjson` raw-byte body. This transport is deliberately separate
+from the Connector's Socket.IO control channel: multi-megabyte backfill cannot
+queue ahead of heartbeat pong, inventory, or tmux RPC responses. Uploads are
+sequential, rate-limited, and bounded per sync pass. The logical object is:
 
 ```json
 {
