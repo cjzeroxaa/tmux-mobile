@@ -2502,7 +2502,7 @@ async function safeAgentLastResponse(pane) {
       rootPid: pane.pid,
       cwd: pane.cwd || "",
     });
-    const exactTranscript = exactClaudeSession
+    const exactTranscript = exactClaudeSession && backend === localBackend
       ? await readClaudeTranscriptFromSession(backend, exactClaudeSession)
       : null;
     const lastAssistantTurn = exactTranscript?.turns
@@ -2550,7 +2550,7 @@ async function safeAgentTranscript(pane, processes = null, openFiles = null) {
       cwd: pane.cwd || "",
       ...(Array.isArray(processes) ? { processes } : {}),
     });
-    const exactTranscript = exactClaudeSession
+    const exactTranscript = exactClaudeSession && backend === localBackend
       ? await readClaudeTranscriptFromSession(backend, exactClaudeSession)
       : null;
     if (exactTranscript) return exactTranscript;
@@ -4419,15 +4419,15 @@ async function handleApi(req, res, url) {
     return;
   }
 
-  // Inspection endpoint: returns {kind, sessionId, transcriptPath, text} for
-  // panes running Codex / Claude Code, or {result: null} otherwise. Used by
-  // the client to enable/disable the Read buttons (Read only fires on
-  // panes with a structured transcript to lift the last response from).
+  // Lightweight inspection endpoint used only to enable/disable Read. Do not
+  // load a transcript here: this runs after every pane refresh, and an exact
+  // Claude transcript can be tens of megabytes. The actual Read action uses
+  // safeAgentLastResponse() once, on demand.
   if (req.method === "GET" && url.pathname === "/api/agent-session") {
     const paneId = requireId(url.searchParams.get("paneId"), "pane");
     const { pane } = await getPaneContext(paneId);
-    const result = await safeAgentLastResponse(pane);
-    sendJson(res, 200, { result });
+    const kind = await detectCommandCenterAgent(pane);
+    sendJson(res, 200, { result: kind ? { kind } : null });
     return;
   }
 
