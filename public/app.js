@@ -389,6 +389,7 @@ const state = {
   chat: [],
   targetPickerOpen: false,
   directoryPickerOpen: false,
+  fileBrowserOpen: false,
   actionsOpen: false,
   snapshotFullscreen: false,
   snapshotPinnedToBottom: true,
@@ -402,6 +403,15 @@ const state = {
     cwd: "",
     parent: "",
     entries: [],
+    loading: false,
+    error: "",
+  },
+  files: {
+    root: "",
+    path: "",
+    relativePath: "",
+    entries: [],
+    truncated: false,
     loading: false,
     error: "",
   },
@@ -541,6 +551,14 @@ const els = {
   agentTranscriptMeta: document.querySelector("#agentTranscriptMeta"),
   agentTranscriptBody: document.querySelector("#agentTranscriptBody"),
   refreshSnapshot: document.querySelector("#refreshSnapshot"),
+  openFileBrowser: document.querySelector("#openFileBrowser"),
+  fileBrowserSheet: document.querySelector("#fileBrowserSheet"),
+  fileBrowserBackdrop: document.querySelector("#fileBrowserBackdrop"),
+  closeFileBrowser: document.querySelector("#closeFileBrowser"),
+  refreshFileBrowser: document.querySelector("#refreshFileBrowser"),
+  fileBrowserUp: document.querySelector("#fileBrowserUp"),
+  fileBrowserPath: document.querySelector("#fileBrowserPath"),
+  fileBrowserList: document.querySelector("#fileBrowserList"),
   fullscreenSnapshot: document.querySelector("#fullscreenSnapshot"),
   fullscreenRead: document.querySelector("#fullscreenRead"),
   paneInput: document.querySelector("#paneInput"),
@@ -1557,12 +1575,13 @@ function directoryStatus(text) {
 function syncSheetOpenClass() {
   document.body.classList.toggle(
     "sheet-open",
-    state.targetPickerOpen || state.directoryPickerOpen || state.pinsSheetOpen,
+    state.targetPickerOpen || state.directoryPickerOpen || state.fileBrowserOpen || state.pinsSheetOpen,
   );
 }
 
 function showTargetPicker() {
   closeDirectoryPicker();
+  closeFileBrowser();
   // The full window list and the recents quick-switch popup are two views of
   // the same "switch window" intent — don't show both at once. Opening the
   // picker dismisses the recents popup.
@@ -1589,6 +1608,7 @@ function closeTargetPicker() {
 
 function openDirectoryPicker() {
   closeTargetPicker();
+  closeFileBrowser();
   state.directoryPickerOpen = true;
   els.directorySheet.hidden = false;
   syncSheetOpenClass();
@@ -1603,11 +1623,136 @@ function closeDirectoryPicker() {
   syncSheetOpenClass();
 }
 
+function fileBrowserStatus(text) {
+  const item = document.createElement("span");
+  item.className = "directory-status";
+  item.textContent = text;
+  return item;
+}
+
+function fileBrowserRelativeChild(parent, name) {
+  return [String(parent || "").replace(/\/+$/, ""), String(name || "")]
+    .filter(Boolean)
+    .join("/");
+}
+
+function fileBrowserParent(relativePath) {
+  const parts = String(relativePath || "").split("/").filter(Boolean);
+  parts.pop();
+  return parts.join("/");
+}
+
+function renderFileBrowser() {
+  const browser = state.files;
+  els.fileBrowserPath.textContent = browser.relativePath
+    ? `${abbrevHome(browser.root)}/${browser.relativePath}`
+    : abbrevHome(browser.root) || "No window selected";
+  els.fileBrowserUp.disabled = !browser.relativePath || browser.loading;
+  els.refreshFileBrowser.disabled = browser.loading;
+  els.fileBrowserList.replaceChildren();
+
+  if (!state.paneId) {
+    els.fileBrowserList.append(fileBrowserStatus("Select a window first."));
+    return;
+  }
+  if (browser.loading && browser.entries.length === 0) {
+    els.fileBrowserList.append(fileBrowserStatus("Loading files…"));
+    return;
+  }
+  if (browser.error && browser.entries.length === 0) {
+    els.fileBrowserList.append(fileBrowserStatus(browser.error));
+    return;
+  }
+
+  for (const entry of browser.entries) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `file-browser-row${entry.isDirectory ? " is-directory" : ""}`;
+    button.disabled = !entry.isDirectory && !entry.previewable;
+    button.title = entry.path;
+    if (entry.isDirectory) {
+      button.dataset.fileBrowserDirectory = fileBrowserRelativeChild(browser.relativePath, entry.name);
+    } else {
+      button.dataset.fileBrowserFile = entry.path;
+    }
+
+    const icon = document.createElement("span");
+    icon.className = "file-browser-icon";
+    icon.textContent = entry.isDirectory ? "▸" : "·";
+    const name = document.createElement("span");
+    name.className = "file-browser-name";
+    name.textContent = entry.name;
+    button.append(icon, name);
+    if (/\.html?$/i.test(entry.name)) {
+      const artifact = document.createElement("span");
+      artifact.className = "file-browser-artifact";
+      artifact.textContent = "Artifact";
+      button.append(artifact);
+    }
+    els.fileBrowserList.append(button);
+  }
+  if (browser.entries.length === 0) {
+    els.fileBrowserList.append(fileBrowserStatus("This directory is empty."));
+  } else if (browser.truncated) {
+    els.fileBrowserList.append(fileBrowserStatus("Showing the first 500 entries."));
+  }
+}
+
+async function loadFileBrowser(relativePath = state.files.relativePath) {
+  const root = state.files.root || state.directories.cwd;
+  if (!state.paneId || !root) {
+    state.files.error = "The selected pane has no working directory.";
+    state.files.entries = [];
+    renderFileBrowser();
+    return;
+  }
+  state.files.loading = true;
+  state.files.error = "";
+  renderFileBrowser();
+  try {
+    const params = new URLSearchParams({ paneId: state.paneId, root, path: relativePath });
+    const data = await api(`/api/files?${params}`);
+    state.files = { ...data, loading: false, error: "" };
+  } catch (error) {
+    state.files.loading = false;
+    state.files.error = error.message || "Could not load files.";
+    state.files.entries = [];
+  }
+  renderFileBrowser();
+}
+
+function openFileBrowser() {
+  closeTargetPicker();
+  closeDirectoryPicker();
+  closePinsSheet();
+  setGlobalRecentsOpen(false);
+  state.fileBrowserOpen = true;
+  state.files = {
+    root: state.directories.cwd || "",
+    path: state.directories.cwd || "",
+    relativePath: "",
+    entries: [],
+    truncated: false,
+    loading: false,
+    error: "",
+  };
+  els.fileBrowserSheet.hidden = false;
+  syncSheetOpenClass();
+  loadFileBrowser("");
+}
+
+function closeFileBrowser() {
+  state.fileBrowserOpen = false;
+  els.fileBrowserSheet.hidden = true;
+  syncSheetOpenClass();
+}
+
 // ---- Pinned artifacts management sheet ----------------------------------
 
 function openPinsSheet() {
   closeTargetPicker();
   closeDirectoryPicker();
+  closeFileBrowser();
   setGlobalRecentsOpen(false);
   state.pinsSheetOpen = true;
   els.pinsSheet.hidden = false;
@@ -5796,6 +5941,22 @@ els.refreshDirectoryPicker.addEventListener("click", () => {
     addChat("system", error.message, "directory error");
   });
 });
+els.openFileBrowser.addEventListener("click", openFileBrowser);
+els.closeFileBrowser.addEventListener("click", closeFileBrowser);
+els.fileBrowserBackdrop.addEventListener("click", closeFileBrowser);
+els.refreshFileBrowser.addEventListener("click", () => loadFileBrowser());
+els.fileBrowserUp.addEventListener("click", () => {
+  if (state.files.relativePath) loadFileBrowser(fileBrowserParent(state.files.relativePath));
+});
+els.fileBrowserList.addEventListener("click", (event) => {
+  const row = event.target.closest(".file-browser-row");
+  if (!row || row.disabled) return;
+  if (row.dataset.fileBrowserDirectory !== undefined) {
+    loadFileBrowser(row.dataset.fileBrowserDirectory);
+    return;
+  }
+  if (row.dataset.fileBrowserFile) openFileViewer(row.dataset.fileBrowserFile);
+});
 els.openPinsSheet?.addEventListener("click", openPinsSheet);
 els.closePinsSheet?.addEventListener("click", closePinsSheet);
 els.pinsBackdrop?.addEventListener("click", closePinsSheet);
@@ -5910,6 +6071,10 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape" && state.directoryPickerOpen) {
     closeDirectoryPicker();
+    return;
+  }
+  if (event.key === "Escape" && state.fileBrowserOpen) {
+    closeFileBrowser();
   }
 });
 

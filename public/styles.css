@@ -438,6 +438,12 @@ h3 {
   padding: 8px;
 }
 
+.toolbar-files {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 /* Subtle warning shown in the toolbar when the auto-refresh poll fails. The
  * snapshot keeps its last good content; this is the only feedback that it's
  * stale. Gentle pulse so the eye catches it, not loud enough to nag. */
@@ -2026,6 +2032,110 @@ input {
 .directory-panel .directory-navigator {
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
+}
+
+.file-browser-panel {
+  min-height: min(680px, calc(100dvh - 48px));
+}
+
+.file-browser-heading {
+  display: grid;
+  gap: 2px;
+}
+
+.file-browser-heading span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.file-browser-actions {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-browser-actions strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-browser-list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.file-browser-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 11px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.file-browser-row:last-child {
+  border-bottom: 0;
+}
+
+.file-browser-row:hover:not(:disabled),
+.file-browser-row:focus-visible {
+  background: var(--surface-soft);
+}
+
+.file-browser-row:disabled {
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+.file-browser-row.is-directory {
+  font-weight: 750;
+}
+
+.file-browser-icon {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-align: center;
+}
+
+.file-browser-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-browser-artifact {
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--line));
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+@media (max-width: 560px) {
+  .toolbar-files span {
+    display: none;
+  }
 }
 
 .target-panel-header > div {

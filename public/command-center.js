@@ -11,6 +11,7 @@ import { filePathFromLocalHref, linkifyEscaped, linkifyFilesEscaped } from "./li
 import { renderMarkdown } from "./markdown.js";
 import { compareMachinesByOwnerAndName } from "./machine-order.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
+import { groupAgentSessions } from "./session-groups.js";
 import { openViewerUrl } from "./viewer-navigation.js";
 import {
   getSnippets as getStoredSnippets,
@@ -3622,13 +3623,9 @@ function renderCard(agent) {
     : "";
   const windowName = agentWindowName(agent);
   const windowNameClass = `cc-card-window-name${windowName.logo ? " is-logo" : ""}`;
-  const sessionTitle = agent.sessionName
-    ? `<span class="cc-card-title-separator"> · </span><span class="cc-card-session-name">${escapeHtml(agent.sessionName || "")}</span>`
-    : "";
   header.innerHTML = `
     <span class="cc-card-title">
       <span class="${windowNameClass}">${windowName.html}</span>
-      ${sessionTitle}
     </span>
     ${machineChip}
     ${ownerChip}
@@ -3740,6 +3737,32 @@ function renderCard(agent) {
   return card;
 }
 
+function renderSessionGroup(group) {
+  const section = document.createElement("section");
+  section.className = `cc-session-group is-${group.kind}`;
+  section.dataset.sessionGroup = group.key;
+
+  const header = document.createElement("header");
+  header.className = "cc-session-header";
+  const label = document.createElement("div");
+  label.className = "cc-session-label";
+  const title = document.createElement("h2");
+  title.textContent = group.title;
+  const subtitle = document.createElement("span");
+  subtitle.textContent = group.subtitle;
+  label.append(title, subtitle);
+  const count = document.createElement("span");
+  count.className = "cc-session-count";
+  count.textContent = `${group.agents.length} window${group.agents.length === 1 ? "" : "s"}`;
+  header.append(label, count);
+
+  const cards = document.createElement("div");
+  cards.className = "cc-session-cards";
+  for (const agent of group.agents) cards.append(renderCard(agent));
+  section.append(header, cards);
+  return section;
+}
+
 function renderAgents() {
   const priorFocusedCardKey = focusedCardKey();
   const scrollSnapshot = captureCommandCenterScroll();
@@ -3797,9 +3820,12 @@ function renderAgents() {
     restoreCommandCenterScrollSoon(scrollSnapshot);
     return;
   }
-  for (const agent of filtered) {
-    els.list.append(renderCard(agent));
-  }
+  const grouped = groupAgentSessions(filtered, {
+    machineKey: agentMachineKey,
+    muxKey: agentMux,
+    isStarred: isStarredAgent,
+  });
+  for (const group of grouped.groups) els.list.append(renderSessionGroup(group));
   syncSelectedCardDom();
   if (priorFocusedCardKey) restoreFocusedCard(priorFocusedCardKey);
   if (!els.cardSearchSheet?.hidden) renderCardSearchResults();

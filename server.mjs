@@ -75,6 +75,10 @@ import {
   createLocalArtifactStorage,
 } from "./lib/artifact-storage.mjs";
 import { artifactPathCandidates } from "./lib/artifact-path.mjs";
+import {
+  projectFileBrowserEntries,
+  resolveFileBrowserDirectory,
+} from "./lib/file-browser.mjs";
 import { createTranscriptArchive } from "./lib/transcript-archive.mjs";
 import {
   createPin,
@@ -199,6 +203,18 @@ const IMAGE_EXTS = new Map([
   [".ico", "image/x-icon"],
 ]);
 const MARKDOWN_EXTS = new Set([".md", ".markdown", ".mdown", ".mkd"]);
+const TEXT_EXTS = new Set([
+  ".bash", ".c", ".cc", ".cfg", ".conf", ".cpp", ".cs", ".css", ".csv",
+  ".diff", ".fish", ".gql", ".go", ".graphql", ".h", ".hpp", ".ini", ".java",
+  ".js", ".json", ".jsonl", ".jsx", ".kt", ".less", ".log", ".lua", ".mjs",
+  ".patch", ".php", ".plist", ".proto", ".ps1", ".py", ".rb", ".rs", ".scss",
+  ".sh", ".sql", ".swift", ".toml", ".ts", ".tsv", ".tsx", ".txt", ".xml",
+  ".yaml", ".yml", ".zsh",
+]);
+const TEXT_BASENAMES = new Set([
+  ".dockerignore", ".editorconfig", ".gitattributes", ".gitignore", ".gitmodules",
+  "dockerfile", "gemfile", "justfile", "license", "makefile", "procfile", "rakefile", "readme",
+]);
 // Types opened in an external browser tab (not rendered in the in-app modal):
 // video, audio, and standalone HTML. The browser handles playback/rendering
 // natively (audio opens with built-in <audio> controls in the new tab).
@@ -225,6 +241,8 @@ function fileKind(filePath) {
   if (IMAGE_EXTS.has(ext)) return "image";
   if (MARKDOWN_EXTS.has(ext)) return "markdown";
   if (EXTERNAL_EXTS.has(ext)) return "external";
+  const basename = path.basename(String(filePath)).toLowerCase();
+  if (TEXT_EXTS.has(ext) || TEXT_BASENAMES.has(basename)) return "text";
   return "other";
 }
 function fileContentType(filePath) {
@@ -232,7 +250,7 @@ function fileContentType(filePath) {
   return (
     IMAGE_EXTS.get(ext) ||
     EXTERNAL_EXTS.get(ext) ||
-    "text/markdown; charset=utf-8"
+    (MARKDOWN_EXTS.has(ext) ? "text/markdown; charset=utf-8" : "text/plain; charset=utf-8")
   );
 }
 
@@ -1902,6 +1920,36 @@ async function directoriesForCwd(cwd) {
     cwd,
     parent: path.dirname(cwd),
     entries: directories,
+  };
+}
+
+async function listFileBrowserDirectory(paneId, requestedRoot, relativePath) {
+  const paneRoot = await getPaneCwd(paneId);
+  if (!paneRoot) {
+    const error = new Error("Pane has no working directory");
+    error.status = 404;
+    throw error;
+  }
+  const root = path.resolve(paneRoot);
+  if (requestedRoot && path.resolve(requestedRoot) !== root) {
+    const error = new Error("File browser root no longer matches the pane working directory");
+    error.status = 403;
+    throw error;
+  }
+  const resolved = resolveFileBrowserDirectory(root, relativePath);
+  const projected = projectFileBrowserEntries(
+    resolved.directoryPath,
+    await currentBackend().readdir(resolved.directoryPath),
+  );
+  return {
+    root: resolved.root,
+    path: resolved.directoryPath,
+    relativePath: resolved.relativePath,
+    entries: projected.entries.map((entry) => ({
+      ...entry,
+      previewable: entry.isDirectory ? false : fileKind(entry.path) !== "other",
+    })),
+    truncated: projected.truncated,
   };
 }
 
@@ -4487,6 +4535,14 @@ async function handleApi(req, res, url) {
       const paneId = requireId(url.searchParams.get("paneId"), "pane");
       sendJson(res, 200, await listPaneDirectories(paneId));
     }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/files") {
+    const paneId = requireId(url.searchParams.get("paneId"), "pane");
+    const root = url.searchParams.get("root");
+    const relativePath = url.searchParams.get("path") || "";
+    sendJson(res, 200, await listFileBrowserDirectory(paneId, root, relativePath));
     return;
   }
 
