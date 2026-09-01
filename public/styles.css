@@ -2997,3 +2997,337 @@ input,
 .target-panel {
   box-shadow: 0 -18px 38px rgba(0, 0, 0, 0.6);
 }
+
+/* --------------------------------------------------------------------------
+ * Calm conversational Web shell
+ *
+ * The focused terminal borrows the same visual grammar as ChatGPT: minimal
+ * top chrome, a centered reading surface, and a floating composer. Mobile keeps
+ * its compact layout; the larger workspace treatment starts at tablet/Web size.
+ * -------------------------------------------------------------------------- */
+
+.app-body {
+  --app-sidebar: oklch(0.975 0.002 255);
+  --app-canvas: oklch(0.995 0.001 255);
+  --app-hover: oklch(0.945 0.003 255);
+  --app-subtle: oklch(0.965 0.002 255);
+  --app-strong: oklch(0.19 0.006 255);
+  --app-secondary: oklch(0.5 0.008 255);
+  --app-hairline: oklch(0.2 0.006 255 / 0.1);
+  --bg: var(--app-canvas);
+  --surface: var(--app-canvas);
+  --surface-soft: var(--app-subtle);
+  --ink: var(--app-strong);
+  --muted: var(--app-secondary);
+  --line: var(--app-hairline);
+  --code-bg: var(--app-subtle);
+  --code-ink: var(--app-strong);
+  --shadow: none;
+  font-family: "Avenir Next", "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+  letter-spacing: -0.006em;
+}
+
+html:not([data-theme="kami"]) .app-body {
+  --app-sidebar: oklch(0.205 0.004 255);
+  --app-canvas: oklch(0.245 0.004 255);
+  --app-hover: oklch(0.3 0.004 255);
+  --app-subtle: oklch(0.29 0.004 255);
+  --app-strong: oklch(0.94 0.003 255);
+  --app-secondary: oklch(0.7 0.006 255);
+  --app-hairline: oklch(0.96 0.003 255 / 0.11);
+}
+
+.app-body .target-pill,
+.app-body .small-button,
+.app-body .icon-button,
+.app-body .topbar-read,
+.app-body .attach-button {
+  box-shadow: none;
+}
+
+.app-body .icon-button,
+.app-body .topbar-read {
+  border-color: transparent;
+  border-radius: 999px;
+  background: transparent;
+  transition: background-color 140ms ease-out, color 140ms ease-out;
+}
+
+.app-body .icon-button:hover,
+.app-body .icon-button:focus-visible,
+.app-body .topbar-read:hover,
+.app-body .topbar-read:focus-visible {
+  background: var(--app-hover);
+}
+
+.app-body .more-actions-menu,
+.app-body .recents-menu-popup {
+  padding: 7px;
+  border-color: var(--app-hairline);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 12px 36px oklch(0.1 0.01 255 / 0.14);
+}
+
+.app-body .more-actions-item,
+.app-body .recents-menu-item {
+  min-height: 36px;
+  border-radius: 9px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.app-body .more-actions-item:hover,
+.app-body .more-actions-item:focus-visible,
+.app-body .recents-menu-item:hover,
+.app-body .recents-menu-item:focus-visible {
+  border-color: transparent;
+  background: var(--app-hover);
+  color: var(--ink);
+}
+
+.app-body .input-area {
+  border-color: var(--app-hairline);
+  background: var(--surface);
+  box-shadow: 0 2px 10px oklch(0.1 0.01 255 / 0.075);
+}
+
+.app-body .input-area .lexical-editor {
+  font-family: "Avenir Next", "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.app-body .small-button,
+.app-body .attach-button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+  transition: background-color 140ms ease-out, color 140ms ease-out;
+}
+
+.app-body .small-button:hover,
+.app-body .small-button:focus-visible,
+.app-body .attach-button:hover,
+.app-body .attach-button:focus-visible {
+  background: var(--app-hover);
+  color: var(--ink);
+}
+
+.app-body .voice-button,
+.app-body .input-submit {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--bg);
+  box-shadow: none;
+  font-weight: 600;
+}
+
+.app-body .file-browser-list {
+  border-color: var(--app-hairline);
+  border-radius: 14px;
+}
+
+.app-body .file-browser-row {
+  min-height: 44px;
+  border-bottom-color: var(--app-hairline);
+  font-size: 14px;
+}
+
+.app-body .file-browser-row.is-directory {
+  font-weight: 600;
+}
+
+.app-body .file-browser-artifact {
+  border: 0;
+  background: var(--app-subtle);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+@media (min-width: 760px) {
+  .app-body .app-shell {
+    width: 100%;
+    max-width: none;
+    grid-template-rows: 62px minmax(0, 1fr) auto;
+    gap: 0;
+    padding: 0;
+    background: var(--app-canvas);
+  }
+
+  .app-body .mobile-topbar {
+    width: min(1180px, calc(100% - 40px));
+    min-height: 62px;
+    align-items: center;
+    gap: 3px;
+    margin-inline: auto;
+    padding: 9px 0;
+  }
+
+  .app-body .target-pill {
+    min-height: 42px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    padding-inline: 12px;
+    box-shadow: none;
+  }
+
+  .app-body .target-pill:hover,
+  .app-body .target-pill:focus-visible {
+    background: var(--app-hover);
+  }
+
+  .app-body .target-pill strong {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.018em;
+  }
+
+  .app-body .snapshot-panel {
+    width: min(1180px, calc(100% - 40px));
+    margin-inline: auto;
+    border: 0;
+    border-radius: 16px;
+    background: var(--app-subtle);
+    box-shadow: none;
+  }
+
+  .app-body .toolbar {
+    min-height: 50px;
+    gap: 4px;
+    padding: 7px 9px;
+    border-bottom-color: var(--app-hairline);
+    background: color-mix(in oklch, var(--app-subtle) 68%, var(--surface));
+  }
+
+  .app-body .line-picker,
+  .app-body .toggle {
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .app-body #lineCount {
+    width: 70px;
+    border: 0;
+    background: var(--app-hover);
+  }
+
+  .app-body .snapshot {
+    padding: 18px 20px 28px;
+    background: var(--app-subtle);
+    line-height: 1.5;
+  }
+
+  .app-body .control-panel {
+    width: min(860px, calc(100% - 40px));
+    margin-inline: auto;
+    padding: 12px 0 max(18px, env(safe-area-inset-bottom));
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .app-body .composer {
+    gap: 6px;
+  }
+
+  .app-body .snippet-bar {
+    padding-inline: 8px;
+  }
+
+  .app-body .input-area {
+    border-radius: 26px;
+    padding: 10px 12px 9px;
+  }
+
+  .app-body .input-area:focus-within {
+    border-color: color-mix(in oklch, var(--ink) 18%, transparent);
+    box-shadow: 0 3px 14px oklch(0.1 0.01 255 / 0.1);
+  }
+
+  .app-body .input-area .lexical-editor {
+    padding: 4px 7px;
+  }
+
+  .app-body .input-area .lexical-editor.empty::before {
+    top: 4px;
+    left: 7px;
+  }
+
+  .app-body .attach-button,
+  .app-body .voice-button {
+    width: 36px;
+    height: 36px;
+  }
+
+  .app-body .input-submit,
+  .app-body .input-clear,
+  .app-body .direct-key-toggle {
+    min-height: 36px;
+  }
+
+  .app-body .directory-backdrop,
+  .app-body .target-backdrop,
+  .app-body .settings-backdrop {
+    background: oklch(0.1 0.005 255 / 0.32);
+  }
+
+  .app-body .directory-panel,
+  .app-body .target-panel,
+  .app-body .settings-panel,
+  .app-body .ask-panel {
+    inset: 50% auto auto 50%;
+    width: min(720px, calc(100vw - 56px));
+    height: min(78dvh, 720px);
+    max-height: calc(100dvh - 56px);
+    transform: translate(-50%, -50%);
+    border: 1px solid var(--app-hairline);
+    border-radius: 18px;
+    background: var(--surface);
+    padding: 18px;
+    box-shadow: 0 24px 80px oklch(0.1 0.01 255 / 0.2);
+  }
+
+  .app-body .settings-panel,
+  .app-body .ask-panel {
+    height: auto;
+    min-height: min(320px, calc(100dvh - 56px));
+  }
+
+  .app-body .file-browser-panel {
+    min-height: min(680px, calc(100dvh - 56px));
+  }
+
+  .app-body .directory-panel-header h2,
+  .app-body .settings-panel-header h2,
+  .app-body .file-browser-heading h2 {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    text-transform: none;
+  }
+}
+
+@media (max-width: 759px) {
+  .app-body .app-shell {
+    gap: 7px;
+    padding: 7px;
+    padding-bottom: calc(7px + env(safe-area-inset-bottom));
+  }
+
+  .app-body .target-pill,
+  .app-body .snapshot-panel,
+  .app-body .control-panel {
+    border-color: var(--app-hairline);
+    box-shadow: none;
+  }
+
+  .app-body .input-area {
+    border-radius: 20px;
+  }
+}

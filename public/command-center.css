@@ -1963,3 +1963,529 @@
 
 .cc-pin-action.cc-pin-danger { border-color: rgba(235,93,76,.5); color: #c0392b; }
 .cc-pin-action.cc-pin-danger:active { background: rgba(235,93,76,.1); }
+
+/* --------------------------------------------------------------------------
+ * ChatGPT-inspired Web workspace
+ *
+ * The Command Center is an information-dense tool, but it should still read
+ * like a calm conversation index: quiet navigation on the left, a generous
+ * reading canvas on the right, and content that carries the hierarchy instead
+ * of borders, glows, and nested chrome. These rules intentionally live last so
+ * the existing interaction/state rules remain intact while the visual language
+ * can evolve independently.
+ * -------------------------------------------------------------------------- */
+
+.command-center-body {
+  --cc-sidebar: oklch(0.975 0.002 255);
+  --cc-canvas: oklch(0.995 0.001 255);
+  --cc-hover: oklch(0.945 0.003 255);
+  --cc-subtle: oklch(0.965 0.002 255);
+  --cc-strong: oklch(0.19 0.006 255);
+  --cc-secondary: oklch(0.5 0.008 255);
+  --cc-hairline: oklch(0.2 0.006 255 / 0.09);
+  --cc-focus: oklch(0.62 0.16 250);
+  --bg: var(--cc-canvas);
+  --surface: var(--cc-canvas);
+  --surface-soft: var(--cc-subtle);
+  --ink: var(--cc-strong);
+  --muted: var(--cc-secondary);
+  --line: var(--cc-hairline);
+  --code-bg: var(--cc-subtle);
+  --code-ink: var(--cc-strong);
+  --shadow: none;
+  font-family: "Avenir Next", "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+  letter-spacing: -0.006em;
+}
+
+html:not([data-theme="kami"]) .command-center-body {
+  --cc-sidebar: oklch(0.205 0.004 255);
+  --cc-canvas: oklch(0.245 0.004 255);
+  --cc-hover: oklch(0.3 0.004 255);
+  --cc-subtle: oklch(0.29 0.004 255);
+  --cc-strong: oklch(0.94 0.003 255);
+  --cc-secondary: oklch(0.7 0.006 255);
+  --cc-hairline: oklch(0.96 0.003 255 / 0.1);
+  --cc-focus: oklch(0.72 0.13 250);
+}
+
+.command-center-body .cc-topbar,
+.command-center-body .cc-controls,
+.command-center-body .cc-card,
+.command-center-body .cc-welcome {
+  box-shadow: none;
+}
+
+.command-center-body .cc-icon-button {
+  border-color: transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  transition: background-color 140ms ease-out, color 140ms ease-out;
+}
+
+.command-center-body .cc-icon-button:hover,
+.command-center-body .cc-icon-button:focus-visible,
+.command-center-body .cc-more[open] > summary {
+  background: var(--cc-hover);
+}
+
+.command-center-body .cc-more-panel {
+  padding: 7px;
+  border-color: var(--cc-hairline);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 12px 36px oklch(0.1 0.01 255 / 0.14);
+}
+
+.command-center-body .cc-more-item,
+.command-center-body .cc-more-control {
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.command-center-body .cc-more-item:hover,
+.command-center-body .cc-more-item:focus-visible {
+  background: var(--cc-hover);
+}
+
+.command-center-body .cc-theme-option,
+.command-center-body .cc-font-button {
+  border: 0;
+  border-radius: 8px;
+  background: var(--cc-subtle);
+  font-weight: 600;
+}
+
+.command-center-body .cc-filter-chip {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+  letter-spacing: 0;
+  transition: background-color 140ms ease-out, color 140ms ease-out;
+}
+
+.command-center-body .cc-filter-chip:hover {
+  background: var(--cc-hover);
+  color: var(--ink);
+}
+
+.command-center-body .cc-filter-chip.is-active {
+  border-color: transparent;
+  background: var(--cc-hover);
+  color: var(--ink);
+  box-shadow: none;
+  font-weight: 600;
+}
+
+.command-center-body .cc-filter-chip:focus-visible,
+.command-center-body .cc-filter-chip.is-active:focus-visible,
+.command-center-body .cc-card:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--cc-focus) 48%, transparent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.command-center-body .cc-filter-chip-status.is-running,
+.command-center-body .cc-filter-chip-status.is-waiting,
+.command-center-body .cc-kind-chip,
+.command-center-body .cc-status-pill::before {
+  animation: none;
+}
+
+.command-center-body .cc-sort-select {
+  border: 0;
+  border-radius: 9px;
+  background: var(--cc-hover);
+  font-weight: 500;
+}
+
+.command-center-body .cc-session-header {
+  border-bottom-color: var(--cc-hairline);
+}
+
+.command-center-body .cc-session-label h2 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  text-transform: none;
+}
+
+.command-center-body .cc-session-label span,
+.command-center-body .cc-session-count {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.command-center-body .cc-session-group.is-starred .cc-session-label h2 {
+  color: var(--ink);
+}
+
+.command-center-body .cc-card {
+  gap: 11px;
+  padding: 15px;
+  border-color: var(--cc-hairline);
+  border-radius: 16px;
+  background: var(--surface);
+  transition: background-color 140ms ease-out, border-color 140ms ease-out;
+}
+
+.command-center-body .cc-card:hover {
+  background: color-mix(in oklch, var(--surface) 72%, var(--cc-subtle));
+  border-color: color-mix(in oklch, var(--ink) 15%, transparent);
+}
+
+.command-center-body .cc-card.is-running,
+.command-center-body .cc-card.is-waiting,
+.command-center-body .cc-card.is-unverified {
+  border-color: var(--cc-hairline);
+}
+
+.command-center-body .cc-card.is-running::before {
+  display: none;
+}
+
+.command-center-body .cc-card.is-selected {
+  border-color: color-mix(in oklch, var(--ink) 22%, transparent);
+  background: color-mix(in oklch, var(--surface) 62%, var(--cc-subtle));
+  box-shadow: none;
+}
+
+.command-center-body .cc-card-header {
+  min-height: 28px;
+  padding: 0 38px 0 0;
+  gap: 5px;
+}
+
+.command-center-body .cc-card-window-name,
+.command-center-body .cc-card-session-name {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.018em;
+}
+
+.command-center-body .cc-machine-chip,
+.command-center-body .cc-owner-chip,
+.command-center-body .cc-mux-chip,
+.command-center-body .cc-kind-chip,
+.command-center-body .cc-status-pill {
+  min-height: 19px;
+  padding-inline: 7px;
+  border-color: transparent;
+  background: var(--cc-subtle);
+  font-weight: 500;
+  letter-spacing: 0.015em;
+}
+
+.command-center-body .cc-status-pill.is-running,
+.command-center-body .cc-status-pill.is-waiting,
+.command-center-body .cc-status-pill.is-unverified {
+  border-color: transparent;
+  background: var(--cc-subtle);
+  color: var(--muted);
+}
+
+.command-center-body .cc-card-cwd {
+  opacity: 1;
+  font-size: 10.5px;
+}
+
+.command-center-body .cc-section {
+  gap: 5px;
+}
+
+.command-center-body .cc-section-label,
+.command-center-body .cc-section-time {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.025em;
+  text-transform: none;
+}
+
+.command-center-body .cc-section-copy,
+.command-center-body .cc-card-action {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  transition: background-color 140ms ease-out, color 140ms ease-out;
+}
+
+.command-center-body .cc-section-copy:hover,
+.command-center-body .cc-card-action:hover {
+  background: var(--cc-hover);
+  color: var(--ink);
+}
+
+.command-center-body .cc-section-copy.cc-section-pin,
+.command-center-body .cc-star-button.is-starred,
+.command-center-body .cc-read-button.is-reading {
+  border-color: transparent;
+  background: var(--cc-subtle);
+  color: var(--ink);
+}
+
+.command-center-body .cc-delete-button {
+  border-color: transparent;
+  color: var(--muted);
+}
+
+.command-center-body .cc-delete-button:hover {
+  background: color-mix(in oklch, var(--danger) 10%, transparent);
+  color: var(--danger);
+}
+
+.command-center-body .cc-star-button {
+  top: 11px;
+  right: 11px;
+  left: auto;
+}
+
+.command-center-body .cc-section-text {
+  padding: 9px 11px;
+  border: 0;
+  border-radius: 11px;
+  font-family: "SFMono-Regular", "Cascadia Mono", Consolas, monospace;
+  line-height: 1.46;
+}
+
+.command-center-body .cc-section.user .cc-section-text {
+  background: var(--cc-subtle);
+}
+
+.command-center-body .cc-section.assistant .cc-section-text {
+  background: transparent;
+  color: var(--ink);
+  padding-inline: 2px;
+}
+
+.command-center-body .cc-section-text.is-markdown {
+  font-family: "Avenir Next", "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+}
+
+.command-center-body .cc-card-footer {
+  padding-top: 3px;
+  border-top: 1px solid var(--cc-hairline);
+  font-weight: 500;
+}
+
+.command-center-body .cc-empty {
+  border: 0;
+  background: var(--cc-subtle);
+  font-size: 14px;
+}
+
+@media (min-width: 760px) {
+  .command-center-body .cc-shell {
+    display: grid;
+    grid-template-columns: 256px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 0;
+    padding: 0;
+    background: var(--cc-canvas);
+  }
+
+  .command-center-body .cc-topbar {
+    grid-column: 1;
+    grid-row: 1;
+    z-index: 3;
+    display: flex;
+    align-content: flex-start;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 17px 14px 8px;
+    border: 0;
+    border-radius: 0;
+    background: var(--cc-sidebar);
+  }
+
+  .command-center-body .cc-title-block {
+    flex: 1 0 100%;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 2px 10px;
+    padding: 2px 4px 13px;
+  }
+
+  .command-center-body .cc-brand {
+    grid-column: 1 / -1;
+    gap: 10px;
+  }
+
+  .command-center-body .cc-logo-mark {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    box-shadow: none;
+  }
+
+  .command-center-body .cc-title {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    text-transform: none;
+  }
+
+  .command-center-body .cc-status {
+    grid-column: 1 / -1;
+    padding-left: 40px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .command-center-body #ccRefresh {
+    margin-left: 3px;
+  }
+
+  .command-center-body .cc-controls {
+    grid-column: 1;
+    grid-row: 2;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 18px;
+    min-height: 0;
+    padding: 6px 12px 24px;
+    overflow: hidden;
+    border: 0;
+    border-radius: 0;
+    background: var(--cc-sidebar);
+  }
+
+  .command-center-body .cc-filter-row {
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+
+  .command-center-body .cc-filter-sep {
+    width: auto;
+    height: 1px;
+    margin: 8px 5px;
+    background: var(--cc-hairline);
+  }
+
+  .command-center-body .cc-filter-chip {
+    width: 100%;
+    min-height: 36px;
+    justify-content: flex-start;
+    border-radius: 9px;
+    padding: 8px 10px;
+    font-size: 13px;
+    text-align: left;
+  }
+
+  .command-center-body .cc-filter-chip-machine {
+    font-family: inherit;
+  }
+
+  .command-center-body .cc-sort {
+    display: grid;
+    gap: 7px;
+    padding: 13px 5px 0;
+    border-top: 1px solid var(--cc-hairline);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+
+  .command-center-body .cc-sort-select {
+    width: 100%;
+    max-width: none;
+    min-height: 36px;
+    padding-inline: 10px;
+    font-size: 13px;
+  }
+
+  .command-center-body .cc-list {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    gap: 34px;
+    padding: 38px clamp(28px, 4vw, 64px) 80px;
+    scroll-padding-top: 38px;
+    scrollbar-gutter: stable;
+  }
+
+  .command-center-body .cc-session-group {
+    gap: 12px;
+    width: min(100%, 1180px);
+    margin-inline: auto;
+  }
+
+  .command-center-body .cc-session-header {
+    align-items: center;
+    padding: 0 2px 10px;
+  }
+
+  .command-center-body .cc-session-cards {
+    grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+    gap: 12px;
+  }
+
+  .command-center-body .cc-welcome:not([hidden]) {
+    position: fixed;
+    inset: 50% auto auto calc(50% + 128px);
+    z-index: 100;
+    width: min(760px, calc(100vw - 320px));
+    max-height: min(78dvh, 720px);
+    overflow-y: auto;
+    transform: translate(-50%, -50%);
+    padding: 22px;
+    border-color: var(--cc-hairline);
+    border-radius: 18px;
+    background: var(--surface);
+    box-shadow: 0 20px 70px oklch(0.1 0.01 255 / 0.2);
+  }
+}
+
+@media (max-width: 759px) {
+  .command-center-body .cc-shell {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .command-center-body .cc-topbar,
+  .command-center-body .cc-controls {
+    border-color: transparent;
+    background: var(--cc-sidebar);
+  }
+
+  .command-center-body .cc-topbar {
+    border-radius: 14px;
+  }
+
+  .command-center-body .cc-controls {
+    border-radius: 12px;
+  }
+
+  .command-center-body .cc-sort-select {
+    width: 108px;
+    min-width: 108px;
+    max-width: 108px;
+    min-height: 32px;
+    padding: 5px 8px;
+    color: var(--ink);
+    font-size: 11px;
+  }
+
+  .command-center-body .cc-sort-select option {
+    color: var(--ink);
+    font-size: 12px;
+  }
+
+  .command-center-body .cc-session-label > span {
+    display: none;
+  }
+
+  .command-center-body .cc-card {
+    border-radius: 15px;
+  }
+}
