@@ -1980,6 +1980,9 @@
   --cc-canvas: oklch(0.995 0.001 255);
   --cc-hover: oklch(0.945 0.003 255);
   --cc-subtle: oklch(0.965 0.002 255);
+  --cc-selected: oklch(0.91 0.006 255);
+  --cc-card-hover: oklch(0.975 0.002 255);
+  --cc-card-selected: oklch(0.965 0.006 255);
   --cc-strong: oklch(0.19 0.006 255);
   --cc-secondary: oklch(0.5 0.008 255);
   --cc-hairline: oklch(0.2 0.006 255 / 0.09);
@@ -2002,6 +2005,9 @@ html:not([data-theme="kami"]) .command-center-body {
   --cc-canvas: oklch(0.245 0.004 255);
   --cc-hover: oklch(0.3 0.004 255);
   --cc-subtle: oklch(0.29 0.004 255);
+  --cc-selected: oklch(0.35 0.007 255);
+  --cc-card-hover: oklch(0.265 0.004 255);
+  --cc-card-selected: oklch(0.29 0.007 255);
   --cc-strong: oklch(0.94 0.003 255);
   --cc-secondary: oklch(0.7 0.006 255);
   --cc-hairline: oklch(0.96 0.003 255 / 0.1);
@@ -2066,25 +2072,34 @@ html:not([data-theme="kami"]) .command-center-body {
   transition: background-color 140ms ease-out, color 140ms ease-out;
 }
 
-.command-center-body .cc-filter-chip:hover {
+.command-center-body .cc-filter-chip:hover:not(.is-active) {
   background: var(--cc-hover);
   color: var(--ink);
 }
 
 .command-center-body .cc-filter-chip.is-active {
   border-color: transparent;
-  background: var(--cc-hover);
+  background: var(--cc-selected);
   color: var(--ink);
   box-shadow: none;
   font-weight: 600;
 }
 
-.command-center-body .cc-filter-chip:focus-visible,
-.command-center-body .cc-filter-chip.is-active:focus-visible,
 .command-center-body .cc-card:focus-visible {
   outline: 2px solid color-mix(in oklch, var(--cc-focus) 48%, transparent);
   outline-offset: 2px;
   box-shadow: none;
+}
+
+.command-center-body .cc-filter-chip:focus-visible,
+.command-center-body .cc-filter-chip.is-active:focus-visible {
+  outline: 0;
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklch, var(--ink) 30%, transparent);
+}
+
+.command-center-body .cc-filter-chip-machine.is-running:not(.is-active),
+.command-center-body .cc-filter-chip-machine.is-waiting:not(.is-active) {
+  border-color: transparent;
 }
 
 .command-center-body .cc-filter-chip-status.is-running,
@@ -2131,9 +2146,9 @@ html:not([data-theme="kami"]) .command-center-body {
   transition: background-color 140ms ease-out, border-color 140ms ease-out;
 }
 
-.command-center-body .cc-card:hover {
-  background: color-mix(in oklch, var(--surface) 72%, var(--cc-subtle));
-  border-color: color-mix(in oklch, var(--ink) 15%, transparent);
+.command-center-body .cc-card:hover:not(.is-selected) {
+  background: var(--cc-card-hover);
+  border-color: var(--cc-hairline);
 }
 
 .command-center-body .cc-card.is-running,
@@ -2147,8 +2162,8 @@ html:not([data-theme="kami"]) .command-center-body {
 }
 
 .command-center-body .cc-card.is-selected {
-  border-color: color-mix(in oklch, var(--ink) 22%, transparent);
-  background: color-mix(in oklch, var(--surface) 62%, var(--cc-subtle));
+  border-color: color-mix(in oklch, var(--ink) 38%, transparent);
+  background: var(--cc-card-selected);
   box-shadow: none;
 }
 
@@ -2239,6 +2254,10 @@ html:not([data-theme="kami"]) .command-center-body {
   top: 11px;
   right: 11px;
   left: auto;
+}
+
+.command-center-body .cc-card-disclosure {
+  display: none;
 }
 
 .command-center-body .cc-section-text {
@@ -2336,6 +2355,12 @@ html:not([data-theme="kami"]) .command-center-body {
 
   .command-center-body #ccRefresh {
     margin-left: 3px;
+  }
+
+  .command-center-body .cc-more-panel {
+    right: auto;
+    left: 0;
+    width: min(232px, calc(100vw - 24px));
   }
 
   .command-center-body .cc-controls {
@@ -2487,5 +2512,69 @@ html:not([data-theme="kami"]) .command-center-body {
 
   .command-center-body .cc-card {
     border-radius: 15px;
+  }
+}
+
+/* Phone Web follows the native iPhone overview: compact summaries by default,
+ * one expanded card at a time. The height-based branch includes landscape
+ * phones while keeping iPad and Vision Pro layouts expanded. */
+@media (max-width: 600px), (max-height: 600px) and (pointer: coarse) {
+  .command-center-body .cc-sort {
+    display: none;
+  }
+
+  .command-center-body .cc-card {
+    gap: 0;
+    min-height: 76px;
+    padding: 12px;
+    cursor: pointer;
+  }
+
+  .command-center-body .cc-card.is-phone-expanded {
+    gap: 11px;
+    cursor: default;
+  }
+
+  .command-center-body .cc-card:not(.is-phone-expanded) > .cc-card-cwd,
+  .command-center-body .cc-card:not(.is-phone-expanded) > .cc-section,
+  .command-center-body .cc-card:not(.is-phone-expanded) > .cc-card-footer {
+    display: none;
+  }
+
+  .command-center-body .cc-card-header {
+    min-height: 50px;
+    padding-right: 78px;
+    cursor: pointer;
+  }
+
+  .command-center-body .cc-star-button {
+    top: 14px;
+    right: 44px;
+    width: 44px;
+    height: 44px;
+  }
+
+  .command-center-body .cc-card-disclosure {
+    position: absolute;
+    top: 14px;
+    right: 0;
+    z-index: 2;
+    display: grid;
+    width: 44px;
+    height: 44px;
+  }
+
+  .command-center-body .cc-card-disclosure svg {
+    display: block;
+    transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .command-center-body .cc-card.is-phone-expanded .cc-card-disclosure svg {
+    transform: rotate(180deg);
+  }
+
+  .command-center-body .cc-card.is-selected:not(.is-phone-expanded) {
+    border-color: var(--cc-hairline);
+    background: var(--surface);
   }
 }

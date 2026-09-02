@@ -41,6 +41,7 @@ const CC_FONT_KEY = "tmux-mobile-cc-font-size";
 const CC_FONT_MIN = 10;
 const CC_FONT_MAX = 18;
 const CC_FONT_DEFAULT = 13;
+const PHONE_CARD_MEDIA = "(max-width: 600px), ((max-height: 600px) and (pointer: coarse))";
 const STARRED_CARDS_KEY = "tmux-mobile-command-center-starred-cards";
 const STARRED_CARDS_MIGRATED_KEY = "tmux-mobile-command-center-starred-cards-server-migrated-v1";
 const STARRED_CARDS_DIRTY_KEY = "tmux-mobile-command-center-starred-cards-server-dirty-v1";
@@ -71,6 +72,8 @@ const ICONS = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
   delete:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
+  chevron:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>',
 };
 const AGENT_ICONS = {
   claude:
@@ -447,6 +450,9 @@ const state = {
     },
   },
   selectedCardKey: "",
+  // Phone Web mirrors the iOS overview: every card starts folded and only one
+  // can be expanded. Desktop/tablet ignore this state and always show content.
+  mobileExpandedCardKey: "",
   // Agents backing the transcript sheet and the response-fullscreen overlay, so
   // a tapped file path in those views resolves to the right pane/machine.
   transcriptAgent: null,
@@ -2790,6 +2796,25 @@ function cardElementByKey(key) {
   return cardElements().find((card) => card.dataset.cardKey === key) || null;
 }
 
+function isPhoneCardLayout() {
+  return Boolean(window.matchMedia?.(PHONE_CARD_MEDIA).matches);
+}
+
+function updatePhoneCardExpansion(key) {
+  if (!isPhoneCardLayout()) return;
+  state.mobileExpandedCardKey = state.mobileExpandedCardKey === key ? "" : key;
+  for (const card of cardElements()) {
+    const expanded = card.dataset.cardKey === state.mobileExpandedCardKey;
+    card.classList.toggle("is-phone-expanded", expanded);
+    const button = card.querySelector("[data-card-disclosure]");
+    if (!button) continue;
+    const windowName = button.dataset.windowName || "card";
+    button.setAttribute("aria-expanded", String(expanded));
+    button.setAttribute("aria-label", `${expanded ? "Collapse" : "Expand"} ${windowName}`);
+    button.title = expanded ? "Collapse card" : "Expand card";
+  }
+}
+
 function machineChipElements() {
   return [...els.filterRow.querySelectorAll(".cc-filter-chip-machine[data-machine-key]")];
 }
@@ -3371,6 +3396,15 @@ function handleCardShortcuts(event) {
     return;
   }
 
+  if ((event.key === " " || event.key === "Enter") && isPhoneCardLayout()) {
+    const key = focusedCardKey();
+    if (key) {
+      event.preventDefault();
+      updatePhoneCardExpansion(key);
+      return;
+    }
+  }
+
   const key = event.key.toLowerCase();
   if (key === "u") {
     event.preventDefault();
@@ -3590,8 +3624,9 @@ async function readAgent(agent) {
 function renderCard(agent) {
   const cardKey = readKeyForAgent(agent);
   const selected = state.selectedCardKey === cardKey;
+  const phoneExpanded = state.mobileExpandedCardKey === cardKey;
   const card = document.createElement("article");
-  card.className = `cc-card${statusClass(agent.status)}${selected ? " is-selected" : ""}`;
+  card.className = `cc-card${statusClass(agent.status)}${selected ? " is-selected" : ""}${phoneExpanded ? " is-phone-expanded" : ""}`;
   card.dataset.cardKey = cardKey;
   card.tabIndex = selected ? 0 : -1;
   card.setAttribute("aria-selected", String(selected));
@@ -3604,6 +3639,15 @@ function renderCard(agent) {
       title: starredThis ? "Unstar card" : "Star card",
       dataAttrs: `data-star-key="${escapeHtml(readKey)}" aria-pressed="${starredThis ? "true" : "false"}"`,
       icon: ICONS.star,
+    }),
+  );
+  card.insertAdjacentHTML(
+    "beforeend",
+    cardActionButton({
+      className: "cc-card-disclosure",
+      title: phoneExpanded ? "Collapse card" : "Expand card",
+      dataAttrs: `data-card-disclosure="${escapeHtml(cardKey)}" data-window-name="${escapeHtml(agent.windowName || "card")}" aria-expanded="${phoneExpanded ? "true" : "false"}"`,
+      icon: ICONS.chevron,
     }),
   );
 
@@ -3783,6 +3827,12 @@ function renderAgents() {
     return;
   }
   const filtered = filterAndSort(state.agents);
+  if (
+    state.mobileExpandedCardKey &&
+    !filtered.some((agent) => readKeyForAgent(agent) === state.mobileExpandedCardKey)
+  ) {
+    state.mobileExpandedCardKey = "";
+  }
   if (
     priorFocusedCardKey &&
     filtered.some((agent) => readKeyForAgent(agent) === priorFocusedCardKey)
@@ -4153,6 +4203,21 @@ els.list.addEventListener("click", (event) => {
     "button, a, select, input, textarea, summary, [contenteditable='true']",
   );
   if (card) updateSelectedCard(cardKey, { focus: !interactive });
+
+  const disclosureButton = target.closest("[data-card-disclosure]");
+  if (disclosureButton && card) {
+    updatePhoneCardExpansion(cardKey);
+    return;
+  }
+  if (
+    card &&
+    !interactive &&
+    isPhoneCardLayout() &&
+    (state.mobileExpandedCardKey !== cardKey || target.closest(".cc-card-header"))
+  ) {
+    updatePhoneCardExpansion(cardKey);
+    return;
+  }
 
   // A detected file path opens the artifact viewer, scoped to this card's agent.
   const filePath = filePathFromClickTarget(target);
