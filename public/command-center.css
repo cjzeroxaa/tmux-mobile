@@ -2091,10 +2091,17 @@ html:not([data-theme="kami"]) .command-center-body {
   box-shadow: none;
 }
 
-.command-center-body .cc-filter-chip:focus-visible,
-.command-center-body .cc-filter-chip.is-active:focus-visible {
+.command-center-body .cc-filter-chip:focus {
   outline: 0;
+  outline-offset: 0;
+}
+
+.command-center-body .cc-filter-chip:not(.is-active):focus-visible {
   box-shadow: inset 0 0 0 1.5px color-mix(in oklch, var(--ink) 30%, transparent);
+}
+
+.command-center-body .cc-filter-chip.is-active:focus-visible {
+  box-shadow: none;
 }
 
 .command-center-body .cc-filter-chip-machine.is-running:not(.is-active),
