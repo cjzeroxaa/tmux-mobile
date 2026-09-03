@@ -12,6 +12,12 @@ const COLLEAGUE = {
 };
 const STRANGER = { userId: "stranger@gmail.com", email: "stranger@gmail.com", hd: "" };
 const ADMIN = { userId: "sonicgg@gmail.com", email: "sonicgg@gmail.com", hd: "" };
+const SRP_USER = { userId: "engineer@srp.one", email: "engineer@srp.one", hd: "srp.one" };
+const SRP_LOOKALIKE = {
+  userId: "engineer@srp.one.evil",
+  email: "engineer@srp.one.evil",
+  hd: "srp.one.evil",
+};
 const AGENT_ONE = "00000000-0000-4000-8000-000000000011";
 const AGENT_TWO = "00000000-0000-4000-8000-000000000012";
 
@@ -19,6 +25,13 @@ const server = http.createServer();
 const hub = createHub(server, {
   authenticateAgent: () => OWNER,
   superAdminEmails: [ADMIN.email],
+  machineShares: [
+    {
+      ownerEmail: OWNER.email,
+      agentId: AGENT_ONE,
+      domains: ["srp.one"],
+    },
+  ],
   machineAliases: {
     "msb-build-rebyte": "MSB-REBYTE",
   },
@@ -91,6 +104,14 @@ try {
   assert.equal(hub.hasMachine(OWNER, "MSB-REBYTE"), true);
   assert.deepEqual(hub.listMachines(COLLEAGUE), [], "same-domain user sees no owner machine");
   assert.deepEqual(hub.listMachines(STRANGER), [], "unlisted gmail user sees no owner machine");
+  assert.equal(hub.listMachines(SRP_USER).length, 1, "shared domain sees the selected machine");
+  assert.equal(hub.hasMachine(SRP_USER, ownerMachine.id), true, "shared domain can route to it");
+  assert.equal(
+    hub.sshAuthorizationTarget(SRP_USER, ownerMachine.id),
+    null,
+    "machine share does not grant owner-only SSH authorization",
+  );
+  assert.deepEqual(hub.listMachines(SRP_LOOKALIKE), [], "domain matching is exact");
   assert.equal(hub.listMachines(ADMIN).length, 1, "super-admin sees the owner machine");
 
   other = await connectMachine(port, "owner-private-box", AGENT_TWO);
@@ -101,6 +122,11 @@ try {
     "same-domain user remains isolated when more machines connect",
   );
   assert.equal(hub.listMachines(ADMIN).length, 2, "super-admin sees every machine");
+  assert.deepEqual(
+    hub.listMachines(SRP_USER).map((machine) => machine.id),
+    [ownerMachine.id],
+    "domain share does not expose the owner's other machines",
+  );
 
   console.log("hub owner-only machine access tests passed");
 } finally {

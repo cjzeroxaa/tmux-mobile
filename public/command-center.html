@@ -85,10 +85,9 @@ TMUX_MOBILE_MUXES=tmux,rmux node server.mjs --register https://eng.impo.ai --log
           <h2>Who can see what</h2>
           <p>Sign-in is open to any Google account, but what you <em>see</em> depends on the account type:</p>
           <ul class="cc-welcome-list">
-            <li><strong>Google Workspace</strong> users (e.g. <code>@rebyte.ai</code>) see every machine registered by anyone in the same workspace.</li>
-            <li><strong>Personal Google</strong> accounts (e.g. <code>@gmail.com</code>) only see their own machines.</li>
-            <li><strong>Special shares</strong> can grant a named user access to one machine outside the owner/workspace rule.</li>
-            <li><strong>Super-admin:</strong> <code>sonicgg@gmail.com</code> sees every machine. Every other account sees only its own machines; Workspace domains are not shared pools.</li>
+            <li><strong>Default:</strong> every account sees only the machines it registered, whether it is a Workspace or personal Google account.</li>
+            <li><strong>Special shares</strong> can grant a named user or an exact email domain access to one specific machine.</li>
+            <li><strong>Super-admin:</strong> <code>sonicgg@gmail.com</code> sees every machine.</li>
           </ul>
           <p class="cc-welcome-muted">Each agent card shows who registered it. To make a machine invisible to your workspace, stop its agent process.</p>
         </div>

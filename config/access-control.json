@@ -3,5 +3,14 @@
   "machineVisibility": "owner-only",
   "superAdminEmails": [
     "sonicgg@gmail.com"
+  ],
+  "machineShares": [
+    {
+      "ownerEmail": "sonicgg@gmail.com",
+      "agentId": "00ef8f6b-3fce-47b0-9e4e-c7b97cbbff8c",
+      "domains": [
+        "srp.one"
+      ]
+    }
   ]
 }

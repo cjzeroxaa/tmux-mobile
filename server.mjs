@@ -139,6 +139,7 @@ const ACCESS_CONTROL =
         version: 1,
         machineVisibility: "owner-only",
         superAdminEmails: Object.freeze([]),
+        machineShares: Object.freeze([]),
       })
     : readAccessControlFile(
         process.env.TMUX_MOBILE_ACCESS_CONTROL_FILE ||
@@ -6087,6 +6088,7 @@ if (MODE.kind === "register") {
         ? authenticateAgent
         : () => String(process.env.TMUX_MOBILE_USER || "default"),
       superAdminEmails: ACCESS_CONTROL.superAdminEmails,
+      machineShares: ACCESS_CONTROL.machineShares,
       currentRevision: APP_REVISION,
       expectedRevision: CONNECTOR_EXPECTED_REVISION,
       updateRef: CONNECTOR_UPDATE_REF,

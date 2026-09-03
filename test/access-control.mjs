@@ -11,6 +11,14 @@ assert.deepEqual(config, {
   version: 1,
   machineVisibility: "owner-only",
   superAdminEmails: ["sonicgg@gmail.com"],
+  machineShares: [
+    {
+      ownerEmail: "sonicgg@gmail.com",
+      agentId: "00ef8f6b-3fce-47b0-9e4e-c7b97cbbff8c",
+      emails: [],
+      domains: ["srp.one"],
+    },
+  ],
 });
 
 const dir = mkdtempSync(path.join(os.tmpdir(), "tmux-mobile-access-control-"));
@@ -26,6 +34,27 @@ writeFileSync(
 assert.throws(
   () => readAccessControlFile(invalid),
   /machineVisibility must be "owner-only"/,
+);
+
+const invalidShare = path.join(dir, "invalid-share.json");
+writeFileSync(
+  invalidShare,
+  JSON.stringify({
+    version: 1,
+    machineVisibility: "owner-only",
+    superAdminEmails: ["sonicgg@gmail.com"],
+    machineShares: [
+      {
+        ownerEmail: "sonicgg@gmail.com",
+        agentId: "00ef8f6b-3fce-47b0-9e4e-c7b97cbbff8c",
+        domains: ["@srp.one"],
+      },
+    ],
+  }),
+);
+assert.throws(
+  () => readAccessControlFile(invalidShare),
+  /Invalid domain.*@srp\.one/,
 );
 
 console.log("access-control unit tests passed");
