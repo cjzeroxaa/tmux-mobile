@@ -7,6 +7,7 @@ import {
   createCommandCenterGrace,
   holdCommandCenterSnapshot as holdCommandCenterGraceSnapshot,
 } from "./command-center-grace.mjs";
+import { commandCenterDataFingerprint } from "./command-center-render.mjs";
 import { filePathFromLocalHref, linkifyEscaped, linkifyFilesEscaped } from "./linkify.js";
 import { renderMarkdown } from "./markdown.js";
 import { compareMachinesByOwnerAndName } from "./machine-order.js";
@@ -549,6 +550,14 @@ function relativeTimeLabel(value) {
     }
   }
   return future ? "in 1m" : "1m ago";
+}
+
+function refreshRelativeTimeLabels() {
+  for (const time of els.list.querySelectorAll("time.cc-section-time[datetime]")) {
+    const relative = relativeTimeLabel(time.dateTime);
+    if (relative) time.textContent = relative;
+    time.title = exactTimeLabel(time.dateTime);
+  }
 }
 
 function setStatus(text) {
@@ -3883,6 +3892,7 @@ function renderAgents() {
 }
 
 async function loadAgentsAggregate(generation) {
+  const priorFingerprint = commandCenterDataFingerprint(state);
   const data = await api("/api/command-center");
   if (generation !== state.loadGeneration) return;
   const agents = Array.isArray(data.agents) ? data.agents : [];
@@ -3901,11 +3911,15 @@ async function loadAgentsAggregate(generation) {
   state.machineLoads.clear();
   state.lastError = "";
   updateCommandCenterStatus();
+  if (priorFingerprint === commandCenterDataFingerprint(state)) {
+    refreshRelativeTimeLabels();
+    return;
+  }
   renderFilterRow();
   renderAgents();
 }
 
-async function loadMachineAgents(machine, generation) {
+async function loadMachineAgents(machine, generation, { render = true } = {}) {
   const key = machineKey(machine);
   if (!key) return;
   try {
@@ -3943,12 +3957,18 @@ async function loadMachineAgents(machine, generation) {
       });
     }
   }
-  updateCommandCenterStatus();
-  renderFilterRow();
-  renderAgents();
+  if (render) {
+    updateCommandCenterStatus();
+    renderFilterRow();
+    renderAgents();
+  }
 }
 
 async function loadAgentsByMachine(machines, generation) {
+  const priorFingerprint = commandCenterDataFingerprint(state);
+  // Preserve progressive first paint when there is no useful feed yet. Once
+  // cards exist, collect every machine response and commit one coherent frame.
+  const renderIncrementally = state.agents.length === 0;
   let normalizedMachines = normalizeMachines(machines, state.agents);
   if (normalizedMachines.length === 0 && holdCommandCenterSnapshot()) {
     updateCommandCenterStatus();
@@ -3980,15 +4000,23 @@ async function loadAgentsByMachine(machines, generation) {
   state.lastError = "";
   updateMachineAgentCounts();
   updateCommandCenterStatus();
-  renderFilterRow();
-  renderAgents();
+  if (renderIncrementally) {
+    renderFilterRow();
+    renderAgents();
+  }
 
   await Promise.allSettled(
-    machinesToLoad.map((machine) => loadMachineAgents(machine, generation)),
+    machinesToLoad.map((machine) =>
+      loadMachineAgents(machine, generation, { render: renderIncrementally }),
+    ),
   );
   if (generation !== state.loadGeneration) return;
   updateMachineAgentCounts();
   updateCommandCenterStatus();
+  if (!renderIncrementally && priorFingerprint === commandCenterDataFingerprint(state)) {
+    refreshRelativeTimeLabels();
+    return;
+  }
   renderFilterRow();
   renderAgents();
 }
