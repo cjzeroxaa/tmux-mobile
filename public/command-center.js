@@ -3715,9 +3715,20 @@ function renderCard(agent) {
     : "";
   const windowName = agentWindowName(agent);
   const windowNameClass = `cc-card-window-name${windowName.logo ? " is-logo" : ""}`;
+  const nativeSessionTitle = String(agent.agentSessionTitle || "").trim();
+  const showNativeSessionTitle =
+    nativeSessionTitle &&
+    nativeSessionTitle.localeCompare(String(agent.windowName || ""), undefined, {
+      sensitivity: "accent",
+    }) !== 0;
+  const nativeSessionLabel = normalizedAgentKind(agent.kind) === "claude" ? "Claude" : "Codex";
+  const nativeSessionTitleHtml = showNativeSessionTitle
+    ? `<span class="cc-card-agent-title" title="${escapeHtml(`${nativeSessionLabel} session: ${nativeSessionTitle}`)}"><span class="cc-card-agent-title-label">${nativeSessionLabel} ·</span> ${escapeHtml(nativeSessionTitle)}</span>`
+    : "";
   header.innerHTML = `
     <span class="cc-card-title">
       <span class="${windowNameClass}">${windowName.html}</span>
+      ${nativeSessionTitleHtml}
     </span>
     ${machineChip}
     ${ownerChip}

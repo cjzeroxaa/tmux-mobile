@@ -57,6 +57,19 @@ assert.notEqual(
   commandCenterDataFingerprint(first),
   commandCenterDataFingerprint({
     ...sameVisibleData,
+    agents: sameVisibleData.agents.map((agent) =>
+      agent.windowId === "@1"
+        ? { ...agent, agentSessionTitle: "Investigate reconnects" }
+        : agent,
+    ),
+  }),
+  "an Agent-native session title change invalidates the rendered cards",
+);
+
+assert.notEqual(
+  commandCenterDataFingerprint(first),
+  commandCenterDataFingerprint({
+    ...sameVisibleData,
     machines: sameVisibleData.machines.map((machine) =>
       machine.id === "machine-a" ? { ...machine, stale: true } : machine,
     ),

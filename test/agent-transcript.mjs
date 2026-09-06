@@ -21,6 +21,13 @@ import {
   resetAgentTranscriptSnapshotCache,
   selectNewestOpenTranscriptPath,
 } from "../lib/backend.mjs";
+import {
+  normalizeAgentSessionTitle,
+  parseClaudeSessionsIndexTitle,
+  parseClaudeTranscriptTitle,
+  parseCodexSessionTitles,
+  resolveAgentSessionTitle,
+} from "../lib/agent-session-title.mjs";
 
 const tmp = await mkdtemp(path.join(os.tmpdir(), "tmux-mobile-agent-transcript-"));
 
@@ -37,7 +44,7 @@ try {
   await writeFile(path.join(projectDir, `${second}.jsonl`), "{}\n");
   await writeFile(
     path.join(sessionsDir, "101.json"),
-    JSON.stringify({ pid: 101, sessionId: first, cwd }),
+    JSON.stringify({ pid: 101, sessionId: first, cwd, name: "First investigation", nameSource: "derived" }),
   );
   await writeFile(
     path.join(sessionsDir, "202.json"),
@@ -115,7 +122,13 @@ try {
   };
   await writeFile(
     path.join(sessionsDir, "1101.json"),
-    JSON.stringify({ pid: 1101, sessionId: first, cwd }),
+    JSON.stringify({
+      pid: 1101,
+      sessionId: first,
+      cwd,
+      name: "First investigation",
+      nameSource: "derived",
+    }),
   );
   await writeFile(
     path.join(sessionsDir, "1202.json"),
@@ -132,6 +145,8 @@ try {
   });
   assert.equal(firstSession.sessionId, first, "remote root pid 101 maps to first session id");
   assert.equal(secondSession.sessionId, second, "remote root pid 202 maps to second session id");
+  assert.equal(firstSession.agentSessionTitle, "First investigation");
+  assert.equal(firstSession.agentSessionTitleSource, "claude-name:derived");
 
   const snapshotSession = await findClaudeSessionFromBackend(
     {
@@ -156,6 +171,40 @@ try {
   const secondTranscript = await readClaudeTranscriptFromSession(fakeRemoteBackend, secondSession);
   assert.equal(firstTranscript.turns.at(-1).text, "first response");
   assert.equal(secondTranscript.turns.at(-1).text, "second response");
+  assert.equal(firstTranscript.agentSessionTitle, "First investigation");
+
+  const codexTitles = parseCodexSessionTitles([
+    JSON.stringify({ id: first, thread_name: "Old title" }),
+    "not json",
+    JSON.stringify({ id: second, thread_name: "Second title" }),
+    JSON.stringify({ id: first, thread_name: "  Current\n title  " }),
+  ].join("\n"));
+  assert.equal(codexTitles.get(first), "Current title", "latest Codex thread name wins");
+  assert.equal(codexTitles.get(second), "Second title");
+  assert.equal(normalizeAgentSessionTitle("  one\n\ttwo  "), "one two");
+
+  assert.deepEqual(
+    parseClaudeTranscriptTitle([
+      JSON.stringify({ slug: "quiet-river" }),
+      JSON.stringify({ type: "custom-title", title: "User-picked title" }),
+    ].join("\n")),
+    { title: "User-picked title", source: "claude-custom-title" },
+    "Claude explicit title beats its generated slug",
+  );
+  assert.equal(
+    parseClaudeSessionsIndexTitle(
+      JSON.stringify({ entries: [{ sessionId: first, summary: "Indexed summary" }] }),
+      first,
+    ),
+    "Indexed summary",
+  );
+
+  const resolvedClaudeTitle = await resolveAgentSessionTitle(fakeRemoteBackend, firstSession);
+  assert.deepEqual(
+    resolvedClaudeTitle,
+    { title: "First investigation", source: "claude-name:derived" },
+    "live Claude sidecar name is used without a heuristic lookup",
+  );
 
   const oldCodexTranscript = "/Users/test/.codex/sessions/old.jsonl";
   const newCodexTranscript = "/Users/test/.codex/sessions/new.jsonl";

@@ -14,6 +14,7 @@ import {
   readClaudeTranscriptFromSession,
   withBackend,
 } from "./lib/backend.mjs";
+import { resolveAgentSessionTitle } from "./lib/agent-session-title.mjs";
 import {
   AGENT_TRANSCRIPT_UPLOAD_PATH,
   CONNECTOR_COMPAT_VERSION,
@@ -2610,6 +2611,8 @@ async function safeAgentTranscript(pane, processes = null, openFiles = null) {
           kind: "claude",
           sessionId: exactClaudeSession.sessionId,
           transcriptPath: exactClaudeSession.transcriptPath,
+          agentSessionTitle: exactClaudeSession.agentSessionTitle || "",
+          agentSessionTitleSource: exactClaudeSession.agentSessionTitleSource || "",
           turns: [],
           turnsTotal: 0,
         }
@@ -2632,7 +2635,17 @@ async function safeAgentTranscript(pane, processes = null, openFiles = null) {
     ) {
       return emptyExactClaudeTranscript();
     }
-    return result;
+    return result && exactClaudeSession
+      ? {
+          ...result,
+          agentSessionTitle:
+            exactClaudeSession.agentSessionTitle || result.agentSessionTitle || "",
+          agentSessionTitleSource:
+            exactClaudeSession.agentSessionTitleSource ||
+            result.agentSessionTitleSource ||
+            "",
+        }
+      : result;
   } catch {
     return emptyExactClaudeTranscript();
   }
@@ -2776,6 +2789,7 @@ async function listAgentSessionsForRuntime(
   runtime,
   { processSnapshot = null, openFiles = null } = {},
 ) {
+  const backend = currentBackend();
   const tree = await inventoryTreeForRuntime(runtime);
   const mux = runtime.kind || "tmux";
   const muxCommand = runtime.commandName?.() || mux;
@@ -2837,6 +2851,11 @@ async function listAgentSessionsForRuntime(
         };
       }
 
+      const nativeSessionTitle = await resolveAgentSessionTitle(backend, {
+        ...info,
+        cwd: pane.cwd || "",
+      });
+
       const turns = Array.isArray(info.turns) ? info.turns : [];
       const lastTurn = turns[turns.length - 1] || null;
       const lastAssistantTurn = [...turns].reverse().find((t) => t.role === "assistant") || null;
@@ -2887,6 +2906,8 @@ async function listAgentSessionsForRuntime(
         activeCommand: win.activeCommand || pane.command || "",
         kind: info.kind,
         agentSessionId: info.sessionId || "",
+        agentSessionTitle: nativeSessionTitle?.title || "",
+        agentSessionTitleSource: nativeSessionTitle?.source || "",
         transcriptPath: info.transcriptPath || "",
         lastUserText: lastUserTurn?.text || "",
         lastUserAt: lastUserTurn?.t || null,
