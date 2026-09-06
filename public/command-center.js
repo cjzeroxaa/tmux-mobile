@@ -3701,18 +3701,6 @@ function renderCard(agent) {
 
   const header = document.createElement("div");
   header.className = "cc-card-header";
-  // In controller mode the controller tags each agent with the machine it
-  // came from + the email of whoever registered it. Show both as a
-  // leading chip pair so you can tell whose Mac the window lives on at a
-  // glance. Local mode skips both (fields absent).
-  const machineChip = agent.machineHostname
-    ? `<span class="cc-machine-chip" title="${escapeHtml(agent.machineId || "")}">${escapeHtml(agent.machineHostname)}</span>`
-    : "";
-  // Strip @domain for visual compactness; full email lives in the title.
-  const ownerLocal = (agent.machineOwnerId || "").replace(/@.*$/, "");
-  const ownerChip = agent.machineOwnerId
-    ? `<span class="cc-owner-chip" title="${escapeHtml(agent.machineOwnerId)}">${escapeHtml(ownerLocal)}</span>`
-    : "";
   const windowName = agentWindowName(agent);
   const windowNameClass = `cc-card-window-name${windowName.logo ? " is-logo" : ""}`;
   const nativeSessionTitle = String(agent.agentSessionTitle || "").trim();
@@ -3723,19 +3711,13 @@ function renderCard(agent) {
     }) !== 0;
   const nativeSessionLabel = normalizedAgentKind(agent.kind) === "claude" ? "Claude" : "Codex";
   const nativeSessionTitleHtml = showNativeSessionTitle
-    ? `<span class="cc-card-agent-title" title="${escapeHtml(`${nativeSessionLabel} session: ${nativeSessionTitle}`)}"><span class="cc-card-agent-title-label">${nativeSessionLabel} ·</span> ${escapeHtml(nativeSessionTitle)}</span>`
-    : "";
+    ? `<span class="cc-card-agent-title" title="${escapeHtml(`${nativeSessionLabel} session: ${nativeSessionTitle}`)}"><span class="cc-card-agent-title-label">${nativeSessionLabel} ·</span><span class="cc-card-agent-title-name">${escapeHtml(nativeSessionTitle)}</span></span>`
+    : `<span class="cc-card-agent-title is-kind-only"><span class="cc-card-agent-title-label">${nativeSessionLabel}</span></span>`;
   header.innerHTML = `
+    <span class="cc-card-status-dot${statusClass(agent.status)}" title="${escapeHtml(statusLabel(agent.status))}" aria-label="${escapeHtml(statusLabel(agent.status))}"></span>
     <span class="cc-card-title">
       <span class="${windowNameClass}">${windowName.html}</span>
       ${nativeSessionTitleHtml}
-    </span>
-    ${machineChip}
-    ${ownerChip}
-    ${agentMuxChip(agent)}
-    ${agentKindChip(agent.kind)}
-    <span class="cc-status-pill${statusClass(agent.status)}">
-      ${escapeHtml(statusLabel(agent.status))}
     </span>
   `;
   card.append(header);
@@ -3782,7 +3764,6 @@ function renderCard(agent) {
   const renamingThis = state.renamingWindows.has(renameKey);
   const sharingThis = state.sharingWindows.has(shareKey);
   footer.innerHTML = `
-    <span>${agent.turnCount} turn${agent.turnCount === 1 ? "" : "s"} · session <code>${escapeHtml((agent.agentSessionId || "").slice(0, 8))}</code></span>
     <span class="cc-card-actions">
       ${cardActionButton({
         className: "cc-interact-button",
@@ -3851,9 +3832,7 @@ function renderSessionGroup(group) {
   label.className = "cc-session-label";
   const title = document.createElement("h2");
   title.textContent = group.title;
-  const subtitle = document.createElement("span");
-  subtitle.textContent = group.subtitle;
-  label.append(title, subtitle);
+  label.append(title);
   const count = document.createElement("span");
   count.className = "cc-session-count";
   count.textContent = `${group.agents.length} window${group.agents.length === 1 ? "" : "s"}`;
