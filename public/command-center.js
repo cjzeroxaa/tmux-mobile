@@ -1,4 +1,5 @@
 import { buildAgentAppUrl } from "./agent-link.mjs";
+import { isRecentActivity, sessionCardFoldState } from "./card-folding.js";
 import { cardStarKey } from "./card-stars.js";
 import {
   clearCommandCenterGrace,
@@ -455,8 +456,8 @@ const state = {
     },
   },
   selectedCardKey: "",
-  // Phone Web mirrors the iOS overview: every card starts folded and only one
-  // can be expanded. Desktop/tablet ignore this state and always show content.
+  // Phone Web mirrors the iOS overview: recent cards stay open; among older
+  // cards, at most one can be manually expanded. Desktop/tablet stay expanded.
   mobileExpandedCardKey: "",
   // Agents backing the transcript sheet and the response-fullscreen overlay, so
   // a tapped file path in those views resolves to the right pane/machine.
@@ -2824,9 +2825,12 @@ function isPhoneCardLayout() {
 
 function updatePhoneCardExpansion(key) {
   if (!isPhoneCardLayout()) return;
+  const targetCard = cardElementByKey(key);
+  if (!targetCard || targetCard.dataset.phoneCollapsible !== "true") return;
   state.mobileExpandedCardKey = state.mobileExpandedCardKey === key ? "" : key;
   for (const card of cardElements()) {
-    const expanded = card.dataset.cardKey === state.mobileExpandedCardKey;
+    const collapsible = card.dataset.phoneCollapsible === "true";
+    const expanded = !collapsible || card.dataset.cardKey === state.mobileExpandedCardKey;
     card.classList.toggle("is-phone-expanded", expanded);
     const button = card.querySelector("[data-card-disclosure]");
     if (!button) continue;
@@ -3659,10 +3663,19 @@ async function readAgent(agent) {
 function renderCard(agent) {
   const cardKey = readKeyForAgent(agent);
   const selected = state.selectedCardKey === cardKey;
-  const phoneExpanded = state.mobileExpandedCardKey === cardKey;
+  const recentActivity = isRecentActivity(agent.lastActivityAt);
+  const phoneFoldState = sessionCardFoldState({
+    // Compute the phone presentation independently of the current viewport so
+    // rotating/resizing into phone width works without waiting for a refresh.
+    foldSessionCards: true,
+    recentActivity,
+    manuallyExpanded: state.mobileExpandedCardKey === cardKey,
+  });
+  const phoneExpanded = phoneFoldState.expanded;
   const card = document.createElement("article");
-  card.className = `cc-card${statusClass(agent.status)}${selected ? " is-selected" : ""}${phoneExpanded ? " is-phone-expanded" : ""}`;
+  card.className = `cc-card${statusClass(agent.status)}${selected ? " is-selected" : ""}${phoneExpanded ? " is-phone-expanded" : ""}${recentActivity ? " is-phone-recent" : ""}`;
   card.dataset.cardKey = cardKey;
+  card.dataset.phoneCollapsible = String(phoneFoldState.collapsible);
   card.tabIndex = selected ? 0 : -1;
   card.setAttribute("aria-selected", String(selected));
   const readKey = cardKey;
@@ -3681,7 +3694,7 @@ function renderCard(agent) {
     cardActionButton({
       className: "cc-card-disclosure",
       title: phoneExpanded ? "Collapse card" : "Expand card",
-      dataAttrs: `data-card-disclosure="${escapeHtml(cardKey)}" data-window-name="${escapeHtml(agent.windowName || "card")}" aria-expanded="${phoneExpanded ? "true" : "false"}"`,
+      dataAttrs: `data-card-disclosure="${escapeHtml(cardKey)}" data-window-name="${escapeHtml(agent.windowName || "card")}" aria-expanded="${phoneExpanded ? "true" : "false"}"${phoneFoldState.collapsible ? "" : " hidden"}`,
       icon: ICONS.chevron,
     }),
   );
@@ -3862,11 +3875,13 @@ function renderAgents() {
     return;
   }
   const filtered = filterAndSort(state.agents);
-  if (
-    state.mobileExpandedCardKey &&
-    !filtered.some((agent) => readKeyForAgent(agent) === state.mobileExpandedCardKey)
-  ) {
-    state.mobileExpandedCardKey = "";
+  if (state.mobileExpandedCardKey) {
+    const manuallyExpandedAgent = filtered.find(
+      (agent) => readKeyForAgent(agent) === state.mobileExpandedCardKey,
+    );
+    if (!manuallyExpandedAgent || isRecentActivity(manuallyExpandedAgent.lastActivityAt)) {
+      state.mobileExpandedCardKey = "";
+    }
   }
   if (
     priorFocusedCardKey &&

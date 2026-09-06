@@ -2528,9 +2528,10 @@ html:not([data-theme="kami"]) .command-center-body {
   }
 }
 
-/* Phone Web follows the native iPhone overview: compact summaries by default,
- * one expanded card at a time. The height-based branch includes landscape
- * phones while keeping iPad and Vision Pro layouts expanded. */
+/* Phone Web follows the native iPhone overview: cards active in the last eight
+ * hours stay expanded; older cards fold, with at most one manually open. The
+ * height-based branch includes landscape phones while keeping iPad and Vision
+ * Pro layouts expanded. */
 @media (max-width: 600px), (max-height: 600px) and (pointer: coarse) {
   .command-center-body .cc-sort {
     display: none;
@@ -2575,6 +2576,18 @@ html:not([data-theme="kami"]) .command-center-body {
     display: grid;
     width: 44px;
     height: 44px;
+  }
+
+  .command-center-body .cc-card-disclosure[hidden] {
+    display: none;
+  }
+
+  .command-center-body .cc-card.is-phone-recent .cc-card-header {
+    padding-right: 44px;
+  }
+
+  .command-center-body .cc-card.is-phone-recent .cc-star-button {
+    right: 0;
   }
 
   .command-center-body .cc-card-disclosure svg {
