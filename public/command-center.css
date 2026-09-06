@@ -1981,6 +1981,8 @@
   --cc-hover: oklch(0.945 0.003 255);
   --cc-subtle: oklch(0.965 0.002 255);
   --cc-selected: oklch(0.91 0.006 255);
+  --cc-filter-selected: oklch(0.43 0.115 250);
+  --cc-filter-selected-ink: oklch(0.985 0.003 250);
   --cc-card-hover: oklch(0.975 0.002 255);
   --cc-card-selected: oklch(0.965 0.006 255);
   --cc-strong: oklch(0.19 0.006 255);
@@ -2006,6 +2008,8 @@ html:not([data-theme="kami"]) .command-center-body {
   --cc-hover: oklch(0.3 0.004 255);
   --cc-subtle: oklch(0.29 0.004 255);
   --cc-selected: oklch(0.35 0.007 255);
+  --cc-filter-selected: oklch(0.55 0.13 250);
+  --cc-filter-selected-ink: oklch(0.985 0.003 250);
   --cc-card-hover: oklch(0.265 0.004 255);
   --cc-card-selected: oklch(0.29 0.007 255);
   --cc-strong: oklch(0.94 0.003 255);
@@ -2079,8 +2083,8 @@ html:not([data-theme="kami"]) .command-center-body {
 
 .command-center-body .cc-filter-chip.is-active {
   border-color: transparent;
-  background: var(--cc-selected);
-  color: var(--ink);
+  background: var(--cc-filter-selected);
+  color: var(--cc-filter-selected-ink);
   box-shadow: none;
   font-weight: 600;
 }
@@ -2101,7 +2105,9 @@ html:not([data-theme="kami"]) .command-center-body {
 }
 
 .command-center-body .cc-filter-chip.is-active:focus-visible {
-  box-shadow: none;
+  box-shadow:
+    0 0 0 2px var(--cc-sidebar),
+    0 0 0 4px color-mix(in oklch, var(--cc-focus) 62%, transparent);
 }
 
 .command-center-body .cc-filter-chip-machine.is-running:not(.is-active),

@@ -10,6 +10,10 @@ import {
 import { commandCenterDataFingerprint } from "./command-center-render.mjs";
 import { filePathFromLocalHref, linkifyEscaped, linkifyFilesEscaped } from "./linkify.js";
 import { renderMarkdown } from "./markdown.js";
+import {
+  exclusiveMachineFilterValue,
+  setExclusiveMachineFilter,
+} from "./machine-filter.js";
 import { compareMachinesByOwnerAndName } from "./machine-order.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
 import { groupAgentSessions } from "./session-groups.js";
@@ -419,7 +423,7 @@ const state = {
   pollTimer: null,
   lastError: "",
   reconnectGrace: createCommandCenterGrace(),
-  // Machine filter is in-memory only. Empty = "show all".
+  // Machine filter is in-memory only and strictly exclusive. Empty = "show all".
   sortBy: "recent",
   filterMachines: new Set(),
   starredCards: loadStarredCards(),
@@ -1628,8 +1632,9 @@ function handleInteractVoiceShortcut(event) {
 // before renderAgents and feed it the result.
 function filterAndSort(agents) {
   let out = agents;
-  if (state.filterMachines.size > 0) {
-    out = out.filter((a) => state.filterMachines.has(agentMachineKey(a)));
+  const filteredMachine = exclusiveMachineFilterValue(state.filterMachines);
+  if (filteredMachine) {
+    out = out.filter((a) => agentMachineKey(a) === filteredMachine);
   }
   const cmp = sortComparator(state.sortBy);
   return [...out].sort((a, b) => {
@@ -1672,7 +1677,7 @@ function sortComparator(by) {
 // machine came online). Status is displayed on cards, not used as a filter.
 function renderFilterRow() {
   const row = els.filterRow;
-  const priorFocusedMachineKey = focusedMachineChipKey();
+  const priorFocusedFilterValue = focusedFilterChipValue();
   row.innerHTML = "";
   // Agentless machines stay visible without adding separate machine cards to
   // the agent feed.
@@ -1695,6 +1700,14 @@ function renderFilterRow() {
       }
     }
   }
+  const selectedMachine = exclusiveMachineFilterValue(state.filterMachines);
+  row.append(chipButton({
+    label: "All",
+    active: !selectedMachine,
+    kind: "all",
+    value: "",
+    onTap: () => selectMachineFilter("", { focusFilterValue: "" }),
+  }));
   if (machines.size > 0) {
     const sep = document.createElement("span");
     sep.className = "cc-filter-sep";
@@ -1702,20 +1715,20 @@ function renderFilterRow() {
     const sortedMachines = [...machines.values()].sort(compareMachines);
     for (const machine of sortedMachines) {
       const id = machineKey(machine);
-      const active = state.filterMachines.has(id);
+      const active = selectedMachine === id;
       row.append(chipButton({
         label: machineLabel(machine),
         active,
         kind: "machine",
         value: id,
         status: machineChipStatus(id),
-        onTap: () => toggleFilter("filterMachines", id, { focusMachineKey: id }),
+        onTap: () => selectMachineFilter(id, { focusFilterValue: id }),
       }));
     }
   }
   if (!els.startAgentSheet?.hidden) renderStartAgentMachineOptions();
-  if (priorFocusedMachineKey) {
-    requestAnimationFrame(() => focusMachineChip(priorFocusedMachineKey, { scroll: false }));
+  if (priorFocusedFilterValue !== null) {
+    requestAnimationFrame(() => focusFilterChip(priorFocusedFilterValue, { scroll: false }));
   }
 }
 
@@ -1732,6 +1745,7 @@ function chipButton({ label, active, kind, value = "", status = "", onTap }) {
   btn.title = statusLabel_ ? `${label} · ${statusLabel_}` : label;
   btn.setAttribute("aria-label", btn.title);
   btn.setAttribute("aria-pressed", String(active));
+  btn.dataset.filterValue = value;
   if (value) btn.dataset.machineKey = value;
   if (status) {
     const statusIcon = document.createElement("span");
@@ -1747,14 +1761,12 @@ function chipButton({ label, active, kind, value = "", status = "", onTap }) {
   return btn;
 }
 
-function toggleFilter(setName, value, { focusMachineKey = "" } = {}) {
-  const s = state[setName];
-  if (s.has(value)) s.delete(value);
-  else s.add(value);
+function selectMachineFilter(value, { focusFilterValue = null } = {}) {
+  setExclusiveMachineFilter(state.filterMachines, value);
   renderFilterRow();
   renderAgents();
-  if (focusMachineKey) {
-    requestAnimationFrame(() => focusMachineChip(focusMachineKey, { scroll: false }));
+  if (focusFilterValue !== null) {
+    requestAnimationFrame(() => focusFilterChip(focusFilterValue, { scroll: false }));
   }
 }
 
@@ -2634,8 +2646,9 @@ function closeStartAgent() {
 
 function ensureStartedMachineVisible(machineId) {
   const key = String(machineId || "");
-  if (!key || state.filterMachines.size === 0 || state.filterMachines.has(key)) return;
-  state.filterMachines.add(key);
+  const selectedMachine = exclusiveMachineFilterValue(state.filterMachines);
+  if (!key || !selectedMachine || selectedMachine === key) return;
+  setExclusiveMachineFilter(state.filterMachines, key);
   renderFilterRow();
 }
 
@@ -2828,6 +2841,14 @@ function machineChipElements() {
   return [...els.filterRow.querySelectorAll(".cc-filter-chip-machine[data-machine-key]")];
 }
 
+function filterChipElements() {
+  return [...els.filterRow.querySelectorAll(".cc-filter-chip[data-filter-value]")];
+}
+
+function filterChipElementByValue(value) {
+  return filterChipElements().find((chip) => chip.dataset.filterValue === value) || null;
+}
+
 function machineChipElementByKey(key) {
   if (!key) return null;
   return machineChipElements().find((chip) => chip.dataset.machineKey === key) || null;
@@ -2839,10 +2860,10 @@ function focusedCardKey() {
   return card?.dataset.cardKey || "";
 }
 
-function focusedMachineChipKey() {
+function focusedFilterChipValue() {
   const active = document.activeElement instanceof Element ? document.activeElement : null;
-  const chip = active?.closest(".cc-filter-chip-machine[data-machine-key]");
-  return chip?.dataset.machineKey || "";
+  const chip = active?.closest(".cc-filter-chip[data-filter-value]");
+  return chip ? chip.dataset.filterValue ?? "" : null;
 }
 
 function restoreFocusedCard(key) {
@@ -2854,6 +2875,14 @@ function restoreFocusedCard(key) {
 
 function focusMachineChip(key, { scroll = true } = {}) {
   const chip = machineChipElementByKey(key);
+  if (!chip) return false;
+  chip.focus({ preventScroll: true });
+  if (scroll) chip.scrollIntoView({ block: "nearest", inline: "nearest" });
+  return true;
+}
+
+function focusFilterChip(value, { scroll = true } = {}) {
+  const chip = filterChipElementByValue(value);
   if (!chip) return false;
   chip.focus({ preventScroll: true });
   if (scroll) chip.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -2872,13 +2901,11 @@ function machineChipKeyForCardFocus() {
   const selectedAgent = selectedAgentFrom();
   const selectedMachine = selectedAgent ? agentMachineKey(selectedAgent) : "";
   if (selectedMachine && machineChipElementByKey(selectedMachine)) return selectedMachine;
-  const active = machineChipElements().find((chip) => state.filterMachines.has(chip.dataset.machineKey));
-  if (active) return active.dataset.machineKey || "";
-  return machineChipElements()[0]?.dataset.machineKey || "";
+  return exclusiveMachineFilterValue(state.filterMachines);
 }
 
 function focusMachineChipsFromCards() {
-  return focusMachineChip(machineChipKeyForCardFocus());
+  return focusFilterChip(machineChipKeyForCardFocus());
 }
 
 function updateSelectedCard(key, { scroll = false, focus = false } = {}) {
@@ -3325,7 +3352,7 @@ function handleMachineChipShortcuts(event) {
     return;
   }
   const target = event.target instanceof Element ? event.target : null;
-  const current = target?.closest(".cc-filter-chip-machine[data-machine-key]");
+  const current = target?.closest(".cc-filter-chip[data-filter-value]");
   if (!current) return;
 
   const directions = {
@@ -3346,20 +3373,19 @@ function handleMachineChipShortcuts(event) {
       return;
     }
     if (direction === "up") return;
-    const chips = machineChipElements();
+    const chips = filterChipElements();
     const index = chips.findIndex((chip) => chip === current);
     if (index < 0) return;
     const delta = direction === "left" ? -1 : 1;
     const nextIndex = Math.max(0, Math.min(chips.length - 1, index + delta));
-    focusMachineChip(chips[nextIndex]?.dataset.machineKey || "");
+    focusFilterChip(chips[nextIndex]?.dataset.filterValue ?? "");
     return;
   }
 
   if (event.key === " " || event.key === "Enter") {
-    const key = current.dataset.machineKey || "";
-    if (!key) return;
+    const key = current.dataset.filterValue ?? "";
     event.preventDefault();
-    toggleFilter("filterMachines", key, { focusMachineKey: key });
+    selectMachineFilter(key, { focusFilterValue: key });
   }
 }
 
