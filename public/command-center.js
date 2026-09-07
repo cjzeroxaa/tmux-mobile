@@ -3582,7 +3582,7 @@ function cardActionButton({ className = "", title, dataAttrs, disabled = false, 
 }
 
 function cardActionLink({ href, title, icon }) {
-  return `<a class="cc-card-action cc-open-button" href="${escapeHtml(href)}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${icon}</a>`;
+  return `<a class="cc-card-action cc-open-button" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${icon}</a>`;
 }
 
 function isCurrentRead(readId) {
@@ -3803,7 +3803,7 @@ function renderCard(agent) {
       })}
       ${cardActionLink({
         href: buildAgentAppUrl(agent),
-        title: "Open in app",
+        title: "Open Terminal in new tab",
         icon: ICONS.open,
       })}
       ${cardActionButton({
