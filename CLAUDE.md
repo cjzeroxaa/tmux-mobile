@@ -1,5 +1,13 @@
 # Claude operating notes for this repo
 
+## Web release preference (2026-09-09)
+
+For requested tmux-mobile Web changes, finish the implementation, run the
+appropriate checks, then deploy to production and verify the live result without
+waiting for a separate release request or confirmation. The user explicitly
+authorized this workflow for the Web app. This preference does not authorize
+automatic iOS/TestFlight releases.
+
 ## 1. eng.impo.ai is the canonical runtime
 
 The deployed AWS Controller at `https://eng.impo.ai` is the browser/API entry
@@ -11,6 +19,41 @@ Tailscale Serve mappings for this product.
 The hosted Controller may use an internal container port as an implementation
 detail. Users and connectors always address the public HTTPS Controller URL.
 Each machine only needs its outbound Connector process.
+
+### Web production release path (verified from prior releases, 2026-09-09)
+
+Use `scripts/push-image.sh` after checks. It builds a unique source image tag,
+then calls `scripts/deploy-existing-task.py` to save the current image under a
+rollback tag, update the mutable image tag already referenced by the live ECS
+service, and call `update-service --force-new-deployment` on the same task
+definition. It waits for rollout completion and checks the live revision and
+running image digest; a failed rollout restores the previous image.
+
+This existing ECR/ECS release channel successfully published `b056ec4` and
+`698fd75` before this runbook was corrected. At the 2026-09-09 preflight,
+production used `tmux-mobile-controller:163` with deployment tag `626fbb7`;
+always discover the current service definition and image tag instead of
+hardcoding these values. The deployment tag is not the source revision.
+
+`rebyte-prod` lacks PassRole for the two `tmux-mobile-controller-*` roles.
+That prevents registering a new task definition, not application-only releases
+through the existing definition. Do not repeatedly stop at that preflight or
+request IAM changes for a normal Web release. Task configuration or role changes
+are a separate operation; follow `../AWS_MANAGEMENT.md` for those.
+
+For an already built and checked ECR image, run:
+
+```bash
+python3 scripts/deploy-existing-task.py \
+  --source-tag <unique-source-tag> --expected-revision <embedded-revision> \
+  --receipt-dir /tmp/tmux-mobile-deploy-<unique-release>
+```
+
+Add `--plan` for read-only preflight (use a separate receipt directory).
+Confirm public `/api/health`, the deployed Web asset, and browser behavior.
+Keep source and rollback tags. Do not update Connectors for a Web-only change.
+For Connector updates, use the actual bundle manifest revision, since the
+existing definition's `TMUX_MOBILE_EXPECTED_REVISION` can retain an old tag.
 
 ## 2. Controller and Connector update runbook
 

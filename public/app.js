@@ -3901,24 +3901,38 @@ async function metadataPollTick() {
   if (state.sessions.length > 0) await loadWindowMetadata();
 }
 
+let metadataPollGeneration = 0;
+let metadataPollInFlight = null;
+
 function startMetadataPolling() {
   stopMetadataPolling();
   // Only meaningful once connected: hub mode (>=1 machine) or local with sessions.
   if (state.runtimeMode === "hub" ? state.machines.length === 0 : state.sessions.length === 0) {
     return;
   }
-  metadataPollTick(); // immediate first read
-  state.metadataTimer = window.setTimeout(
-    async function tick() {
-      await metadataPollTick();
-      state.metadataTimer = window.setTimeout(tick, metadataPollInterval());
-    },
-    metadataPollInterval(),
-  );
+  const generation = metadataPollGeneration;
+  const tick = async () => {
+    if (generation !== metadataPollGeneration) return;
+    // refreshTree and visibility changes can restart us while a request is
+    // awaiting a connector. Share that request, and let only the newest run
+    // re-arm. Clearing a timeout alone cannot cancel its executing callback.
+    const pending = metadataPollInFlight ||= metadataPollTick();
+    try {
+      await pending;
+    } catch {
+      // Keep polling after transient failures; request handlers retain last data.
+    } finally {
+      if (metadataPollInFlight === pending) metadataPollInFlight = null;
+    }
+    if (generation !== metadataPollGeneration) return;
+    state.metadataTimer = window.setTimeout(tick, metadataPollInterval());
+  };
+  void tick();
 }
 
 function stopMetadataPolling() {
-  if (state.metadataTimer) {
+  metadataPollGeneration += 1;
+  if (state.metadataTimer !== null) {
     window.clearTimeout(state.metadataTimer);
     state.metadataTimer = null;
   }
