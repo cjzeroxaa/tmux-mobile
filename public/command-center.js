@@ -1,3 +1,5 @@
+import { createFullResponseLoader } from "./full-response.mjs";
+import { addMermaidButtons } from "./mermaid-diagrams.mjs";
 import { createReadScope, createRefreshLoop } from "./view-work.mjs";
 import { buildAgentAppUrl } from "./agent-link.mjs";
 import { isRecentActivity, sessionCardFoldState } from "./card-folding.js";
@@ -762,6 +764,7 @@ function contextStartAgentMachine(machines = startAgentMachineChoices()) {
 }
 
 const viewReads = createReadScope();
+const completeResponses = createFullResponseLoader(api);
 
 async function api(path, options = {}) {
   const { machineId, mux, headers: inputHeaders, ...requestOptions } = options;
@@ -1867,6 +1870,7 @@ function openResponseFullscreen({ label, text, timestamp, format, agent = null }
   els.responseFullscreenBody.className = "cc-section-text cc-response-fullscreen-body";
   if (format === "markdown") els.responseFullscreenBody.classList.add("is-markdown");
   els.responseFullscreenBody.innerHTML = renderSectionContent(text, format);
+  addMermaidButtons(els.responseFullscreenBody);
   els.responseFullscreen.hidden = false;
   requestAnimationFrame(() => els.responseFullscreenClose?.focus());
 }
@@ -1979,6 +1983,7 @@ function closeAgentTranscript() {
 function renderSection({ className, label, text, timestamp, expandedKey, format = "plain", fullscreen = false, agent = null, pinnable = false, pinOptions = null }) {
   const wrap = document.createElement("div");
   wrap.className = `cc-section ${className}`;
+  const incomplete = label === "Last response" && Boolean(agent?.fullTextError);
   if (state.expanded.has(expandedKey)) wrap.classList.add("is-expanded");
 
   const heading = document.createElement("div");
@@ -2013,7 +2018,7 @@ function renderSection({ className, label, text, timestamp, expandedKey, format 
     fullscreenButton.title = `Open ${label.toLowerCase()} fullscreen`;
     fullscreenButton.setAttribute("aria-label", `Open ${label.toLowerCase()} fullscreen`);
     fullscreenButton.innerHTML = ICONS.fullscreen;
-    fullscreenButton.disabled = !text;
+    fullscreenButton.disabled = !text || incomplete;
     fullscreenButton.addEventListener("click", () => {
       openResponseFullscreen({ label, text, timestamp, format, agent });
     });
@@ -2027,7 +2032,7 @@ function renderSection({ className, label, text, timestamp, expandedKey, format 
     pinButton.title = "Pin as artifact";
     pinButton.setAttribute("aria-label", `Pin ${label.toLowerCase()} as a shareable artifact`);
     pinButton.innerHTML = ICONS.pin;
-    pinButton.disabled = !text;
+    pinButton.disabled = !text || incomplete;
     pinButton.addEventListener("click", () => pinResponseAsArtifact(agent, text, pinOptions || {}));
     actions.append(pinButton);
   }
@@ -2038,7 +2043,7 @@ function renderSection({ className, label, text, timestamp, expandedKey, format 
   copyButton.title = `Copy ${label.toLowerCase()}`;
   copyButton.setAttribute("aria-label", `Copy ${label.toLowerCase()}`);
   copyButton.innerHTML = ICONS.copy;
-  copyButton.disabled = !text;
+  copyButton.disabled = !text || incomplete;
   copyButton.addEventListener("click", async () => {
     if (!text) return;
     copyButton.disabled = true;
@@ -2053,13 +2058,13 @@ function renderSection({ className, label, text, timestamp, expandedKey, format 
         copyButton.title = `Copy ${label.toLowerCase()}`;
         copyButton.setAttribute("aria-label", `Copy ${label.toLowerCase()}`);
         copyButton.innerHTML = ICONS.copy;
-        copyButton.disabled = !text;
+        copyButton.disabled = !text || incomplete;
       }, 1200);
     } catch {
       copyButton.title = "Copy failed";
       window.setTimeout(() => {
         copyButton.title = `Copy ${label.toLowerCase()}`;
-        copyButton.disabled = !text;
+        copyButton.disabled = !text || incomplete;
       }, 1200);
     }
   });
@@ -2077,7 +2082,19 @@ function renderSection({ className, label, text, timestamp, expandedKey, format 
     body.innerHTML = renderSectionContent(text, format);
   }
 
+  addMermaidButtons(body);
+  if (agent?.fullTextError && label === "Last response") {
+    const note = document.createElement("button");
+    note.type = "button";
+    note.className = "small-button cc-full-response-error";
+    note.textContent = "Full response unavailable · Retry";
+    note.title = agent.fullTextError;
+    note.addEventListener("click", () => loadAgents({ after: true }));
+    wrap.append(note);
+  }
+
   body.addEventListener("click", (event) => {
+    if (className === "assistant") return;
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest("a, button, input, select, textarea")) return;
     if (state.expanded.has(expandedKey)) state.expanded.delete(expandedKey);
@@ -2971,7 +2988,7 @@ function openSelectedAgent({ newTab = false } = {}) {
 
 function openSelectedResponseFullscreen() {
   const agent = selectedAgentFrom();
-  if (!agent?.lastAssistantText) return false;
+  if (!agent?.lastAssistantText || agent.fullTextError) return false;
   openResponseFullscreen({
     label: "Last response",
     text: agent.lastAssistantText,
@@ -3913,7 +3930,9 @@ async function loadAgentsAggregate(generation) {
   const priorFingerprint = commandCenterDataFingerprint(state);
   const data = await api("/api/command-center");
   if (generation !== state.loadGeneration) return;
-  const agents = Array.isArray(data.agents) ? data.agents : [];
+  const agents = await completeResponses(Array.isArray(data.agents) ? data.agents : [],
+    () => viewReads.active && generation === state.loadGeneration);
+  if (!viewReads.active || generation !== state.loadGeneration) return;
   const machines = Array.isArray(data.machines)
     ? normalizeMachines(data.machines, agents)
     : machinesFromAgents(agents);
@@ -3946,7 +3965,9 @@ async function loadMachineAgents(machine, generation, { render = true } = {}) {
     const machines = Array.isArray(data.machines) ? data.machines : [];
     const returnedMachine = machines[0];
     if (returnedMachine) replaceMachine(returnedMachine);
-    const agents = Array.isArray(data.agents) ? data.agents : [];
+    const agents = await completeResponses(Array.isArray(data.agents) ? data.agents : [],
+      () => viewReads.active && generation === state.loadGeneration);
+    if (!viewReads.active || generation !== state.loadGeneration) return;
     const preserveAgents =
       agents.length === 0 &&
       returnedMachine &&

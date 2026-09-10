@@ -1,3 +1,4 @@
+import { latestTranscriptMessages } from "./lib/latest-transcript.mjs";
 import { readFileSync } from "node:fs";
 import http from "node:http";
 import { readFile } from "node:fs/promises";
@@ -4509,7 +4510,7 @@ async function handleApi(req, res, url) {
     const paneId = requireId(url.searchParams.get("paneId"), "pane");
     const { pane } = await getPaneContext(paneId);
     const result = await safeAgentTranscript(pane);
-    sendJson(res, 200, { result });
+    sendJson(res, 200, { result: url.searchParams.get("latest") === "1" ? latestTranscriptMessages(result) : result });
     return;
   }
 

@@ -2661,3 +2661,25 @@ html:not([data-theme="kami"]) .command-center-body {
     background: var(--surface);
   }
 }
+
+/* Assistant replies are complete by default; only prompts retain the compact fold. */
+.cc-section.assistant > .cc-section-text {
+  max-height: none;
+  cursor: auto;
+}
+.cc-diagram {
+  margin: 10px 0;
+  white-space: normal;
+}
+.cc-diagram > pre { white-space: pre-wrap; }
+.cc-diagram-render { margin-bottom: 8px; }
+.cc-diagram-status { margin-left: 8px; font-size: 12px; color: var(--muted); }
+.cc-diagram-image {
+  overflow: auto;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.cc-diagram-image svg { display: block; max-width: 100%; height: auto; margin: auto; }
+.cc-full-response-error { color: #a73535; margin: 6px 0; }
