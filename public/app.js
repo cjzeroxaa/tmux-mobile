@@ -1,4 +1,5 @@
 import { escapeHtml, filePathFromLocalHref, linkifyEscaped } from "./linkify.js";
+import { clipboardImageFiles, uploadFilename } from "./clipboard-upload.js";
 import { playNotifySound, shouldChime } from "./notify-sound.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
 import { openViewerUrl } from "./viewer-navigation.js";
@@ -2126,7 +2127,10 @@ async function uploadFiles(fileList) {
   setStatus(files.length === 1 ? "Uploading…" : `Uploading ${files.length} files…`);
   try {
     for (const file of files) {
-      const params = new URLSearchParams({ paneId: state.paneId, name: file.name });
+      const params = new URLSearchParams({
+        paneId: state.paneId,
+        name: uploadFilename(file),
+      });
       const data = await api(`/api/upload?${params}`, {
         method: "POST",
         headers: { "content-type": file.type || "application/octet-stream" },
@@ -5982,6 +5986,19 @@ if (els.attachButton && els.fileInput) {
     await uploadFiles(files);
   });
 }
+// Clipboard images must follow the same upload path as the attachment button.
+// Prevent the contenteditable's native rich-image insertion: it looks attached,
+// but the plain-text composer cannot send those DOM bytes to the target machine.
+els.textInput.addEventListener(
+  "paste",
+  (event) => {
+    const files = clipboardImageFiles(event);
+    if (!files.length) return;
+    event.preventDefault();
+    void uploadFiles(files);
+  },
+  true,
+);
 // Mic: tap to start dictating into the box; while recording the Keep/Discard
 // controls take over (the mic itself is hidden via CSS).
 els.voiceButton.addEventListener("click", toggleVoiceRecording);
