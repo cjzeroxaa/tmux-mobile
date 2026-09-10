@@ -1,4 +1,5 @@
 import { createReadScope, createRefreshLoop } from "./view-work.mjs";
+import { createRefreshWindow } from "./refresh-window.mjs";
 import { escapeHtml, filePathFromLocalHref, linkifyEscaped } from "./linkify.js";
 import { playNotifySound, shouldChime } from "./notify-sound.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
@@ -589,6 +590,8 @@ const els = {
   snapshotNote: document.querySelector("#snapshotNote"),
   autoRefresh: document.querySelector("#autoRefresh"),
   snapshotStaleIcon: document.querySelector("#snapshotStaleIcon"),
+  refreshPausedBanner: document.querySelector("#refreshPausedBanner"),
+  resumeTerminalRefresh: document.querySelector("#resumeTerminalRefresh"),
   inputArea: document.querySelector("#inputArea"),
   attachButton: document.querySelector("#attachButton"),
   fileInput: document.querySelector("#fileInput"),
@@ -992,6 +995,7 @@ async function selectMachine(machineId, target = null) {
   treeRefresh.stop();
   paneSnapshotRefreshTimer = null;
   detailForbidden = false;
+  renewTerminalRefresh();
   state.treeLoadGeneration += 1;
   state.machineId = machineId;
   state.mux = target ? normalizeMux(target.mux) : "";
@@ -1488,6 +1492,7 @@ function clearPaneViewForWindowSwitch(message = "Loading window...") {
   detailRefresh.stop();
   paneSnapshotRefreshTimer = null;
   detailForbidden = false;
+  renewTerminalRefresh();
   state.viewLoadGeneration += 1;
   state.panes = [];
   state.paneId = "";
@@ -3280,7 +3285,7 @@ function clearReconnectGrace() {
 // non-destructive "Reconnecting…" banner, and schedule one fast retry. The
 // current window/snapshot stay on screen untouched.
 function enterReconnectGrace(machineId) {
-  if (!viewReads.active) return;
+  if (!viewReads.active || terminalRefreshWindow.expired) return;
   if (!inReconnectGrace() || state.reconnectMachineId !== machineId) {
     // Fresh drop (or a different machine): start a new grace deadline.
     state.reconnectUntil = Date.now() + RECONNECT_GRACE_MS;
@@ -4340,8 +4345,27 @@ function setAskButtonsDisabled(disabled) {
   for (const b of els.askBody.querySelectorAll("button")) b.disabled = disabled;
 }
 
+const terminalRefreshWindow = createRefreshWindow({ onExpire() {
+  detailRefresh.stop();
+  treeRefresh.stop();
+  viewReads.invalidate();
+  state.viewLoadGeneration++;
+  state.treeLoadGeneration++;
+  paneSnapshotRefreshTimer = null;
+  state.reconnectTimer = null;
+  metadataRerunQueued = false;
+  els.refreshPausedBanner.hidden = false;
+} });
+
+function renewTerminalRefresh() {
+  if (!viewReads.active) return;
+  if (els.autoRefresh.checked) terminalRefreshWindow.renew();
+  else terminalRefreshWindow.stop();
+  els.refreshPausedBanner.hidden = true;
+}
+
 const detailRefresh = createRefreshLoop({
-  active: () => viewReads.active && !detailForbidden,
+  active: () => viewReads.active && !detailForbidden && !terminalRefreshWindow.expired,
   interval: () => els.autoRefresh.checked && state.windowId ? detailRetryMs : 0,
   refresh: loadPanesOnce,
 });
@@ -4496,6 +4520,8 @@ function setSnapshotStale(stale, error) {
 
 async function refreshSnapshot(addToChat = false, { forceScrollBottom = false } = {}) {
   if (!viewReads.active) return;
+  // Explicit refreshes and responses to user input start a fresh update window.
+  renewTerminalRefresh();
   detailForbidden = false;
   const generation = state.viewLoadGeneration;
   await loadPanes({ after: addToChat });
@@ -4867,10 +4893,12 @@ function setAutoRefresh(enabled) {
   detailForbidden = false;
   els.autoRefresh.checked = enabled;
   detailRefresh.stop();
+  renewTerminalRefresh();
   if (enabled) detailRefresh.schedule();
 }
 
-els.mobileRefreshTree.addEventListener("click", () => refreshTree());
+els.mobileRefreshTree.addEventListener("click", () => { renewTerminalRefresh(); void refreshTree(); });
+els.resumeTerminalRefresh.addEventListener("click", () => refreshSnapshot());
 els.mobileRefresh.addEventListener("click", () => refreshSnapshot(true));
 const THEME_ICONS = {
   // sun
@@ -6028,6 +6056,7 @@ els.autoRefresh.checked = true;
 let viewActive = false;
 export function deactivateView() {
   viewActive = false;
+  terminalRefreshWindow.stop();
   viewReads.stop();
   detailRefresh.stop();
   treeRefresh.stop();
@@ -6042,6 +6071,7 @@ export function activateView() {
   if (viewActive || document.hidden) return;
   viewActive = true;
   viewReads.activate();
+  renewTerminalRefresh();
   detailForbidden = false;
   initSnippets();
   const urlTarget = readUrlTarget();
@@ -6065,6 +6095,18 @@ function syncViewVisibility() {
   else activateView();
 }
 document.addEventListener("visibilitychange", syncViewVisibility);
+window.addEventListener("focus", () => {
+  if (!viewActive || !viewReads.active || document.hidden) return;
+  const paused = terminalRefreshWindow.expired || detailForbidden;
+  renewTerminalRefresh();
+  // Visibility activation already requests a snapshot. Focus merely renews
+  // its deadline unless this view had actually stopped, avoiding duplicate reads.
+  if (paused && els.autoRefresh.checked) {
+    detailForbidden = false;
+    if (state.windowId) void loadPanes();
+    else void refreshTree();
+  }
+});
 window.addEventListener("pageshow", syncViewVisibility);
 window.addEventListener("pagehide", deactivateView);
 window.addEventListener("popstate", () => {

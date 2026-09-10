@@ -444,6 +444,18 @@ h3 {
   gap: 5px;
 }
 
+.refresh-paused-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+.refresh-paused-banner[hidden] { display: none; }
+
 /* Subtle warning shown in the toolbar when the auto-refresh poll fails. The
  * snapshot keeps its last good content; this is the only feedback that it's
  * stale. Gentle pulse so the eye catches it, not loud enough to nag. */
