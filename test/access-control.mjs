@@ -18,6 +18,12 @@ assert.deepEqual(config, {
       emails: [],
       domains: ["srp.one"],
     },
+    {
+      ownerEmail: "engineering-agent@srp.one",
+      agentId: "b99a2a70-1160-49b2-82f1-9b38f1734761",
+      emails: [],
+      domains: ["srp.one"],
+    },
   ],
 });
 
