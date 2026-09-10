@@ -1,3 +1,4 @@
+import { createReadScope, createRefreshLoop } from "./view-work.mjs";
 import { buildAgentAppUrl } from "./agent-link.mjs";
 import { isRecentActivity, sessionCardFoldState } from "./card-folding.js";
 import { cardStarKey } from "./card-stars.js";
@@ -31,7 +32,6 @@ import {
 // with the last user prompt + last assistant response taken verbatim from
 // the agent's JSONL transcript. No tmux capture, no LLM summary.
 
-const POLL_MS = 4000;
 const INTERACT_WAVEFORM_SAMPLES = 40;
 const INTERACT_WAVEFORM_SAMPLE_INTERVAL_MS = 200;
 const COMPOSER_HISTORY_KEY = "tmux-mobile-composer-history";
@@ -421,7 +421,6 @@ const state = {
   // Track which (windowId, section) cards the user expanded so a refresh
   // doesn't collapse what they were reading.
   expanded: new Set(),
-  pollTimer: null,
   lastError: "",
   reconnectGrace: createCommandCenterGrace(),
   // Machine filter is in-memory only and strictly exclusive. Empty = "show all".
@@ -762,6 +761,8 @@ function contextStartAgentMachine(machines = startAgentMachineChoices()) {
   return selectedStartAgentContext(machines).machine;
 }
 
+const viewReads = createReadScope();
+
 async function api(path, options = {}) {
   const { machineId, mux, headers: inputHeaders, ...requestOptions } = options;
   const headers = { accept: "application/json", ...(inputHeaders || {}) };
@@ -775,21 +776,7 @@ async function api(path, options = {}) {
   if (!isLocalMachineId(machineId)) headers["x-machine-id"] = machineId;
   if (mux) headers["x-mux"] = mux;
 
-  const response = await fetch(path, {
-    cache: "no-store",
-    ...requestOptions,
-    headers,
-  });
-  let json = {};
-  try {
-    json = await response.json();
-  } catch {}
-  if (!response.ok) {
-    const error = new Error(json.error || `HTTP ${response.status}`);
-    error.status = response.status;
-    throw error;
-  }
-  return json;
+  return viewReads.json(path, { ...requestOptions, headers });
 }
 
 async function sendTextToAgent(agent, text) {
@@ -1206,7 +1193,7 @@ async function sendInteractText({ keepFocus = true } = {}) {
     await sendTextToAgent(agent, text);
     clearInteractDraft(agent);
     setInteractStatus("Sent");
-    window.setTimeout(loadAgents, 700);
+    viewReads.delay(() => loadAgents({ after: true }), 700);
   } catch (error) {
     interactSetText(text);
     saveInteractDraft(agent, text);
@@ -1228,7 +1215,7 @@ async function sendInteractKey(key) {
     await sendKeyToAgent(agent, key);
     setInteractStatus(`Sent ${key}`);
     interactFocus();
-    window.setTimeout(loadAgents, 350);
+    viewReads.delay(() => loadAgents({ after: true }), 350);
   } catch (error) {
     setInteractStatus(`Key failed: ${error.message}`);
     interactFocus();
@@ -1247,7 +1234,7 @@ async function sendInteractCommand(command) {
     await sendTextToAgent(agent, text);
     setInteractStatus(`Sent ${text}`);
     interactFocus();
-    window.setTimeout(loadAgents, 700);
+    viewReads.delay(() => loadAgents({ after: true }), 700);
   } catch (error) {
     setInteractStatus(`Command failed: ${error.message}`);
     interactFocus();
@@ -1309,7 +1296,7 @@ async function confirmDeleteWindow() {
     setStatus(`Deleted ${agent.windowIndex}: ${agent.windowName || "(unnamed)"}`);
     state.deleteAgent = null;
     els.deleteDialog.hidden = true;
-    window.setTimeout(loadAgents, 250);
+    viewReads.delay(() => loadAgents({ after: true }), 250);
   } catch (error) {
     setDeleteStatus(`Delete failed: ${error.message}`, true);
   } finally {
@@ -2722,7 +2709,7 @@ async function submitStartAgent() {
     setStatus(
       `Started ${result.kind} on ${machineLabel(machine)} in ${abbrevHome(cwd)} via ${muxLabel(result.mux || mux)} (${sessionName}).`,
     );
-    window.setTimeout(() => loadAgents(), 900);
+    viewReads.delay(() => loadAgents({ after: true }), 900);
   } catch (error) {
     setStartAgentStatus(error.message || "Could not start agent.", { error: true });
   } finally {
@@ -3526,7 +3513,7 @@ async function renameAgentWindow(agent) {
       body: JSON.stringify({ windowId: agent.windowId, name }),
     });
     setStatus(`Renamed window: ${name}`);
-    window.setTimeout(loadAgents, 250);
+    viewReads.delay(() => loadAgents({ after: true }), 250);
   } catch (error) {
     setStatus(`Rename failed: ${error.message}`);
   } finally {
@@ -3973,7 +3960,7 @@ async function loadMachineAgents(machine, generation, { render = true } = {}) {
       error: returnedMachine?.inventoryError || "",
     });
   } catch (error) {
-    if (generation !== state.loadGeneration) return;
+    if (error.silent || !viewReads.active || generation !== state.loadGeneration) return;
     const message = error.message || String(error);
     if (holdCommandCenterSnapshot([key])) {
       state.machineLoads.set(key, {
@@ -4052,8 +4039,10 @@ async function loadAgentsByMachine(machines, generation) {
   renderAgents();
 }
 
-async function loadAgents() {
-  if (state.loading) return;
+function loadAgents(options) { return listRefresh.refresh(options); }
+const listRefresh = createRefreshLoop({ active: () => viewReads.active, refresh: loadAgentsOnce });
+async function loadAgentsOnce() {
+  if (!viewReads.active) return;
   state.loading = true;
   const generation = ++state.loadGeneration;
   if (state.machines.length === 0 && state.agents.length === 0) setStatus("Loading machines…");
@@ -4104,31 +4093,6 @@ async function checkServerRevision() {
     throw error;
   }
   state.serverRevision = revision || state.serverRevision;
-}
-
-// While the user is reading, pause the auto-refresh so a poll-driven re-render
-// doesn't yank the content out from under them: a section is expanded, or the
-// transcript sheet / response-fullscreen overlay is open. The manual refresh
-// button bypasses this (it calls loadAgents directly).
-function isReadingLocked() {
-  if (state.expanded.size > 0) return true;
-  if (els.responseFullscreen && !els.responseFullscreen.hidden) return true;
-  if (els.transcriptSheet && !els.transcriptSheet.hidden) return true;
-  return false;
-}
-
-function startPolling() {
-  stopPolling();
-  state.pollTimer = window.setInterval(() => {
-    if (isReadingLocked()) return;
-    loadAgents();
-  }, POLL_MS);
-}
-function stopPolling() {
-  if (state.pollTimer) {
-    window.clearInterval(state.pollTimer);
-    state.pollTimer = null;
-  }
 }
 
 // Tapping a detected file path in a card opens the same artifact viewer the SPA
@@ -4588,30 +4552,34 @@ els.sortSelect.addEventListener("change", () => {
   renderAgents();
 });
 
-// Pause polling when the tab is backgrounded — every poll fires N
-// processTree + lsof calls on the host, no reason to keep doing that
-// while the user can't see the result.
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) stopPolling();
-  else { loadAgents(); startPolling(); }
-});
-
 onSnippetsChanged(() => {
   renderInteractSnippets();
   if (!els.snippetSheet?.hidden) renderSnippetList();
 });
 renderInteractSnippets();
-initSnippets();
-initStarredCards();
 
-loadAgents();
-startPolling();
-
-// SPA router hook. The Command Center's setInterval keeps ticking while
-// hidden, but the displayed cards are at most POLL_MS stale — and "at most
-// one tick stale" is what shows up as "old data on return". Fire one fresh
-// loadAgents the moment the view becomes active so cards are current the
-// frame the user looks at them.
-export function resumeView() {
-  loadAgents();
+let viewActive = false;
+export function deactivateView() {
+  viewActive = false;
+  viewReads.stop();
+  listRefresh.stop();
+  state.loadGeneration++;
+  state.loading = false;
 }
+export function activateView() {
+  if (viewActive || document.hidden) return;
+  viewActive = true;
+  viewReads.activate();
+  initSnippets();
+  initStarredCards();
+  void loadAgents();
+}
+function syncViewVisibility() {
+  const wrapper = document.querySelector(".spa-view-command-center");
+  if (document.hidden || wrapper?.hidden) deactivateView();
+  else activateView();
+}
+document.addEventListener("visibilitychange", syncViewVisibility);
+window.addEventListener("pageshow", syncViewVisibility);
+window.addEventListener("pagehide", deactivateView);
+if (!document.getElementById("viewRoot")) activateView();

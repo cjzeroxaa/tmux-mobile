@@ -10,12 +10,7 @@
 // drops it into a wrapper inside #viewRoot, and dynamic-imports the view's
 // JS module. Subsequent navigations just hide one wrapper and show the
 // other — no fetches, no re-imports, no state loss. windowId stays put.
-// pollings keep ticking. The captured snapshot is still on screen the
-// moment the view comes back.
-//
-// State preservation across views is the WHOLE POINT. We deliberately
-// don't unload anything except CSS visibility, even when the view is
-// hidden — see "no pause/resume" note at the bottom.
+// Hidden views retain their DOM and snapshot, but pause all data work.
 
 const ROUTES = {
   "/": "command-center",
@@ -38,6 +33,7 @@ const viewRoot = document.getElementById("viewRoot");
 //   { wrapper: <div>, module: ES module, ready: Promise<void> }
 const views = new Map();
 let currentRoute = null;
+let navigationGeneration = 0;
 
 function routeFor(pathname) {
   return ROUTES[pathname] || "command-center";
@@ -57,6 +53,7 @@ async function loadView(route) {
 
   const wrapper = document.createElement("div");
   wrapper.className = `spa-view spa-view-${route}`;
+  wrapper.hidden = true;
   // Carry over the original <body> class so view-scoped CSS (e.g.
   // `.command-center-body .cc-list`) keeps matching, even though we're not
   // actually setting the class on <body>. CSS rules in command-center.css
@@ -90,9 +87,8 @@ async function loadView(route) {
   return { wrapper, module, title };
 }
 
-async function mount(route) {
+async function mount(route, generation) {
   let view = views.get(route);
-  const firstMount = !view;
   if (!view) {
     // Stake the slot BEFORE the await so concurrent navigations don't
     // race-load the same view twice.
@@ -104,28 +100,20 @@ async function mount(route) {
     view = await view.pending;
     views.set(route, view);
   }
+  // Coalesce same-turn navigation/restore events before activating data work.
+  await Promise.resolve();
+  if (generation !== navigationGeneration) return view;
   view.wrapper.hidden = false;
   document.title = view.title;
-  // Tell the view it's active again so it can fire a one-shot refresh. On
-  // first mount this is redundant (the module's top-level boot already runs
-  // its initial load), so we only call it on a re-mount. Without this the
-  // user sees up-to-one-poll-interval stale data when they come back — the
-  // periodic refresh keeps ticking in the background but the user's eye
-  // lands on the screen between ticks. resumeView is an opt-in export; a
-  // view module that doesn't define it just silently skips this step.
-  if (!firstMount && typeof view.module.resumeView === "function") {
-    try {
-      view.module.resumeView();
-    } catch (err) {
-      console.error(`[spa-router] resumeView for ${route} threw:`, err);
-    }
-  }
+  currentRoute = route;
+  view.module.activateView?.();
   return view;
 }
 
 function unmount(route) {
   const view = views.get(route);
   if (!view || view.pending || !view.wrapper) return;
+  view.module.deactivateView?.();
   view.wrapper.hidden = true;
 }
 
@@ -134,17 +122,11 @@ async function navigate(pathname, search = window.location.search, { push = true
   if (push) {
     history.pushState({ route }, "", pathname + search);
   }
-  if (route === currentRoute) {
-    if (push) await mount(route);
-    return;
-  }
-  if (currentRoute) unmount(currentRoute);
-  await mount(route);
-  currentRoute = route;
-  // Let the newly-current view know its query string may have changed
-  // (e.g. /app?session=2&window=3 deep link). Today the app view re-reads
-  // the URL on a popstate event, so synthesizing one keeps that path live.
-  if (!push) window.dispatchEvent(new PopStateEvent("popstate", { state: history.state }));
+  const generation = ++navigationGeneration;
+  // Also pause pending/previously loaded views during rapid navigation.
+  for (const key of views.keys()) unmount(key);
+  currentRoute = null;
+  await mount(route, generation);
 }
 
 // Intercept same-origin clicks on internal links so they swap views in
@@ -177,9 +159,3 @@ window.addEventListener("popstate", () => {
 
 // Boot: mount whichever view the current URL points to.
 navigate(window.location.pathname, window.location.search, { push: false });
-
-// NOTE on "no pause/resume": both views' pollings keep ticking even while
-// hidden. That doubles the background traffic the user pays when they've
-// visited both views — acceptable for the win of instant switching with
-// no state loss. If/when this matters, each view module can export
-// pause()/resume() and the router can call them around unmount/mount.

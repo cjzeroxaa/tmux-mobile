@@ -1,3 +1,4 @@
+import { createReadScope, createRefreshLoop } from "./view-work.mjs";
 import { escapeHtml, filePathFromLocalHref, linkifyEscaped } from "./linkify.js";
 import { playNotifySound, shouldChime } from "./notify-sound.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
@@ -360,11 +361,6 @@ const state = {
   windowActivity: {},
   windowMetadata: {}, // { [windowId]: { agentType, repo, git: {branch, worktree} } }
   attention: [], // cross-machine: [{ machineId, sessionName, windowIndex, windowName, agentType, turn, waitingForInput, contentHash }]
-  activityTimer: null,
-  metadataTimer: null, // background "needs you" metadata poll (cross-machine)
-  autoRefreshInFlight: false, // back-pressure flag for setAutoRefresh — skip the
-                              // next tick if the previous one's network hasn't
-                              // returned yet (see setAutoRefresh).
   panes: [],
   sessionId: "",
   windowId: "",
@@ -385,7 +381,6 @@ const state = {
   // here to label the "Waiting for <host>" message instead of leaking the id.
   knownHostnames: {},
   lines: readPersistedLines(),
-  autoRefreshTimer: null,
   chat: [],
   targetPickerOpen: false,
   directoryPickerOpen: false,
@@ -658,6 +653,8 @@ const els = {
   speakWindow: document.querySelector("#speakWindow"),
 };
 
+const viewReads = createReadScope(() => `${state.machineId}|${state.mux}|${state.windowId}`);
+
 async function api(path, options = {}) {
   const { machineId: _machineId, mux, ...requestOptions } = options;
   const headers = { ...(requestOptions.headers || {}) };
@@ -675,18 +672,7 @@ async function api(path, options = {}) {
     headers["x-mux"] = requestMux;
   }
 
-  const response = await fetch(path, {
-    cache: "no-store",
-    ...requestOptions,
-    headers,
-  });
-  const json = await response.json();
-  if (!response.ok) {
-    const error = new Error(json.error || `HTTP ${response.status}`);
-    error.status = response.status;
-    throw error;
-  }
-  return json;
+  return viewReads.json(path, { ...requestOptions, headers });
 }
 
 function shouldAttachMachineHeader(path, method) {
@@ -833,7 +819,6 @@ function setStatus(text, ok = true) {
 }
 
 function resetTmuxState(message = "Select a window.") {
-  stopMetadataPolling();
   // Any full reset means we're no longer holding a window through a blip.
   setReconnectingBanner(false);
   state.targetLoadingMessage = "";
@@ -1002,6 +987,11 @@ function machineLabelFor(routeId) {
 // goes straight to the intended window instead of the machine's default.
 async function selectMachine(machineId, target = null) {
   if (machineId === state.machineId && !target) return;
+  viewReads.invalidate();
+  detailRefresh.stop();
+  treeRefresh.stop();
+  paneSnapshotRefreshTimer = null;
+  detailForbidden = false;
   state.treeLoadGeneration += 1;
   state.machineId = machineId;
   state.mux = target ? normalizeMux(target.mux) : "";
@@ -1494,6 +1484,10 @@ function resetDirectoryNavigator(message = "No window selected") {
 }
 
 function clearPaneViewForWindowSwitch(message = "Loading window...") {
+  viewReads.invalidate();
+  detailRefresh.stop();
+  paneSnapshotRefreshTimer = null;
+  detailForbidden = false;
   state.viewLoadGeneration += 1;
   state.panes = [];
   state.paneId = "";
@@ -1509,6 +1503,7 @@ function clearPaneViewForWindowSwitch(message = "Loading window...") {
 }
 
 function clearTargetViewForUrlNavigation(urlTarget, message = "Loading window...") {
+  treeRefresh.stop();
   state.treeLoadGeneration += 1;
   if (urlTarget?.machineId) state.machineId = urlTarget.machineId;
   if (urlTarget?.mux !== undefined) state.mux = normalizeMux(urlTarget.mux);
@@ -1594,7 +1589,6 @@ function showTargetPicker() {
 function openTargetPicker() {
   showTargetPicker();
   refreshTree().then(() => {
-    startActivityPolling();
     loadWindowMetadata();
   });
 }
@@ -1603,7 +1597,6 @@ function closeTargetPicker() {
   state.targetPickerOpen = false;
   els.targetSheet.hidden = true;
   syncSheetOpenClass();
-  stopActivityPolling();
 }
 
 function openDirectoryPicker() {
@@ -2762,6 +2755,7 @@ function renderReadButtonsEnabled() {
 // state so the Read buttons can render their enabled state. Best-effort:
 // any error keeps the buttons disabled, which is the conservative default.
 async function refreshAgentDetection() {
+  const generation = state.viewLoadGeneration;
   if (!state.paneId) {
     state.currentAgentKind = null;
     renderReadButtonsEnabled();
@@ -2773,6 +2767,7 @@ async function refreshAgentDetection() {
     );
     state.currentAgentKind = data?.result?.kind || null;
   } catch {
+    if (!viewReads.active || generation !== state.viewLoadGeneration) return;
     state.currentAgentKind = null;
   }
   renderReadButtonsEnabled();
@@ -3222,7 +3217,7 @@ function mapPaneKey(event) {
 let paneSnapshotRefreshTimer = null;
 function schedulePaneSnapshotRefresh() {
   if (paneSnapshotRefreshTimer) return;
-  paneSnapshotRefreshTimer = window.setTimeout(() => {
+  paneSnapshotRefreshTimer = viewReads.delay(() => {
     paneSnapshotRefreshTimer = null;
     refreshSnapshot(true);
   }, 200);
@@ -3285,6 +3280,7 @@ function clearReconnectGrace() {
 // non-destructive "Reconnecting…" banner, and schedule one fast retry. The
 // current window/snapshot stay on screen untouched.
 function enterReconnectGrace(machineId) {
+  if (!viewReads.active) return;
   if (!inReconnectGrace() || state.reconnectMachineId !== machineId) {
     // Fresh drop (or a different machine): start a new grace deadline.
     state.reconnectUntil = Date.now() + RECONNECT_GRACE_MS;
@@ -3292,18 +3288,25 @@ function enterReconnectGrace(machineId) {
   }
   setReconnectingBanner(true, machineId);
   if (!state.reconnectTimer) {
-    state.reconnectTimer = window.setTimeout(() => {
+    state.reconnectTimer = viewReads.delay(() => {
       state.reconnectTimer = null;
       refreshTree();
     }, RECONNECT_RETRY_MS);
   }
 }
 
-async function refreshTree({
+let treeOptions;
+const treeRefresh = createRefreshLoop({ active: () => viewReads.active, refresh: () => refreshTreeOnce(treeOptions) });
+function refreshTree(options) {
+  treeOptions = options;
+  return treeRefresh.refresh();
+}
+async function refreshTreeOnce({
   urlTarget = state.pendingUrlTarget || readUrlTarget(),
   forceUrlTarget = false,
   syncUrl = false,
 } = {}) {
+  if (!viewReads.active) return;
   const treeLoadGeneration = state.treeLoadGeneration;
   if (urlTarget.machineId && urlTarget.machineId !== state.machineId) {
     state.machineId = urlTarget.machineId;
@@ -3353,9 +3356,6 @@ async function refreshTree({
         message,
       );
       setStatus(message.replace(/\.$/, ""), false);
-      // No machine focused, but others may be online and need you — keep the
-      // cross-machine attention poll running so the pill/badge still works.
-      startMetadataPolling();
       if (!state.machineId && state.machines.length > 1) showTargetPicker();
       return;
     }
@@ -3371,10 +3371,8 @@ async function refreshTree({
     await applyTreeAndSelectWindow({ urlTarget, forceUrlTarget });
     if (state.treeLoadGeneration !== treeLoadGeneration) return;
     if (state.targetPickerOpen) {
-      startActivityPolling();
+      refreshPickerActivity();
     }
-    // Keep "needs you" indicators live in the background (picker closed too).
-    startMetadataPolling();
     if (syncUrl) {
       updateTargetUrl();
     }
@@ -3386,6 +3384,7 @@ async function refreshTree({
     );
   } catch (error) {
     if (error.silent) return;
+    if (error.status === 403) { setStatus(error.message, false); return; }
     if (state.treeLoadGeneration !== treeLoadGeneration) return;
     // The runtime/machines fetch itself failed (controller HTTP blip during a
     // revision swap, or a network hiccup). If we were live, hold the current
@@ -3759,12 +3758,11 @@ async function jumpToFirstAttention() {
     }
   }
   if (reason === "question") {
-    window.setTimeout(() => openAskOverlay(), 400);
+    viewReads.delay(() => openAskOverlay(), 400);
   }
 }
 
-// Coalesce concurrent loadWindowMetadata() calls. The poll tick, the target
-// picker, and several post-action handlers all call this; each call fans out one
+// Coalesce metadata snapshots from the target picker and post-action handlers; each call fans out one
 // /api/window-metadata request PER SESSION, and those are slow (brokered to the
 // agent). Without a guard, overlapping calls multiply into a burst that saturates
 // the single controller instance and gets 429'd. So: if a load is already in
@@ -3775,6 +3773,7 @@ let metadataLoadInFlight = null;
 let metadataRerunQueued = false;
 
 function loadWindowMetadata() {
+  if (!viewReads.active) return Promise.resolve();
   if (metadataLoadInFlight) {
     metadataRerunQueued = true;
     return metadataLoadInFlight;
@@ -3790,15 +3789,17 @@ function loadWindowMetadata() {
 }
 
 async function loadWindowMetadataOnce() {
-  if (state.windows.length === 0) return;
+  if (!viewReads.active || state.windows.length === 0) return;
+  const generation = state.viewLoadGeneration;
   try {
     const prevRepo = JSON.stringify(activeWindowRepo());
     const lists = await Promise.all(
-      state.sessions.map((session) =>
+      state.sessions.filter((session) => state.targetPickerOpen || session.id === state.sessionId).map((session) =>
         api(`/api/window-metadata?sessionId=${encodeURIComponent(session.id)}`).catch(() => ({})),
       ),
     );
-    state.windowMetadata = Object.assign({}, ...lists);
+    if (!viewReads.active || generation !== state.viewLoadGeneration) return;
+    state.windowMetadata = Object.assign({}, state.windowMetadata, ...lists);
     // Keep the currently-viewed window's seen-hash current — while you're
     // looking at it, its changes aren't "unread". (Other windows accumulate
     // unread state against their last-visit baseline.)
@@ -3818,30 +3819,8 @@ async function loadWindowMetadataOnce() {
   }
 }
 
-// Cross-machine attention sweep: ask the controller for every online machine's
-// per-window turn/waitingForInput/contentHash in one request, flatten into
-// descriptors, and refresh the "needs you" indicators (pill/title/favicon span
-// all machines). Also keep the active window's seen-hash current so it doesn't
-// flag itself as unread.
-async function loadAttention() {
-  try {
-    const data = await api("/api/attention");
-    const descriptors = [];
-    for (const machine of data.machines || []) {
-      for (const w of machine.windows || []) {
-        descriptors.push({ machineId: machine.machineId, ...w });
-      }
-    }
-    state.attention = descriptors;
-    const activeWin = selectedWindow();
-    if (activeWin) markWindowVisited(activeWin);
-    updateAttentionIndicators();
-  } catch {
-    // transient failure — keep the last known attention
-  }
-}
-
 async function pollWindowActivity() {
+  const generation = state.viewLoadGeneration;
   if (state.sessions.length === 0) return;
   try {
     const results = await Promise.all(
@@ -3849,6 +3828,7 @@ async function pollWindowActivity() {
         api(`/api/window-activity?sessionId=${encodeURIComponent(session.id)}`).catch(() => ({})),
       ),
     );
+    if (!viewReads.active || generation !== state.viewLoadGeneration) return;
     state.windowActivity = Object.assign({}, ...results);
     renderWindows();
   } catch {
@@ -3856,95 +3836,10 @@ async function pollWindowActivity() {
   }
 }
 
-function startActivityPolling() {
-  stopActivityPolling();
-  if (state.sessions.length === 0) return;
-  // setTimeout-after-await pattern (same shape as startMetadataPolling).
-  // setInterval would queue overlapping ticks under slow network; with the
-  // chained-setTimeout pattern each tick only fires after the previous one's
-  // awaits complete, so the cadence naturally backs off when responses are
-  // slow.
-  const tick = async () => {
-    await pollWindowActivity();
-    if (state.activityTimer !== null) {
-      state.activityTimer = window.setTimeout(tick, 3000);
-    }
-  };
-  state.activityTimer = 0; // non-null sentinel so the first tick's re-arm runs
-  tick();
+function refreshPickerActivity() {
+  // Picker data is a snapshot; reopening explicitly refreshes it.
+  if (viewReads.active && state.targetPickerOpen) void pollWindowActivity();
 }
-
-function stopActivityPolling() {
-  if (state.activityTimer !== null) {
-    window.clearTimeout(state.activityTimer);
-    state.activityTimer = null;
-  }
-}
-
-// Background metadata poll so turn / unread / waiting state (and the "needs you"
-// indicators) stay fresh even when the target picker is closed — including while
-// the tab is backgrounded, which is exactly when the tab-title/favicon badge
-// earns its keep. Throttled when hidden to keep it cheap. (The picker also calls
-// loadWindowMetadata() directly for an immediate refresh on open.)
-const METADATA_POLL_VISIBLE_MS = 5000;
-const METADATA_POLL_HIDDEN_MS = 12000;
-
-function metadataPollInterval() {
-  return document.hidden ? METADATA_POLL_HIDDEN_MS : METADATA_POLL_VISIBLE_MS;
-}
-
-// One poll tick: refresh the cross-machine attention sweep (always — it spans all
-// machines, even when none is focused), plus the focused machine's picker
-// metadata when there is one.
-async function metadataPollTick() {
-  await loadAttention();
-  if (state.sessions.length > 0) await loadWindowMetadata();
-}
-
-let metadataPollGeneration = 0;
-let metadataPollInFlight = null;
-
-function startMetadataPolling() {
-  stopMetadataPolling();
-  // Only meaningful once connected: hub mode (>=1 machine) or local with sessions.
-  if (state.runtimeMode === "hub" ? state.machines.length === 0 : state.sessions.length === 0) {
-    return;
-  }
-  const generation = metadataPollGeneration;
-  const tick = async () => {
-    if (generation !== metadataPollGeneration) return;
-    // refreshTree and visibility changes can restart us while a request is
-    // awaiting a connector. Share that request, and let only the newest run
-    // re-arm. Clearing a timeout alone cannot cancel its executing callback.
-    const pending = metadataPollInFlight ||= metadataPollTick();
-    try {
-      await pending;
-    } catch {
-      // Keep polling after transient failures; request handlers retain last data.
-    } finally {
-      if (metadataPollInFlight === pending) metadataPollInFlight = null;
-    }
-    if (generation !== metadataPollGeneration) return;
-    state.metadataTimer = window.setTimeout(tick, metadataPollInterval());
-  };
-  void tick();
-}
-
-function stopMetadataPolling() {
-  metadataPollGeneration += 1;
-  if (state.metadataTimer !== null) {
-    window.clearTimeout(state.metadataTimer);
-    state.metadataTimer = null;
-  }
-}
-
-// When the tab is hidden the in-flight timer keeps its (longer) cadence; on
-// becoming visible again, refresh right away so the badge clears promptly.
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && state.sessions.length > 0) {
-    startMetadataPolling();
-  }
-});
 
 async function selectWindow(windowId) {
   const win = state.windows.find((item) => item.id === windowId);
@@ -4418,7 +4313,7 @@ async function submitAsk(payload) {
       // Done (or declined) — close and refresh the snapshot to show the result.
       closeAskOverlay();
       setStatus("answer sent");
-      window.setTimeout(() => refreshSnapshot(true), 400);
+      viewReads.delay(() => refreshSnapshot(true), 400);
       return;
     }
     renderAsk(data.question); // next question or the review screen
@@ -4429,7 +4324,7 @@ async function submitAsk(payload) {
     if (error.status === 409) {
       closeAskOverlay();
       setStatus("answer sent");
-      window.setTimeout(() => refreshSnapshot(true), 400);
+      viewReads.delay(() => refreshSnapshot(true), 400);
       return;
     }
     els.askStatus.textContent = error.message || "Could not apply";
@@ -4445,11 +4340,19 @@ function setAskButtonsDisabled(disabled) {
   for (const b of els.askBody.querySelectorAll("button")) b.disabled = disabled;
 }
 
-async function loadPanes() {
+const detailRefresh = createRefreshLoop({
+  active: () => viewReads.active && !detailForbidden,
+  interval: () => els.autoRefresh.checked && state.windowId ? detailRetryMs : 0,
+  refresh: loadPanesOnce,
+});
+let detailForbidden = false;
+let detailRetryMs = 3000;
+function loadPanes(options) { return detailRefresh.refresh(options); }
+async function loadPanesOnce() {
+  if (!viewReads.active) return;
   const windowId = state.windowId;
   const loadGeneration = state.viewLoadGeneration;
   const previousPaneId = state.paneId;
-  state.panes = [];
   if (!windowId) {
     renderTargetLabels();
     resetDirectoryNavigator();
@@ -4470,23 +4373,36 @@ async function loadPanes() {
     // Same UX as the old refreshSnapshot catch: keep the last good snapshot
     // visible, raise the stale-icon, swallow silently. The whole batched
     // fetch having failed is a single signal — not three.
+    if (error.silent) return;
+    detailForbidden = error.status === 403;
+    detailRetryMs = Math.min(detailRetryMs * 2, 30000);
     setSnapshotStale(true, error);
     renderTargetLabels();
     return;
   }
+  detailRetryMs = 3000;
   if (state.windowId !== windowId || state.viewLoadGeneration !== loadGeneration) return;
   state.panes = view.panes || [];
   state.paneId = view.activePaneId || "";
   const paneChanged = state.paneId !== previousPaneId;
 
-  loadChat();
+  if (paneChanged) {
+    loadChat();
+    renderChat();
+    void loadWindowMetadata();
+  }
+  state.windowMetadata[windowId] = {
+    ...state.windowMetadata[windowId],
+    inCopyMode: Boolean(state.panes.find((pane) => pane.id === state.paneId)?.inCopyMode),
+  };
+  updateCopyModeBanner();
   renderTargetLabels();
-  renderChat();
   // Conservatively disable Read until detection comes back; otherwise a
   // half-second of network can land the user mid-tap on a stale Enabled.
   state.currentAgentKind = null;
   renderReadButtonsEnabled();
-  refreshAgentDetection();
+  await refreshAgentDetection();
+  if (!viewReads.active || state.windowId !== windowId || state.viewLoadGeneration !== loadGeneration) return;
 
   // Apply the bundled directory listing (no separate /api/directories call).
   const dir = view.directories || {};
@@ -4561,8 +4477,8 @@ async function changeDirectory(targetPath) {
   const label = pathLabel(targetPath);
   setStatus(`cd: ${label}`);
   await sendMessage(`cd ${shellQuote(targetPath)}`, true);
-  window.setTimeout(() => {
-    loadPanes().catch((error) => {
+  viewReads.delay(() => {
+    loadPanes({ after: true }).catch((error) => {
       addChat("system", error.message, "directory error");
     });
   }, 650);
@@ -4579,38 +4495,13 @@ function setSnapshotStale(stale, error) {
 }
 
 async function refreshSnapshot(addToChat = false, { forceScrollBottom = false } = {}) {
-  const paneId = state.paneId;
-  const loadGeneration = state.viewLoadGeneration;
-  if (!paneId) {
-    updateSnapshotText("Select a window.", { forceScrollBottom: true });
-    setSnapshotStale(false);
-    return;
-  }
-  try {
-    const params = new URLSearchParams({
-      paneId,
-      mode: "tail",
-      lines: String(state.lines),
-    });
-    const data = await api(`/api/capture?${params}`);
-    if (state.paneId !== paneId || state.viewLoadGeneration !== loadGeneration) return;
-    updateSnapshotText(data.text || "[no visible output]", { forceScrollBottom });
-    setSnapshotStale(false);
-    if (addToChat) {
-      addChat("pane", excerptForChat(data.text), "tmux output");
-    }
-  } catch (error) {
-    if (state.paneId !== paneId || state.viewLoadGeneration !== loadGeneration) return;
-    // Keep the last good snapshot visible — wiping it on every transient
-    // network blip is the worst possible UX. The toolbar icon is the only
-    // signal that something's off; the user can hit Refresh to retry.
-    setSnapshotStale(true, error);
-    if (addToChat) {
-      // Only surface the error in the chat when the user actually pressed
-      // Refresh / sent something. Silent auto-poll failures stay silent.
-      addChat("system", error.message, "error");
-    }
-  }
+  if (!viewReads.active) return;
+  detailForbidden = false;
+  const generation = state.viewLoadGeneration;
+  await loadPanes({ after: addToChat });
+  if (!viewReads.active || generation !== state.viewLoadGeneration) return;
+  if (addToChat) addChat("pane", excerptForChat(state.snapshotText), "tmux output");
+  if (forceScrollBottom) updateSnapshotText(state.snapshotText, { forceScrollBottom: true });
 }
 
 async function sendMessage(text, enter, { submitNudge = false } = {}) {
@@ -4634,7 +4525,7 @@ async function sendMessage(text, enter, { submitNudge = false } = {}) {
     method: "POST",
     body: JSON.stringify({ paneId: state.paneId, text, enter, submitNudge }),
   });
-  window.setTimeout(() => refreshSnapshot(true), 350);
+  viewReads.delay(() => refreshSnapshot(true), 350);
 }
 
 async function sendKey(key) {
@@ -4647,7 +4538,7 @@ async function sendKey(key) {
     method: "POST",
     body: JSON.stringify({ paneId: state.paneId, key }),
   });
-  window.setTimeout(() => refreshSnapshot(true), 350);
+  viewReads.delay(() => refreshSnapshot(true), 350);
 }
 
 // --- Agent mode + effort switching ---------------------------------------
@@ -4726,7 +4617,7 @@ async function cycleAgentMode() {
   try {
     await sendKey("BTab");
     // Pull fresh metadata sooner than the poll so the pill updates promptly.
-    window.setTimeout(loadWindowMetadata, 500);
+    viewReads.delay(loadWindowMetadata, 500);
   } catch (error) {
     addChat("system", error.message, "error");
   }
@@ -4796,8 +4687,8 @@ async function selectMode(targetMode) {
       method: "POST",
       body: JSON.stringify({ paneId: state.paneId, agentType: a.agentType, mode: targetMode }),
     });
-    window.setTimeout(loadWindowMetadata, 400);
-    window.setTimeout(() => refreshSnapshot(true), 400);
+    viewReads.delay(loadWindowMetadata, 400);
+    viewReads.delay(() => refreshSnapshot(true), 400);
     if (r && r.reached === false) {
       els.modeStatus.textContent = `Couldn't reach ${ui.labels[targetMode] || targetMode} (now: ${r.mode || "?"})`;
     } else {
@@ -4818,8 +4709,8 @@ async function selectEffort(level) {
       method: "POST",
       body: JSON.stringify({ paneId: state.paneId, agentType: a.agentType, level }),
     });
-    window.setTimeout(loadWindowMetadata, 700);
-    window.setTimeout(() => refreshSnapshot(true), 700);
+    viewReads.delay(loadWindowMetadata, 700);
+    viewReads.delay(() => refreshSnapshot(true), 700);
     closeModeSheet();
   } catch (error) {
     els.modeStatus.textContent = error.message || "Could not set effort";
@@ -4973,41 +4864,14 @@ async function forkAgentWindow() {
 }
 
 function setAutoRefresh(enabled) {
-  if (state.autoRefreshTimer) {
-    window.clearInterval(state.autoRefreshTimer);
-    state.autoRefreshTimer = null;
-  }
-  if (enabled) {
-    state.autoRefreshTimer = window.setInterval(() => {
-      // Back-pressure. Each refresh cycle fans out ~20 requests
-      // (sessions + 8 × /api/windows + 8 × /api/window-metadata + capture
-      // + attention + …). On a slow link a cycle can take 5–10 s, so the
-      // raw 3-second interval was firing cycle N+1 while cycle N's
-      // responses were still landing. Out-of-order responses then kept
-      // overwriting state.windows / state.panes mid-render — which the
-      // user perceives as the window list "jumping between channels
-      // many times" before settling. Verified empirically:
-      //   /tmp/verify-tmux-mobile/events.jsonl on slow-3g showed 3
-      //   overlapping cycles, 57 in-flight requests, in 10 s.
-      // Skip the tick if the previous network is still in flight; with
-      // this guard the effective cadence becomes min(3s, cycle-duration)
-      // which is exactly the back-pressure we want.
-      if (state.autoRefreshInFlight) return;
-      state.autoRefreshInFlight = true;
-      Promise.allSettled([refreshTree(), refreshSnapshot()]).finally(() => {
-        state.autoRefreshInFlight = false;
-      });
-    }, 3000);
-  }
+  detailForbidden = false;
+  els.autoRefresh.checked = enabled;
+  detailRefresh.stop();
+  if (enabled) detailRefresh.schedule();
 }
 
-els.mobileRefreshTree.addEventListener("click", async () => {
-  await refreshTree();
-});
-els.mobileRefresh.addEventListener("click", async () => {
-  await refreshTree();
-  await refreshSnapshot();
-});
+els.mobileRefreshTree.addEventListener("click", () => refreshTree());
+els.mobileRefresh.addEventListener("click", () => refreshSnapshot(true));
 const THEME_ICONS = {
   // sun
   kami: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
@@ -6143,7 +6007,6 @@ onSnippetsChanged(() => {
   if (!els.snippetSheet?.hidden) renderSnippetList();
 });
 renderSnippetChips();
-initSnippets();
 
 // Fork this agent into a fresh window (duplicates the agent's launch command in
 // a new worktree). Wired by data-attribute so the trigger can live anywhere.
@@ -6157,53 +6020,54 @@ for (const button of document.querySelectorAll("[data-agent-fork]")) {
   });
 }
 
-window.addEventListener("popstate", () => {
-  const urlTarget = readUrlTarget();
-  if (hasUrlTarget(urlTarget)) clearTargetViewForUrlNavigation(urlTarget);
-  refreshTree({
-    urlTarget,
-    forceUrlTarget: true,
-  });
-});
-
 renderComposerMode();
 initComposerEditor();
-// Start with Read disabled — refreshAgentDetection in loadPanes() will
-// turn it on for Codex/Claude panes once the first window loads.
 renderReadButtonsEnabled();
+els.autoRefresh.checked = true;
 
-refreshTree({
-  urlTarget: state.pendingUrlTarget,
-  forceUrlTarget: hasUrlTarget(state.pendingUrlTarget),
-  syncUrl: true,
-}).then(() => {
-  els.autoRefresh.checked = true;
-  setAutoRefresh(true);
-});
-
-// SPA router hook. Called by spa-router.mjs the moment this view becomes the
-// active one again (after the user navigated away to Command Center and back).
-// If the URL names a target window, treat that navigation as foreground work:
-// clear the previous pane immediately and force the tree selection to consume
-// the new query. Plain returns without a target keep the old background-refresh
-// behavior.
-export function resumeView() {
-  const urlTarget = readUrlTarget();
-  if (hasUrlTarget(urlTarget)) {
-    clearTargetViewForUrlNavigation(urlTarget);
-    state.autoRefreshInFlight = true;
-    refreshTree({
-      urlTarget,
-      forceUrlTarget: true,
-      syncUrl: true,
-    }).finally(() => {
-      state.autoRefreshInFlight = false;
-    });
-    return;
-  }
-  if (state.autoRefreshInFlight) return;
-  state.autoRefreshInFlight = true;
-  Promise.allSettled([refreshTree(), refreshSnapshot()]).finally(() => {
-    state.autoRefreshInFlight = false;
-  });
+let viewActive = false;
+export function deactivateView() {
+  viewActive = false;
+  viewReads.stop();
+  detailRefresh.stop();
+  treeRefresh.stop();
+  state.viewLoadGeneration++;
+  state.treeLoadGeneration++;
+  metadataRerunQueued = false;
+  paneSnapshotRefreshTimer = null;
+  if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
+  state.reconnectTimer = null;
 }
+export function activateView() {
+  if (viewActive || document.hidden) return;
+  viewActive = true;
+  viewReads.activate();
+  detailForbidden = false;
+  initSnippets();
+  const urlTarget = readUrlTarget();
+  const changed = hasUrlTarget(urlTarget) && (
+    (urlTarget.machineId && urlTarget.machineId !== state.machineId) ||
+    (urlTarget.mux !== undefined && normalizeMux(urlTarget.mux) !== state.mux) ||
+    (urlTarget.windowId && urlTarget.windowId !== state.windowId) ||
+    (urlTarget.session && urlTarget.session !== selectedSession()?.name) ||
+    (urlTarget.windowIndex && String(urlTarget.windowIndex) !== String(selectedWindow()?.index))
+  );
+  if (changed) clearTargetViewForUrlNavigation(urlTarget);
+  if (!state.windowId || changed) {
+    void refreshTree({ urlTarget, forceUrlTarget: hasUrlTarget(urlTarget), syncUrl: true });
+  } else {
+    void loadPanes();
+  }
+}
+function syncViewVisibility() {
+  const wrapper = document.querySelector(".spa-view-app");
+  if (document.hidden || wrapper?.hidden) deactivateView();
+  else activateView();
+}
+document.addEventListener("visibilitychange", syncViewVisibility);
+window.addEventListener("pageshow", syncViewVisibility);
+window.addEventListener("pagehide", deactivateView);
+window.addEventListener("popstate", () => {
+  if (!document.getElementById("viewRoot")) { deactivateView(); activateView(); }
+});
+if (!document.getElementById("viewRoot")) activateView();
