@@ -1,6 +1,7 @@
 import { buildAgentAppUrl } from "./agent-link.mjs";
 import { isRecentActivity, sessionCardFoldState } from "./card-folding.js";
 import { cardStarKey } from "./card-stars.js";
+import { clipboardImageFiles, uploadFilename } from "./clipboard-upload.js";
 import {
   clearCommandCenterGrace,
   commandCenterGraceActive,
@@ -971,7 +972,7 @@ async function uploadInteractFiles(fileList) {
     for (const file of files) {
       const params = new URLSearchParams({
         paneId: agent.paneId,
-        name: file.name || "upload",
+        name: uploadFilename(file),
       });
       const data = await api(`/api/upload?${params}`, {
         method: "POST",
@@ -4363,6 +4364,16 @@ if (els.interactAttachButton && els.interactFileInput) {
     await uploadInteractFiles(files);
   });
 }
+els.interactInput?.addEventListener(
+  "paste",
+  (event) => {
+    const files = clipboardImageFiles(event);
+    if (!files.length) return;
+    event.preventDefault();
+    void uploadInteractFiles(files);
+  },
+  true,
+);
 els.interactKeys?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   const keyButton = target?.closest("[data-interact-key]");
