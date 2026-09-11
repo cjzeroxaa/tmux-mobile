@@ -3391,6 +3391,8 @@ function decodeTranscriptMetadata(value) {
 }
 
 function transcriptUploadStatus(error) {
+  if (error?.name === "TimeoutError") return 503;
+  if (error?.name === "AbortError") return 499;
   if (Number.isInteger(error?.status)) return error.status;
   if (error?.code === "transcript_cursor_mismatch") return 409;
   if (error?.code === "transcript_chain_mismatch") return 409;
@@ -5558,6 +5560,9 @@ if (MODE.kind === "register") {
           });
           return;
         }
+        const uploadController = new AbortController();
+        const cancelUpload = () => uploadController.abort();
+        res.once("close", cancelUpload);
         try {
           const metadata = decodeTranscriptMetadata(req.headers["x-transcript-metadata"]);
           const bytes = await readRequestBuffer(req, MAX_TRANSCRIPT_CHUNK_BYTES);
@@ -5566,9 +5571,12 @@ if (MODE.kind === "register") {
             agentId: req.headers["x-agent-id"],
             machineId: req.headers["x-machine-id"],
             chunk: { ...metadata, bytes },
+            signal: uploadController.signal,
           });
           sendJson(res, 200, { ok: true, result });
         } catch (error) {
+          if (res.destroyed) return;
+          if (transcriptUploadStatus(error) === 503) res.setHeader("Retry-After", "30");
           sendJson(res, transcriptUploadStatus(error), {
             ok: false,
             error: {
@@ -5577,6 +5585,8 @@ if (MODE.kind === "register") {
               expected: error.expected,
             },
           });
+        } finally {
+          res.removeListener("close", cancelUpload);
         }
         return;
       }
@@ -6141,12 +6151,13 @@ if (MODE.kind === "register") {
           }
         : null,
       onTranscriptChunk: TRANSCRIPT_ARCHIVE
-        ? ({ owner, machine, chunk }) =>
+        ? ({ owner, machine, chunk, signal }) =>
             TRANSCRIPT_ARCHIVE.commitChunk({
               ownerId: owner.userId || owner.email,
               machineId: machine.machineId,
               agentId: machine.agentId,
               chunk,
+              signal,
             })
         : null,
     });
