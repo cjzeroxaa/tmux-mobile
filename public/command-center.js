@@ -20,7 +20,7 @@ import {
 } from "./machine-filter.js";
 import { compareMachinesByOwnerAndName } from "./machine-order.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
-import { groupAgentSessions } from "./session-groups.js";
+import { CARD_SORT_KEY, normalizeCardSort, compareRecentActivity, groupAgentSessions } from "./session-groups.js";
 import { openViewerUrl } from "./viewer-navigation.js";
 import {
   getSnippets as getStoredSnippets,
@@ -426,7 +426,10 @@ const state = {
   lastError: "",
   reconnectGrace: createCommandCenterGrace(),
   // Machine filter is in-memory only and strictly exclusive. Empty = "show all".
-  sortBy: "recent",
+  sortBy: (() => {
+    try { return normalizeCardSort(localStorage.getItem(CARD_SORT_KEY)); }
+    catch { return "current"; }
+  })(),
   filterMachines: new Set(),
   starredCards: loadStarredCards(),
   cardSearchQuery: "",
@@ -1627,7 +1630,7 @@ function filterAndSort(agents) {
   if (filteredMachine) {
     out = out.filter((a) => agentMachineKey(a) === filteredMachine);
   }
-  const cmp = sortComparator(state.sortBy);
+  const cmp = compareRecentActivity;
   return [...out].sort((a, b) => {
     const sa = isStarredAgent(a) ? 1 : 0;
     const sb = isStarredAgent(b) ? 1 : 0;
@@ -1636,33 +1639,7 @@ function filterAndSort(agents) {
   });
 }
 
-function sortComparator(by) {
-  switch (by) {
-    case "machine":
-      return (a, b) =>
-        (a.machineHostname || a.machineId || "").localeCompare(
-          b.machineHostname || b.machineId || "",
-        ) || a.windowIndex - b.windowIndex;
-    case "recent":
-      return (a, b) => {
-        // null/missing timestamps sort last
-        const ta = a.lastActivityAt ? Date.parse(a.lastActivityAt) : 0;
-        const tb = b.lastActivityAt ? Date.parse(b.lastActivityAt) : 0;
-        return tb - ta;
-      };
-    case "name":
-      return (a, b) => (a.windowName || "").localeCompare(b.windowName || "");
-    case "status":
-    default:
-      // Actionable first, unknown before calm idle.
-      return (a, b) => {
-        if (a.status === b.status) return a.windowIndex - b.windowIndex;
-        const pa = STATUS_PRIORITY.get(a.status) ?? STATUS_PRIORITY.get("unverified");
-        const pb = STATUS_PRIORITY.get(b.status) ?? STATUS_PRIORITY.get("unverified");
-        return pa - pb;
-      };
-  }
-}
+
 
 // Rebuild the machine chip row whenever the agent list changes (e.g. a new
 // machine came online). Status is displayed on cards, not used as a filter.
@@ -3918,6 +3895,7 @@ function renderAgents() {
     machineKey: agentMachineKey,
     muxKey: agentMux,
     isStarred: isStarredAgent,
+    sortBy: state.sortBy,
   });
   for (const group of grouped.groups) els.list.append(renderSessionGroup(group));
   syncSelectedCardDom();
@@ -4566,10 +4544,11 @@ themeMediaQuery?.addEventListener("change", () => {
   if (readTheme() === "auto") applyTheme("auto");
 });
 
-// Sort dropdown is intentionally in-memory only.
+// Sorting is local presentation state; changing it never fetches inventory.
 els.sortSelect.value = state.sortBy;
 els.sortSelect.addEventListener("change", () => {
-  state.sortBy = els.sortSelect.value;
+  state.sortBy = normalizeCardSort(els.sortSelect.value);
+  try { localStorage.setItem(CARD_SORT_KEY, state.sortBy); } catch {}
   renderAgents();
 });
 

@@ -21,7 +21,8 @@ const hub = createHub(server, {
   pingTimeoutMs: 200,
 });
 
-function waitFor(label, predicate, timeoutMs = 3_000) {
+// Startup also discovers local SSH/transcript sources before publishing.
+function waitFor(label, predicate, timeoutMs = 10_000) {
   return new Promise((resolve, reject) => {
     const started = Date.now();
     const timer = setInterval(() => {

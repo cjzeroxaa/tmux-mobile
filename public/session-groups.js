@@ -1,3 +1,16 @@
+export const CARD_SORT_KEY = "tmux-mobile-card-sort";
+export function normalizeCardSort(value) {
+  return value === "recent" ? "recent" : "current";
+}
+export function compareRecentActivity(left, right) {
+  const time = (agent) => [agent.lastActivityAt, agent.lastAssistantAt, agent.lastUserAt]
+    .reduce((latest, value) => {
+      const parsed = Date.parse(String(value || ""));
+      return Number.isFinite(parsed) ? Math.max(latest, parsed) : latest;
+    }, 0);
+  return time(right) - time(left);
+}
+
 function clean(value) {
   return String(value || "").trim();
 }
@@ -11,13 +24,13 @@ function sessionGroupKey(agent, machineKey, muxKey) {
 }
 
 /**
- * Group an already-sorted Command Center feed without changing card order.
+ * Preserve the existing grouped feed, or show one global recent-activity feed.
  * Starred cards mirror mobile: they live in one priority group instead of
  * appearing twice, while sessionCount still describes every visible session.
  */
 export function groupAgentSessions(
   source,
-  { machineKey, isStarred, muxKey = (agent) => agent.mux },
+  { machineKey, isStarred, muxKey = (agent) => agent.mux, sortBy = "current" },
 ) {
   const starred = [];
   const sessionKeys = new Set();
@@ -54,7 +67,16 @@ export function groupAgentSessions(
       agents: starred,
     });
   }
-  groups.push(...sessionMap.values());
+  if (sortBy === "recent") {
+    starred.sort(compareRecentActivity);
+    const recent = [...sessionMap.values()].flatMap((group) => group.agents).sort(compareRecentActivity);
+    if (recent.length) groups.push({
+      key: "recent", title: "Recent activity", subtitle: "Newest first · Starred cards stay on top",
+      kind: "recent", agents: recent,
+    });
+  } else {
+    groups.push(...sessionMap.values());
+  }
 
   return {
     groups,

@@ -45,6 +45,14 @@
             <button id="ccCardSearchOpen" class="cc-more-item" type="button" role="menuitem">Search cards</button>
             <button id="ccPinsOpen" class="cc-more-item" type="button" role="menuitem">Pinned artifacts</button>
             <button id="ccWelcomeShow" class="cc-more-item" type="button" role="menuitem">Help</button>
+            <label class="cc-more-control" for="ccSort">
+              <span class="cc-more-control-label">Sort cards</span>
+              <select id="ccSort" class="cc-sort-select" aria-label="Sort cards">
+                <option value="current">Current order</option>
+                <option value="recent">Recent activity</option>
+              </select>
+            </label>
+            <div class="cc-sort-hint">Starred cards always first</div>
             <div class="cc-more-control" role="group" aria-label="Theme">
               <span class="cc-more-control-label">Theme</span>
               <div class="cc-theme-options">
@@ -93,20 +101,10 @@ TMUX_MOBILE_MUXES=tmux,rmux node server.mjs --register https://eng.impo.ai --log
         </div>
       </section>
 
-      <!-- Filter + sort controls. Machine chips are populated by
-           command-center.js once the first payload lands; sort is a plain
-           native <select> so the iOS picker UX comes for free. -->
+      <!-- Machine filters; sorting lives in the More menu. -->
       <section class="cc-controls">
         <div id="ccFilterRow" class="cc-filter-row" role="toolbar" aria-label="Filter agents"></div>
-        <label class="cc-sort">
-          <span>Sort</span>
-          <select id="ccSort" class="cc-sort-select" aria-label="Sort agents">
-            <option value="recent">Newest activity</option>
-            <option value="status">Status (working first)</option>
-            <option value="machine">Machine</option>
-            <option value="name">Window name</option>
-          </select>
-        </label>
+
       </section>
 
       <section id="ccList" class="cc-list" aria-label="Active agent sessions"></section>
