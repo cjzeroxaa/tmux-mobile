@@ -174,7 +174,7 @@
           <button id="refreshSnapshot" class="small-button">Refresh</button>
           <label class="toggle">
             <input id="autoRefresh" type="checkbox" checked />
-            <span title="Updates for up to 5 minutes; returning to this tab starts a new 5 minutes">Auto · 5 min</span>
+            <span title="Pauses after 5 minutes without interaction; typing, clicking or scrolling keeps updates active">Auto · idle 5 min</span>
           </label>
           <span id="snapshotStaleIcon" class="snapshot-stale-icon" hidden title="Last refresh failed — showing previous content" aria-label="Snapshot may be stale" role="img">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -186,8 +186,8 @@
           </button>
         </div>
         <div id="refreshPausedBanner" class="refresh-paused-banner" hidden role="status">
-          <span>Auto-refresh paused after 5 minutes.</span>
-          <button id="resumeTerminalRefresh" type="button" class="small-button">Resume for 5 min</button>
+          <span>Auto-refresh paused after 5 minutes without interaction. Interact to resume.</span>
+          <button id="resumeTerminalRefresh" type="button" class="small-button">Resume updates</button>
         </div>
         <!-- Shown when the viewed pane is parked in tmux copy-mode (scrollback
              pager), which intercepts input. Sending text/keys auto-exits it, but

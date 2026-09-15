@@ -1,5 +1,5 @@
 import { createReadScope, createRefreshLoop } from "./view-work.mjs";
-import { createRefreshWindow } from "./refresh-window.mjs";
+import { createRefreshWindow, watchTerminalActivity } from "./refresh-window.mjs";
 import { escapeHtml, filePathFromLocalHref, linkifyEscaped } from "./linkify.js";
 import { playNotifySound, shouldChime } from "./notify-sound.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
@@ -6106,6 +6106,24 @@ window.addEventListener("focus", () => {
     if (state.windowId) void loadPanes();
     else void refreshTree();
   }
+});
+watchTerminalActivity({
+  target: document,
+  isActive: (event) => {
+    if (!viewActive || !viewReads.active || document.hidden || !els.autoRefresh.checked || detailForbidden) return false;
+    const wrapper = document.querySelector(".spa-view-app");
+    return !wrapper || (!wrapper.hidden && wrapper.contains(event.target));
+  },
+  onActivity: () => {
+    const paused = terminalRefreshWindow.expired;
+    renewTerminalRefresh();
+    // While active, only extend the deadline; keystrokes must not create
+    // requests or restart the polling chain. An idle pause resumes once.
+    if (paused) {
+      if (state.windowId) void loadPanes();
+      else void refreshTree();
+    }
+  },
 });
 window.addEventListener("pageshow", syncViewVisibility);
 window.addEventListener("pagehide", deactivateView);

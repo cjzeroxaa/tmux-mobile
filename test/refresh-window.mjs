@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
-import { createRefreshWindow, TERMINAL_REFRESH_WINDOW_MS } from '../public/refresh-window.mjs';
+import { createRefreshWindow, watchTerminalActivity, TERMINAL_REFRESH_WINDOW_MS } from '../public/refresh-window.mjs';
 import { createReadScope, createRefreshLoop } from '../public/view-work.mjs';
 
 mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1000 });
@@ -70,3 +70,43 @@ mock.timers.tick(600000); await flush();
 assert.equal(calls, stoppedCalls);
 mock.timers.reset();
 console.log('Terminal refresh window: 5min expiry, focus/target renewal, 100 slow restarts, late responses, two months idle and stop passed');
+
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1000 });
+let idleExpirations = 0, resumes = 0, active = true;
+const idle = createRefreshWindow({ onExpire() { idleExpirations++; } });
+const listeners = new Map();
+const target = {
+  addEventListener(type, handler) { listeners.set(type, handler); },
+  removeEventListener(type, handler) { if (listeners.get(type) === handler) listeners.delete(type); },
+};
+const unwatch = watchTerminalActivity({ target, isActive: () => active, onActivity() {
+  const paused = idle.expired;
+  idle.renew();
+  if (paused) resumes++;
+} });
+const dispatch = (type, isTrusted = true) => listeners.get(type)?.({ type, isTrusted });
+idle.renew();
+for (let minute = 0; minute < 30; minute++) {
+  mock.timers.tick(60000);
+  dispatch(['keydown', 'pointerdown', 'wheel', 'touchmove', 'input'][minute % 5]);
+  assert.equal(idle.expired, false, 'continuous interaction survives the old five-minute limit');
+}
+assert.equal(idleExpirations, 0);
+assert.equal(resumes, 0, 'active input does not restart polling');
+for (let minute = 0; minute < 5; minute++) {
+  mock.timers.tick(60000);
+  dispatch('scroll'); dispatch('input', false); dispatch('mousemove');
+}
+assert.equal(idle.expired, true, 'output/autoscroll and synthetic events cannot prevent idle expiry');
+assert.equal(idleExpirations, 1);
+for (let i = 0; i < 100; i++) dispatch('keydown');
+assert.equal(resumes, 1, '100 interactions resume a paused view only once');
+// The app predicate excludes the card view, hidden document and auto-refresh off.
+active = false;
+mock.timers.tick(299999); dispatch('wheel'); mock.timers.tick(1);
+assert.equal(idle.expired, true);
+assert.equal(resumes, 1);
+unwatch(); idle.stop();
+assert.equal(listeners.size, 0);
+mock.timers.reset();
+console.log('Terminal inactivity: 30min active use, idle expiry, synthetic/autoscroll exclusion, one resume and inactive-view guard passed');
