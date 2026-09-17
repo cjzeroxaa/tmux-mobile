@@ -46,6 +46,69 @@ const before=gets;
 await reader.read(identity);
 assert.equal(gets-before,1,'unchanged session reads only its manifest, not every raw chunk');
 assert.equal(await reader.read({...identity,agentSessionId:'missing'}),null);
+// Long histories use a bounded pool, not a serial linked-list network walk.
+const manyObjects = new Map();
+let active = 0, peak = 0, readCount = 0;
+let delayReads = false;
+const manyStorage = {
+  async put(key, bytes) { manyObjects.set(key, Buffer.from(bytes)); },
+  async get(key, { signal } = {}) {
+    readCount++; active++; peak = Math.max(peak, active);
+    try {
+      if (delayReads) await new Promise((resolve, reject) => {
+        const timer = setTimeout(done, 3);
+        const abort = () => { clearTimeout(timer); signal.removeEventListener('abort', abort); reject(signal.reason); };
+        function done() { signal?.removeEventListener('abort', abort); resolve(); }
+        signal?.addEventListener('abort', abort, { once: true });
+      });
+      const bytes = manyObjects.get(key); return bytes ? { bytes } : null;
+    } finally { active--; }
+  },
+  async listPrefixes(prefix) { return [...new Set([...manyObjects.keys()].filter(k => k.startsWith(prefix)).map(k => prefix + k.slice(prefix.length).split('/')[0] + '/'))]; },
+  async listKeys(prefix) { return [...manyObjects.keys()].filter(k => k.startsWith(prefix)); },
+};
+const manyArchive = createTranscriptArchive({ storage: manyStorage });
+let offset = 0, last;
+for (let i = 0; i < 200; i++) {
+  const bytes = raw([codex('user', `Question ${i}`), codex('assistant', `Complete reply ${i}`, 'final_answer')])[0].bytes;
+  last = await manyArchive.commitChunk({ ...source, chunk: { ...chunk, startOffset: offset,
+    endOffsetExclusive: offset + bytes.length, firstLineSeq: i * 2, nextLineSeq: i * 2 + 2,
+    previousChunkSha256: last?.sha256 || "",
+    sha256: createHash('sha256').update(bytes).digest('hex'), base64: bytes.toString('base64') } });
+  offset += bytes.length;
+}
+// A failed writer can leave an orphan object. Listing it must not replay it.
+const lastMetadata = JSON.parse(manyObjects.get(last.metadataKey));
+const orphanKey = last.metadataKey.replace(/-[a-f0-9]{64}\.json$/, '-' + 'f'.repeat(64) + '.json');
+manyObjects.set(orphanKey, Buffer.from(JSON.stringify({ ...lastMetadata, metadataKey: orphanKey, key: 'missing-orphan-raw' })));
+readCount = 0; peak = 0; delayReads = true;
+const manyReader = createConversationReader({ storage: manyStorage, archive: manyArchive });
+const longResults = await Promise.all(Array.from({ length: 100 }, () => manyReader.read(identity)));
+assert.equal(longResults[0].turns.length, 400);
+assert.deepEqual(longResults[0].turns.at(-1), { role: 'assistant', text: 'Complete reply 199' });
+assert.ok(peak > 1 && peak <= 16, `bounded parallel reads: ${peak}`);
+assert.equal(readCount, 402, '100 opens share one manifest, 201 metadata and 200 raw reads');
+assert.equal(active, 0);
+const warmBefore = readCount;
+await manyReader.read(identity);
+assert.equal(readCount - warmBefore, 1);
+// Pin the manifest passed to readEpoch even if an append races with replay.
+const snapshot = JSON.parse(manyObjects.get(last.manifestKey));
+const oldChunks = await manyArchive.readEpoch(last.manifestKey, { manifest: snapshot });
+assert.equal(oldChunks.chunks.length, 200);
+// Timeout cancels storage work and releases coalescing; a later attempt works.
+const timeoutReader = createConversationReader({ storage: manyStorage, archive: manyArchive, timeoutMs: 10 });
+await assert.rejects(timeoutReader.read(identity), error => error.name === 'TimeoutError');
+await new Promise(resolve => setTimeout(resolve, 10));
+assert.equal(active, 0, 'no reads keep running after the deadline');
+delayReads = false;
+assert.equal((await timeoutReader.read(identity)).turns.length, 400);
+// Corrupt committed data is still rejected in the parallel path.
+const savedRaw = manyObjects.get(lastMetadata.key);
+manyObjects.set(lastMetadata.key, Buffer.from('corrupt'));
+await assert.rejects(manyArchive.readEpoch(last.manifestKey), /corrupt raw range/);
+manyObjects.set(lastMetadata.key, savedRaw);
+console.log('conversation: 200 chunks, 100 concurrent opens, <=16 reads, orphan exclusion, timeout recovery and integrity passed');
 const route=`m:${Buffer.from(source.ownerId).toString('base64url')}:${Buffer.from(source.agentId).toString('base64url')}`;
 const server=http.createServer();
 const hub=createHub(server,{superAdminEmails:['admin@example.com'],machineShares:[{ownerEmail:source.ownerId,agentId:source.agentId,emails:['friend@example.com'],domains:['team.example']}]});

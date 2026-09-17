@@ -46,6 +46,9 @@ try {
   const putRes = await storage.put(key, bytes, { contentType: "text/plain" });
   assert.equal(putRes.key, key);
   assert.equal(putRes.size, bytes.length);
+  assert.deepEqual(await storage.listKeys(key.slice(0, 3)), [key]);
+  assert.deepEqual(await storage.listKeys('missing/'), []);
+  assert.ok((await storage.listPrefixes('')).includes(key.slice(0, 3)));
   const got = await storage.get(key);
   assert.ok(got, "expected bytes back");
   assert.ok(got.bytes.equals(bytes), "round-tripped bytes must match");

@@ -5630,7 +5630,12 @@ if (MODE.kind === "register") {
         const source = hub?.archiveSourceFor(viewer, machineId);
         if (!source) { sendJson(res, 403, { error: "You do not have access to this session." }); return; }
         if (!CONVERSATION_READER) { sendJson(res, 503, { error: "Conversation archive is unavailable." }); return; }
-        const result = await CONVERSATION_READER.read({ ...source, agentKind, agentSessionId });
+        let result;
+        try { result = await CONVERSATION_READER.read({ ...source, agentKind, agentSessionId }); }
+        catch (error) {
+          if (error.name !== 'TimeoutError' && error.name !== 'AbortError') throw error;
+          sendJson(res, 504, { error: "Loading took too long. Please try Refresh again." }); return;
+        }
         if (!result) { sendJson(res, 404, { error: "This session has not been archived yet. Try again after it syncs." }); return; }
         sendJson(res, 200, { result }); return;
       }

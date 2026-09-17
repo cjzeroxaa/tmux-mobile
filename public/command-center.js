@@ -69,6 +69,8 @@ const ICONS = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>',
   fullscreen:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>',
+  conversation:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16v12H8l-4 4V4Z"/><path d="M8 8h8M8 12h5"/></svg>',
   transcript:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>',
   rename:
@@ -3563,8 +3565,8 @@ function cardActionButton({ className = "", title, dataAttrs, disabled = false, 
   return `<button class="${classes}" type="button" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"${busy ? ' aria-busy="true"' : ""}${disabled ? " disabled" : ""} ${dataAttrs}>${icon}</button>`;
 }
 
-function cardActionLink({ href, title, icon }) {
-  return `<a class="cc-card-action cc-open-button" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${icon}</a>`;
+function cardActionLink({ href, title, icon, label = "" }) {
+  return `<a class="cc-card-action cc-open-button${label ? " cc-card-action-label" : ""}" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${icon}${label ? `<span>${escapeHtml(label)}</span>` : ""}</a>`;
 }
 
 function isCurrentRead(readId) {
@@ -3785,8 +3787,9 @@ function renderCard(agent) {
       })}
       ${conversationUrl(agent) ? cardActionLink({
         href: conversationUrl(agent),
-        title: "Conversation · shareable history",
-        icon: ICONS.transcript,
+        title: "Conversation · user messages and final replies",
+        icon: ICONS.conversation,
+        label: "Conversation",
       }) : ""}
       ${cardActionLink({
         href: buildAgentAppUrl(agent),

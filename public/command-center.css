@@ -2686,3 +2686,12 @@ html:not([data-theme="kami"]) .command-center-body {
 
 .cc-sort-hint { padding: 0 9px 8px; color: var(--muted); font-size: 11px; }
 .cc-more-panel .cc-sort-select { max-width: 160px; }
+
+.cc-card-action.cc-card-action-label {
+  display: inline-flex;
+  width: auto;
+  gap: 5px;
+  padding: 0 7px;
+  font-size: 11px;
+  white-space: nowrap;
+}

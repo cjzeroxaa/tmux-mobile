@@ -49,13 +49,19 @@ function renderMessages() {
 async function load() {
   if (loading) return;
   loading = true; $('refresh').disabled = true; $('status').textContent = 'Loading conversation…'; $('login').hidden = true;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 45_000);
+  const leaving = () => controller.abort();
+  window.addEventListener('pagehide', leaving, { once: true });
   try {
-    const response = await fetch(`/api/conversation?${query}`, { cache: 'no-store' });
+    const response = await fetch(`/api/conversation?${query}`, { cache: 'no-store', signal: controller.signal });
     if (response.status === 401) {
       $('login').href = `/auth/google/login?returnTo=${encodeURIComponent(location.pathname + location.search)}`;
       $('login').hidden = false;
     }
-    const data = await response.json();
+    const data = await response.json().catch(() => {
+      throw new Error('Could not load conversation. Please try Refresh again.');
+    });
     if (!response.ok) throw new Error(data.error || 'Could not load conversation.');
     turns = data.result.turns; start = Math.max(0, turns.length - 100);
     $('meta').textContent = `${data.result.kind === 'claude' ? 'Claude' : 'Codex'} · ${turns.length} messages · Synced ${new Date(data.result.updatedAt).toLocaleString()}`;
@@ -63,8 +69,8 @@ async function load() {
     renderMessages();
   } catch (error) {
     turns = []; $('messages').replaceChildren(); $('more').hidden = true;
-    $('status').textContent = error.message;
-  } finally { loading = false; $('refresh').disabled = false; }
+    $('status').textContent = controller.signal.aborted ? 'Loading took too long. Please try Refresh again.' : error.message;
+  } finally { clearTimeout(timer); window.removeEventListener('pagehide', leaving); loading = false; $('refresh').disabled = false; }
 }
 $('refresh').addEventListener('click', load);
 $('more').addEventListener('click', () => { const oldHeight = document.documentElement.scrollHeight; start = Math.max(0, start - 100); renderMessages(); window.scrollBy(0, document.documentElement.scrollHeight - oldHeight); });
