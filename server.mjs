@@ -1,3 +1,4 @@
+import { createConversationReader } from "./lib/conversation.mjs";
 import { latestTranscriptMessages } from "./lib/latest-transcript.mjs";
 import { readFileSync } from "node:fs";
 import http from "node:http";
@@ -4155,6 +4156,7 @@ function safeBrowserHandoffPath(value) {
     return "";
   }
   const allowedPaths = new Set([
+    "/conversation",
     "/pin",
     "/api/pin",
     "/api/file-view",
@@ -5175,6 +5177,7 @@ async function serveStatic(req, res, url) {
   ) {
     pathname = "/spa.html";
   }
+  if (pathname === "/conversation") pathname = "/conversation.html";
   if (pathname === "/manifest.webmanifest") {
     sendWebManifest(res);
     return;
@@ -5267,6 +5270,7 @@ try {
 // (the default), the controller advertises no capability and connectors do no
 // transcript I/O.
 let TRANSCRIPT_ARCHIVE = null;
+let CONVERSATION_READER = null;
 let TRANSCRIPT_ARCHIVE_ALLOW_ALL = false;
 let TRANSCRIPT_ARCHIVE_MACHINE_ALLOWLIST = new Set();
 let TRANSCRIPT_ARCHIVE_OWNER_ALLOWLIST = new Set();
@@ -5356,6 +5360,7 @@ if (
       storage: transcriptStorage,
       logEvent: logServerEvent,
     });
+    CONVERSATION_READER = createConversationReader({ storage: transcriptStorage, archive: TRANSCRIPT_ARCHIVE });
     logServerEvent("transcript_archive_ready", {
       storage: transcriptStorage.kind,
     });
@@ -5613,6 +5618,22 @@ if (MODE.kind === "register") {
       const viewer = REQUIRE_BROWSER_AUTH
         ? authenticatedUser
         : { userId, email: userId, hd: "" };
+
+      if (req.method === "GET" && url.pathname === "/api/conversation") {
+        const machineId = url.searchParams.get("machineId") || "";
+        const agentKind = url.searchParams.get("kind") || "";
+        const agentSessionId = url.searchParams.get("sessionId") || "";
+        if (machineId.length > 2048 || !["claude", "codex"].includes(agentKind) ||
+            !/^[a-zA-Z0-9_-]{1,512}$/.test(agentSessionId)) {
+          sendJson(res, 400, { error: "Invalid conversation link" }); return;
+        }
+        const source = hub?.archiveSourceFor(viewer, machineId);
+        if (!source) { sendJson(res, 403, { error: "You do not have access to this session." }); return; }
+        if (!CONVERSATION_READER) { sendJson(res, 503, { error: "Conversation archive is unavailable." }); return; }
+        const result = await CONVERSATION_READER.read({ ...source, agentKind, agentSessionId });
+        if (!result) { sendJson(res, 404, { error: "This session has not been archived yet. Try again after it syncs." }); return; }
+        sendJson(res, 200, { result }); return;
+      }
 
       if (req.method === "GET" && url.pathname === "/api/runtime") {
         sendJson(res, 200, {

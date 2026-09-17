@@ -1,3 +1,4 @@
+import { conversationUrl } from "./conversation-link.mjs";
 import { createFullResponseLoader } from "./full-response.mjs";
 import { addMermaidButtons } from "./mermaid-diagrams.mjs";
 import { createReadScope, createRefreshLoop } from "./view-work.mjs";
@@ -3782,6 +3783,11 @@ function renderCard(agent) {
         disabled: readDisabled,
         icon: readingThis ? ICONS.stop : ICONS.read,
       })}
+      ${conversationUrl(agent) ? cardActionLink({
+        href: conversationUrl(agent),
+        title: "Conversation · shareable history",
+        icon: ICONS.transcript,
+      }) : ""}
       ${cardActionLink({
         href: buildAgentAppUrl(agent),
         title: "Open Terminal in new tab",

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Conversation · __APP_TITLE__</title>
+  <link rel="icon" href="/icon.svg">
+  <link rel="stylesheet" href="/conversation.css">
+  <script type="module" src="/conversation.js"></script>
+</head>
+<body>
+  <header class="toolbar">
+    <a class="back" href="/command-center" aria-label="Back to cards">← Cards</a>
+    <span class="brand">__APP_TITLE__</span>
+    <nav aria-label="Conversation actions">
+      <button id="refresh" type="button">Refresh</button>
+      <button id="copy" type="button">Copy link</button>
+    </nav>
+  </header>
+  <main>
+    <header class="heading">
+      <p class="eyebrow">SESSION CONVERSATION</p>
+      <h1>Conversation</h1>
+      <p id="meta">User messages and agent replies.</p>
+      <p class="access-note">Only people with access to this session can view this link.</p>
+    </header>
+    <p id="status" role="status" aria-live="polite">Loading conversation…</p>
+    <a id="login" hidden>Sign in to continue</a>
+    <button id="more" type="button" hidden>Show earlier messages</button>
+    <section id="messages" aria-label="Conversation messages"></section>
+  </main>
+</body>
+</html>
