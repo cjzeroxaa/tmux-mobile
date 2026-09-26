@@ -509,6 +509,19 @@ try {
     body: { returnTo: "/not-a-viewer" },
     status: 400,
   });
+  const reportsHandoff = await requestJson(baseUrl, "/auth/browser-handoff", {
+    method: "POST", bearer: terminalLogin.sessionToken,
+    body: { returnTo: "/reports?kind=daily" }, status: 201,
+  });
+  const reportsRedirect = await fetch(`${baseUrl}${reportsHandoff.handoffUrl}`, { redirect: "manual" });
+  assert.equal(reportsRedirect.headers.get("location"), "/reports?kind=daily");
+  const reportsCookie = reportsRedirect.headers.get("set-cookie").split(";", 1)[0];
+  const reportsPage = await fetch(`${baseUrl}/reports`, { headers: { cookie: reportsCookie } });
+  assert.equal(reportsPage.status, 200);
+  assert.match(await reportsPage.text(), /reportPicker/);
+  await requestJson(baseUrl, "/api/reports", { status: 401 });
+  await requestJson(baseUrl, "/api/reports", { cookie: reportsCookie, status: 503 });
+
   const browserHandoff = await requestJson(baseUrl, "/auth/browser-handoff", {
     method: "POST",
     bearer: terminalLogin.sessionToken,

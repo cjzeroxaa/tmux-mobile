@@ -1,3 +1,4 @@
+import { createProgressReports, createGeminiSummarizer, loadReportConfig, validReportId } from './lib/progress-reports.mjs';
 import { createConversationReader } from "./lib/conversation.mjs";
 import { latestTranscriptMessages } from "./lib/latest-transcript.mjs";
 import { readFileSync } from "node:fs";
@@ -4157,6 +4158,7 @@ function safeBrowserHandoffPath(value) {
   }
   const allowedPaths = new Set([
     "/conversation",
+    "/reports",
     "/pin",
     "/api/pin",
     "/api/file-view",
@@ -5177,6 +5179,7 @@ async function serveStatic(req, res, url) {
   ) {
     pathname = "/spa.html";
   }
+  if (pathname === "/reports") pathname = "/reports.html";
   if (pathname === "/conversation") pathname = "/conversation.html";
   if (pathname === "/manifest.webmanifest") {
     sendWebManifest(res);
@@ -5269,6 +5272,8 @@ try {
 // ephemeral Fargate disk would violate the archive ACK contract. When disabled
 // (the default), the controller advertises no capability and connectors do no
 // transcript I/O.
+let PROGRESS_REPORTS = null;
+let reportInventories = () => [];
 let TRANSCRIPT_ARCHIVE = null;
 let CONVERSATION_READER = null;
 let TRANSCRIPT_ARCHIVE_ALLOW_ALL = false;
@@ -5356,8 +5361,24 @@ if (
         }
       }
     }
+    // Reports consume only newly committed records and never add a dependency
+    // to transcript ACKs. A missing key disables reports, not the archive.
+    try {
+      const config = await loadReportConfig(transcriptStorage);
+      if (config) {
+        PROGRESS_REPORTS = createProgressReports({ storage: transcriptStorage,
+          summarize: createGeminiSummarizer(config), model: config.model,
+          collectingSince: config.collectingSince,
+          getInventories: () => reportInventories(), log: logServerEvent });
+        PROGRESS_REPORTS.start();
+      }
+    } catch { logServerEvent("progress_reports_disabled", { reason: "Configuration could not be loaded" }); }
     TRANSCRIPT_ARCHIVE = createTranscriptArchive({
       storage: transcriptStorage,
+      onChunkCommitted: (chunk) => {
+        try { PROGRESS_REPORTS?.record(chunk); }
+        catch { logServerEvent("progress_report_capture_failed", {}); }
+      },
       logEvent: logServerEvent,
     });
     CONVERSATION_READER = createConversationReader({ storage: transcriptStorage, archive: TRANSCRIPT_ARCHIVE });
@@ -5618,6 +5639,24 @@ if (MODE.kind === "register") {
       const viewer = REQUIRE_BROWSER_AUTH
         ? authenticatedUser
         : { userId, email: userId, hd: "" };
+
+      if (req.method === "GET" && url.pathname === "/api/reports") {
+        res.setHeader("Cache-Control", "private, no-store");
+        if (!PROGRESS_REPORTS) { sendJson(res, 503, { error: "Progress reports are not configured yet." }); return; }
+        const id = url.searchParams.get("id");
+        if (id) {
+          if (!validReportId(id)) { sendJson(res, 400, { error: "Invalid report" }); return; }
+          const result = await PROGRESS_REPORTS.read(id, machineId => Boolean(hub?.archiveSourceFor(viewer, machineId)));
+          sendJson(res, result ? 200 : 404, result ? { result } : { error: "Report not found" });
+        } else {
+          const kind = url.searchParams.get("kind") || "hourly";
+          const before = url.searchParams.get("before") || "";
+          if (!["hourly", "daily"].includes(kind) || (before && !validReportId(before))) { sendJson(res, 400, { error: "Invalid report filter" }); return; }
+          const ids = await PROGRESS_REPORTS.list(kind, before);
+          sendJson(res, 200, { ids, nextBefore: ids.length === 50 ? ids.at(-1) : null, ...PROGRESS_REPORTS.status() });
+        }
+        return;
+      }
 
       if (req.method === "GET" && url.pathname === "/api/conversation") {
         const machineId = url.searchParams.get("machineId") || "";
@@ -6188,6 +6227,7 @@ if (MODE.kind === "register") {
         : null,
     });
   }
+  reportInventories = () => hub?.listAllCommandCenterInventories() || [];
   stopAgentRoundWatcher = startAgentRoundNtfyWatcher({ hub });
 
   server.listen(PORT, HOST, () => {
@@ -6208,6 +6248,7 @@ if (MODE.kind === "register") {
       message: "Closing agent connections so agents reconnect to the new revision.",
     });
     stopAgentRoundWatcher();
+    PROGRESS_REPORTS?.stop().catch(() => {});
     try {
       hub?.shutdown();
     } catch {}

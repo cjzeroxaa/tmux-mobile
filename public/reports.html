@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">
+  <title>进展汇报 · AMUX</title><link rel="icon" href="/icon.svg">
+  <link rel="stylesheet" href="/reports.css"><script type="module" src="/reports.js"></script>
+</head>
+<body>
+  <header class="topbar"><a href="/command-center" class="back">← Sessions</a><span>AMUX</span><button id="refresh" type="button" aria-label="刷新汇报">↻ 刷新</button></header>
+  <main class="layout">
+    <aside class="history">
+      <div class="heading"><span class="eyebrow">WORK LOG</span><h1>进展汇报</h1><p>每台机器的进展，按时间留存。</p></div>
+      <div class="periods" role="group" aria-label="汇报周期"><button id="hourly" type="button" aria-pressed="true">小时报</button><button id="daily" type="button" aria-pressed="false">日报</button></div>
+      <label for="reportPicker" class="picker-label">选择时间 · 北京时间</label>
+      <select id="reportPicker" aria-label="选择历史汇报"><option value="">暂无汇报</option></select>
+      <button id="older" type="button" hidden>更早的汇报</button>
+      <p id="schedule" class="schedule"></p>
+      <p class="footnote">只记录有明显进展的 Session。<br>由 Gemini 整理，点击会话可查看原始记录。</p>
+    </aside>
+    <section class="reader" aria-label="汇报内容" aria-busy="false">
+      <div id="status" role="status" aria-live="polite"></div>
+      <a id="login" hidden>登录后查看</a>
+      <article id="report"></article>
+    </section>
+  </main>
+</body>
+</html>
