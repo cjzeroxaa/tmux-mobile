@@ -1,10 +1,12 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
+  <script>try { var t=JSON.parse(localStorage.getItem("tmux-mobile-theme")||"{}").theme; if(t && t !== "auto") document.documentElement.dataset.theme=t === "kami" ? "kami" : "dark"; } catch {}</script>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">
-  <title>进展汇报 · AMUX</title><link rel="icon" href="/icon.svg">
+  <title>进展汇报 · AMUX</title><link rel="icon" href="/icon-192.png">
   <link rel="stylesheet" href="/reports.css"><script type="module" src="/reports.js"></script>
+  <link rel="stylesheet" href="/paper-theme.css?v=1" />
 </head>
 <body>
   <header class="topbar"><a href="/command-center" class="back">← Sessions</a><span>AMUX</span><button id="refresh" type="button" aria-label="刷新汇报">↻ 刷新</button></header>

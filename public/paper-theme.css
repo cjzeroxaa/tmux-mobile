@@ -1,0 +1,100 @@
+/* Instant's paper / forest / orange language, shared by every AMUX page.
+ * Keep the existing `kami` storage value for light mode compatibility. */
+:root, html[data-theme="kami"] {
+  color-scheme: light;
+  --paper-bg: #f4eee3; --paper-surface: #fcf8ee; --paper-rail: #eae6d8;
+  --paper-soft: #e8e4d6; --paper-ink: #293d2e; --paper-muted: #6e6e59;
+  --paper-line: #d4c7ab; --paper-accent: #264d3d; --paper-orange: #e0914d;
+  --paper-selection: #dfe6d2; --paper-on-accent: #fcf8ee;
+  --paper-glass: #fcf8eedb; --paper-shadow: 0 2px 0 #d4c7ab55;
+  --paper-serif: Georgia, "Iowan Old Style", "Noto Serif SC", serif;
+  --paper-sans: "Avenir Next", "Lato", "PingFang SC", system-ui, sans-serif;
+}
+html[data-theme="dark"], html[data-theme=""] {
+  color-scheme: dark;
+  --paper-bg: #17231d; --paper-surface: #203128; --paper-rail: #1b2922;
+  --paper-soft: #2c3e32; --paper-ink: #f0eadc; --paper-muted: #b7baa5;
+  --paper-line: #485541; --paper-accent: #cad9b8; --paper-orange: #f0b575;
+  --paper-selection: #354c3a; --paper-on-accent: #203128;
+  --paper-glass: #203128ed; --paper-shadow: 0 2px 0 #101a1655;
+}
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) {
+    color-scheme: dark;
+    --paper-bg: #17231d; --paper-surface: #203128; --paper-rail: #1b2922;
+    --paper-soft: #2c3e32; --paper-ink: #f0eadc; --paper-muted: #b7baa5;
+    --paper-line: #485541; --paper-accent: #cad9b8; --paper-orange: #f0b575;
+    --paper-selection: #354c3a; --paper-on-accent: #203128;
+    --paper-glass: #203128ed; --paper-shadow: 0 2px 0 #101a1655;
+  }
+}
+html:root, html:root body, html:root .app-body, html:root .command-center-body {
+  --bg: var(--paper-bg); --surface: var(--paper-surface); --surface-soft: var(--paper-soft);
+  --ink: var(--paper-ink); --muted: var(--paper-muted); --line: var(--paper-line);
+  --accent: var(--paper-accent); --accent-dark: var(--paper-accent); --accent-blue: var(--paper-accent);
+  --code-bg: var(--paper-soft); --code-ink: var(--paper-ink); --shadow: var(--paper-shadow);
+  --paper: var(--paper-bg); --rail: var(--paper-rail); --hover: var(--paper-soft); --prompt: var(--paper-soft);
+  --app-sidebar: var(--paper-rail); --app-canvas: var(--paper-bg); --app-hover: var(--paper-soft);
+  --app-subtle: var(--paper-soft); --app-strong: var(--paper-ink); --app-secondary: var(--paper-muted); --app-hairline: var(--paper-line);
+  --cc-sidebar: var(--paper-rail); --cc-canvas: var(--paper-bg); --cc-hover: var(--paper-soft);
+  --cc-subtle: var(--paper-soft); --cc-selected: var(--paper-selection); --cc-focus: var(--paper-accent);
+  --cc-filter-selected: var(--paper-accent); --cc-filter-selected-ink: var(--paper-on-accent);
+  --cc-card-hover: var(--paper-surface); --cc-card-selected: var(--paper-selection);
+  --cc-strong: var(--paper-ink); --cc-secondary: var(--paper-muted); --cc-hairline: var(--paper-line);
+  background-color: var(--paper-bg); color: var(--paper-ink); font-family: var(--paper-sans);
+}
+::selection { background: var(--paper-selection); color: var(--paper-ink); }
+html:root :focus-visible { outline: 2px solid var(--paper-accent); outline-offset: 3px; }
+html:root h1, html:root .cc-title, html:root .brand, html:root .report-head h2,
+html:root .empty h2, html:root .machine h3, html:root .sheet-header h2 {
+  font-family: var(--paper-serif); font-weight: 400; letter-spacing: -.025em; text-transform: none;
+}
+html:root .cc-title { font-size: 24px; }
+html:root .cc-logo-mark { width: 36px; height: 36px; border-radius: 10px; box-shadow: none; }
+html:root .command-center-body .cc-card {
+  background: var(--paper-surface); border-color: var(--paper-line); border-radius: 18px; box-shadow: var(--paper-shadow);
+}
+html:root .command-center-body .cc-card.is-selected { background: var(--paper-selection); border-color: var(--paper-accent); }
+html:root .command-center-body .cc-session-label h2 {
+  font-family: var(--paper-serif); font-size: 16px; font-weight: 400; letter-spacing: 0; text-transform: none;
+}
+html:root .command-center-body .cc-card.is-running { border-color: color-mix(in srgb, var(--paper-orange) 70%, var(--paper-line)); }
+html:root .cc-card.is-running::before { display: none; }
+html:root .command-center-body .cc-theme-option[aria-pressed="true"] {
+  background: var(--paper-selection); border-color: var(--paper-accent); color: var(--paper-ink);
+}
+html:root .command-center-body .cc-icon-button, html:root .app-body .icon-button,
+html:root .app-body .topbar-read, html:root .back {
+  border: 1px solid var(--paper-line); background: var(--paper-glass); box-shadow: var(--paper-shadow); border-radius: 999px;
+}
+html:root .command-center-body .cc-card-action { border-radius: 999px; }
+html:root .command-center-body .cc-more-panel, html:root .app-body .more-actions-menu,
+html:root .target-panel, html:root .sheet-panel, html:root .cc-card-search-panel {
+  background: var(--paper-surface); border-color: var(--paper-line); border-radius: 20px;
+  box-shadow: 0 12px 36px #101a1622;
+}
+html:root .command-center-body .cc-topbar { padding-top: 14px; padding-bottom: 14px; }
+html:root .app-body .input-area { background: var(--paper-glass); border-color: var(--paper-line); box-shadow: var(--paper-shadow); }
+html:root .app-body .input-area .lexical-editor { background: transparent; color: var(--paper-ink); }
+html:root .app-body .directory-button, html:root .app-body .item.active,
+html:root .app-body .activity-status.active { background: var(--paper-selection); color: var(--paper-accent); }
+html:root .app-body .send-button, html:root .app-body .voice-button {
+  background: var(--paper-orange); color: #293d2e; border-color: transparent;
+}
+html:root .toolbar, html:root .topbar { background: var(--paper-glass); backdrop-filter: blur(14px); border-color: var(--paper-line); }
+html:root .brand { font-size: 21px; }
+html:root .topbar > span { font-family: var(--paper-serif); font-size: 21px; letter-spacing: 0; color: var(--paper-ink); }
+html:root .periods button, html:root select { border-radius: 14px; }
+html:root .periods [aria-pressed=true] { background: var(--paper-accent); color: var(--paper-on-accent); }
+html:root .message.user { background: var(--paper-soft); border: 1px solid var(--paper-line); box-shadow: var(--paper-shadow); }
+html:root .report-head { border-bottom-color: var(--paper-orange); }
+@media (prefers-reduced-transparency: reduce) {
+  html:root .toolbar, html:root .topbar, html:root .app-body .input-area { background: var(--paper-surface); backdrop-filter: none; }
+}
+
+/* App-owned artifact viewer controls; embedded document content remains isolated. */
+html:root .tm-art-bar, html:root .tm-pin-panel { background: var(--paper-surface); color: var(--paper-ink); border-color: var(--paper-line); }
+html:root .tm-art-bar a { color: var(--paper-accent); border-color: var(--paper-line); }
+html:root .tm-pin-btn, html:root .tm-pin-copy { background: var(--paper-accent); color: var(--paper-on-accent); border-color: var(--paper-line); }
+html:root .tm-pin-copy-comments { background: var(--paper-selection); color: var(--paper-accent); border-color: var(--paper-line); }
+html:root input[type="checkbox"] { accent-color: var(--paper-accent); }

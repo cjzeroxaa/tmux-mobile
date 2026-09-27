@@ -546,6 +546,7 @@ function renderArtifactViewerPage(name, kind, rawUrl, managePin) {
   body { display: flex; align-items: center; justify-content: center; }
   img { max-width: 100%; max-height: 100vh; height: auto; }
 </style>
+<link rel="stylesheet" href="/paper-theme.css?v=1" />
 </head><body>
 <img src="${safeRaw}" alt="${title}" />
 ${pinOverlayHtml(managePin)}
@@ -572,6 +573,7 @@ ${pinOverlayHtml(managePin)}
     color: #6366f1; border-radius: 999px; padding: 3px 12px; font-weight: 600; white-space: nowrap; }
   iframe { border: 0; flex: 1 1 auto; width: 100%; background: #fff; }
 </style>
+<link rel="stylesheet" href="/paper-theme.css?v=1" />
 </head><body>
 <div class="tm-art-bar">
   <span class="note">This artifact runs in a sandbox (no access to your account). If it needs more, open it raw.</span>
@@ -646,6 +648,7 @@ function renderMarkdownPage(name, markdown, truncated, managePin) {
   .trunc { color: #b26b00; font-style: italic; }
   svg { max-width: 100%; height: auto; }
 </style>
+<link rel="stylesheet" href="/paper-theme.css?v=1" />
 </head><body>
 ${note}
 ${body}
@@ -1339,8 +1342,8 @@ function sendWebManifest(res) {
     start_url: "/",
     scope: "/",
     display: "standalone",
-    background_color: "#f7faf8",
-    theme_color: "#101417",
+    background_color: "#f4eee3",
+    theme_color: "#17231d",
     icons: [
       { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
       { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
