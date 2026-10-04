@@ -38,9 +38,9 @@ function createPersistedAtom(key, defaultValue) {
   };
 }
 
-// "kami" = Japanese washi-paper light theme (default), "dark" = original,
+// "kami" = Japanese washi-paper light theme, "dark" = original,
 // "auto" = follow the OS prefers-color-scheme.
-const themeAtom = createPersistedAtom("tmux-mobile-theme", { theme: "kami" });
+const themeAtom = createPersistedAtom("tmux-mobile-theme", { theme: "auto" });
 const THEME_ORDER = ["kami", "dark", "auto"];
 
 function systemPrefersDark() {

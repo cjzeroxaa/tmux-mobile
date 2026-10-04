@@ -349,8 +349,8 @@ function themeIsDark(theme) {
 }
 
 function readTheme() {
-  const theme = loadJson(THEME_KEY, { theme: "kami" }).theme;
-  return THEME_OPTIONS.includes(theme) ? theme : "kami";
+  const theme = loadJson(THEME_KEY, { theme: "auto" }).theme;
+  return THEME_OPTIONS.includes(theme) ? theme : "auto";
 }
 
 function applyTheme(theme) {
@@ -361,7 +361,7 @@ function applyTheme(theme) {
 }
 
 function setTheme(theme) {
-  const next = THEME_OPTIONS.includes(theme) ? theme : "kami";
+  const next = THEME_OPTIONS.includes(theme) ? theme : "auto";
   saveJson(THEME_KEY, { theme: next });
   applyTheme(next);
   window.dispatchEvent(new CustomEvent("tmux-mobile-theme-change", {

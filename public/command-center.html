@@ -6,7 +6,7 @@
     <title>AMUX · __APP_TITLE__</title>
     <script>
       try {
-        var t = JSON.parse(localStorage.getItem("tmux-mobile-theme") || "{}").theme;
+        var t = JSON.parse(localStorage.getItem("tmux-mobile-theme") || "{}").theme || "auto";
         var dark = t === "dark" || (t === "auto" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
         document.documentElement.dataset.theme = dark ? "" : "kami";
       } catch (e) {
@@ -58,6 +58,7 @@
             <div class="cc-more-control" role="group" aria-label="Theme">
               <span class="cc-more-control-label">Theme</span>
               <div class="cc-theme-options">
+                <button class="cc-theme-option" type="button" data-cc-theme="auto" aria-pressed="false">Auto</button>
                 <button class="cc-theme-option" type="button" data-cc-theme="kami" aria-pressed="false">Light</button>
                 <button class="cc-theme-option" type="button" data-cc-theme="dark" aria-pressed="false">Dark</button>
               </div>

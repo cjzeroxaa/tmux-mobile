@@ -8,7 +8,7 @@
          the right palette before the router decides which view to mount. -->
     <script>
       try {
-        var t = JSON.parse(localStorage.getItem("tmux-mobile-theme") || "{}").theme;
+        var t = JSON.parse(localStorage.getItem("tmux-mobile-theme") || "{}").theme || "auto";
         var dark = t === "dark" || (t === "auto" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
         document.documentElement.dataset.theme = dark ? "" : "kami";
       } catch (e) {
