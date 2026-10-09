@@ -2562,7 +2562,8 @@ async function safeAgentLastResponse(pane) {
   const backend = currentBackend();
   let exactClaudeSession = null;
   try {
-    if (isPiCommand(pane.command)) throw new Error("Pi foreground");
+    const commands = [pane.command, ...(await backend.processTree(pane.pid)).map(p => p.command)];
+    if (detectCommandCenterAgentType(commands) === "pi") throw new Error("Pi foreground");
     exactClaudeSession = await findClaudeSessionFromBackend(backend, {
       rootPid: pane.pid,
       cwd: pane.cwd || "",
@@ -2610,7 +2611,8 @@ async function safeAgentTranscript(pane, processes = null, openFiles = null) {
   const backend = currentBackend();
   let exactClaudeSession = null;
   try {
-    if (isPiCommand(pane.command)) throw new Error("Pi foreground");
+    const commands = [pane.command, ...(processes || await backend.processTree(pane.pid)).map(p => p.command)];
+    if (detectCommandCenterAgentType(commands) === "pi") throw new Error("Pi foreground");
     exactClaudeSession = await findClaudeSessionFromBackend(backend, {
       rootPid: pane.pid,
       cwd: pane.cwd || "",

@@ -1925,7 +1925,7 @@ async function openAgentTranscript(agent) {
     if (!result) {
       if (els.transcriptTitle) els.transcriptTitle.textContent = "Transcript · none";
       if (els.transcriptMeta) {
-        els.transcriptMeta.textContent = "No Codex or Claude transcript detected.";
+        els.transcriptMeta.textContent = "No Codex, Claude or Pi transcript detected.";
       }
       setTranscriptEmpty("Nothing to show.");
       return;
@@ -3896,7 +3896,7 @@ function renderAgents() {
       note.textContent = `Couldn't load agents from ${loads.error} machine${loads.error === 1 ? "" : "s"}.`;
     } else {
       note.textContent = state.agents.length === 0 && state.machines.length > 0
-        ? `${state.machines.length} machine${state.machines.length === 1 ? "" : "s"} online, no Codex or Claude Code agents running right now.`
+        ? `${state.machines.length} machine${state.machines.length === 1 ? "" : "s"} online, no Codex, Claude Code or Pi agents running right now.`
         : "No agents match the current filters.";
     }
     els.list.append(note);

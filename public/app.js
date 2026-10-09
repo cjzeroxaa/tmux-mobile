@@ -2730,7 +2730,7 @@ function setSpeakWindowBusy(busy) {
     : busy
       ? "Stop reading"
       : els.speakWindow.disabled
-        ? "Read is only available on Codex or Claude windows"
+        ? "Read is only available on Codex, Claude or Pi windows"
         : "Read current window";
   els.speakWindow.setAttribute(
     "aria-label",
@@ -5285,7 +5285,7 @@ async function showAgentTranscript() {
     if (!result) {
       els.agentTranscriptTitle.textContent = "Transcript · none";
       els.agentTranscriptMeta.textContent =
-        "No Codex or Claude agent detected in this pane's process tree.";
+        "No Codex, Claude or Pi agent detected in this pane's process tree.";
       setAgentTranscriptEmpty("Nothing to show.");
       return;
     }
