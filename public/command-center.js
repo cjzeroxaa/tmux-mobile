@@ -87,12 +87,14 @@ const ICONS = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>',
 };
 const AGENT_ICONS = {
+  pi: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M8 7v11M16 7v9q0 3 4 2"/></svg>',
   claude:
     '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 2l1.5 6L18 4.8l-2.3 4.4 6.3-.7-5.7 2.7 5.7 2.7-6.3-.7L18 19.2 13.5 16 12 22l-1.5-6L6 19.2l2.3-4.4-6.3.7L7.7 12 2 9.3l6.3.7L6 4.8 10.5 8 12 2z"/></svg>',
   codex:
     '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5.2a3.4 3.4 0 0 1 5.9 1.9 3.4 3.4 0 0 1 0 5.8 3.4 3.4 0 0 1-5.9 5.9 3.4 3.4 0 0 1-5.9-1.9 3.4 3.4 0 0 1 0-5.8A3.4 3.4 0 0 1 12 5.2z"/><path d="M12 8.4v7.2M8.9 10.2l6.2 3.6M15.1 10.2l-6.2 3.6"/></svg>',
 };
 const AGENT_LABELS = {
+  pi: "Pi",
   claude: "Claude Code",
   codex: "Codex",
 };
@@ -611,6 +613,7 @@ function machineLabel(machine) {
 
 function normalizedAgentKind(value) {
   const text = String(value || "").trim().toLowerCase();
+  if (text === "pi") return "pi";
   if (text === "codex") return "codex";
   if (text === "claude" || text === "claude-code" || text === "claude code" || text === "cc") {
     return "claude";
@@ -2410,7 +2413,7 @@ function setStartAgentStatus(text, { error = false } = {}) {
 }
 
 function setStartAgentKind(kind) {
-  const next = kind === "claude" ? "claude" : "codex";
+  const next = ["claude", "pi"].includes(kind) ? kind : "codex";
   state.startAgent.kind = next;
   for (const button of els.startAgentKindButtons) {
     button.setAttribute("aria-pressed", String(button.dataset.startAgentKind === next));
@@ -3693,7 +3696,7 @@ function renderCard(agent) {
     nativeSessionTitle.localeCompare(String(agent.windowName || ""), undefined, {
       sensitivity: "accent",
     }) !== 0;
-  const nativeSessionLabel = normalizedAgentKind(agent.kind) === "claude" ? "Claude" : "Codex";
+  const nativeSessionLabel = agentKindLabel(normalizedAgentKind(agent.kind));
   const nativeSessionTitleHtml = showNativeSessionTitle
     ? `<span class="cc-card-agent-title" title="${escapeHtml(`${nativeSessionLabel} session: ${nativeSessionTitle}`)}"><span class="cc-card-agent-title-label">${nativeSessionLabel} ·</span><span class="cc-card-agent-title-name">${escapeHtml(nativeSessionTitle)}</span></span>`
     : `<span class="cc-card-agent-title is-kind-only"><span class="cc-card-agent-title-label">${nativeSessionLabel}</span></span>`;

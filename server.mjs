@@ -1,3 +1,4 @@
+import { isPiCommand, installPiExtension } from "./lib/pi-runtime.mjs";
 import { createProgressReports, createGeminiSummarizer, loadReportConfig, validReportId } from './lib/progress-reports.mjs';
 import { createConversationReader } from "./lib/conversation.mjs";
 import { latestTranscriptMessages } from "./lib/latest-transcript.mjs";
@@ -1574,6 +1575,7 @@ const CODEX_REQUIRED_FLAGS = [
 ];
 const CLAUDE_REQUIRED_FLAGS = ["--dangerously-skip-permissions"];
 const START_AGENT_COMMANDS = {
+  pi: { command: buildAgentLaunchCommand({ executable: "pi" }), windowName: "pi" },
   codex: {
     command: buildAgentLaunchCommand({
       executable: "codex",
@@ -1594,7 +1596,7 @@ const START_AGENT_COMMANDS = {
 function requireStartAgentKind(value) {
   const kind = String(value || "").trim().toLowerCase();
   if (Object.prototype.hasOwnProperty.call(START_AGENT_COMMANDS, kind)) return kind;
-  const error = new Error("Agent kind must be codex or claude");
+  const error = new Error("Agent kind must be codex, claude or pi");
   error.status = 400;
   throw error;
 }
@@ -1620,6 +1622,7 @@ async function startAgentSession(options = {}) {
   const kind = requireStartAgentKind(options.kind);
   const cwd = requireDirectoryPath(options.cwd);
   const spec = START_AGENT_COMMANDS[kind];
+  if (kind === "pi" && currentBackend() === localBackend) await installPiExtension();
   const sessionName = requireSessionName(
     options.sessionName || defaultStartAgentSessionName(kind, cwd),
   );
@@ -2473,7 +2476,12 @@ async function forkAgentWindow(paneId) {
     pane.pid && currentBackend().processTree
       ? await currentBackend().processTree(pane.pid)
       : [];
-  const forkSpec = detectForkableAgent(pane, processes);
+  let forkSpec;
+  if ([pane.command, ...processes.map(p => p.command)].some(isPiCommand)) {
+    const info = await safeAgentTranscript(pane, processes);
+    if (!info?.transcriptPath) return { ok: true, forked: false, reason: "pi-session-unavailable" };
+    forkSpec = { agent: "pi", windowName: "pi-fork", command: buildAgentLaunchCommand({ executable: "pi", args: ["--fork", info.transcriptPath] }) };
+  } else forkSpec = detectForkableAgent(pane, processes);
   if (!forkSpec) {
     return { ok: true, forked: false, reason: "not-agent" };
   }
@@ -2508,7 +2516,7 @@ async function buildBriefingInputForPane({ windowInfo, pane, lineCount }) {
   const agentInfo = await safeAgentLastResponse(pane);
   if (!agentInfo?.kind) {
     const error = new Error(
-      "Read is only available on Codex or Claude windows — this pane isn't running a known agent.",
+      "Read is only available on Codex, Claude or Pi windows — this pane isn't running a known agent.",
     );
     error.status = 400;
     error.code = "no_agent";
@@ -2554,6 +2562,7 @@ async function safeAgentLastResponse(pane) {
   const backend = currentBackend();
   let exactClaudeSession = null;
   try {
+    if (isPiCommand(pane.command)) throw new Error("Pi foreground");
     exactClaudeSession = await findClaudeSessionFromBackend(backend, {
       rootPid: pane.pid,
       cwd: pane.cwd || "",
@@ -2601,6 +2610,7 @@ async function safeAgentTranscript(pane, processes = null, openFiles = null) {
   const backend = currentBackend();
   let exactClaudeSession = null;
   try {
+    if (isPiCommand(pane.command)) throw new Error("Pi foreground");
     exactClaudeSession = await findClaudeSessionFromBackend(backend, {
       rootPid: pane.pid,
       cwd: pane.cwd || "",
@@ -2867,7 +2877,7 @@ async function listAgentSessionsForRuntime(
       const lastAssistantTurn = [...turns].reverse().find((t) => t.role === "assistant") || null;
       const lastUserTurn = [...turns].reverse().find((t) => t.role === "user") || null;
       let turn = null;
-      let agentMode = null;
+      let agentMode = info.kind === "pi" ? info.agentMode || null : null;
       let waitingForInput = false;
       let waitingConfidence = "";
       try {
@@ -2875,7 +2885,7 @@ async function listAgentSessionsForRuntime(
           await runtime.captureSurface({ surfaceId: pane.id, mode: "screen" }),
         );
         const lines = screen.split("\n");
-        agentMode = detectAgentMode(info.kind, {
+        agentMode = info.kind === "pi" ? agentMode : detectAgentMode(info.kind, {
           title: pane.title,
           paneTail: lines.slice(-28).join("\n"),
         });
@@ -2889,6 +2899,7 @@ async function listAgentSessionsForRuntime(
       } catch {
         turn = null;
       }
+      if (info.kind === "pi" && ["working", "idle"].includes(info.liveState)) turn = { state: info.liveState, confidence: "high" };
       const turnState = turn?.state || "unverified";
       const status = waitingForInput
         ? "waiting"
@@ -5548,6 +5559,7 @@ if (MODE.kind === "register") {
         message: "Agent login is ready; connecting to the controller.",
       });
     }
+    await installPiExtension().catch(error => console.warn("Pi integration:", error.message));
     agent = runAgent(MODE.hubUrl, localBackend, {
       logEvent: logServerEvent,
       inventoryProvider: listAgentSessions,
@@ -5665,7 +5677,7 @@ if (MODE.kind === "register") {
         const machineId = url.searchParams.get("machineId") || "";
         const agentKind = url.searchParams.get("kind") || "";
         const agentSessionId = url.searchParams.get("sessionId") || "";
-        if (machineId.length > 2048 || !["claude", "codex"].includes(agentKind) ||
+        if (machineId.length > 2048 || !["claude", "codex", "pi"].includes(agentKind) ||
             !/^[a-zA-Z0-9_-]{1,512}$/.test(agentSessionId)) {
           sendJson(res, 400, { error: "Invalid conversation link" }); return;
         }

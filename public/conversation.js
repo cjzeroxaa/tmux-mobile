@@ -14,7 +14,7 @@ function renderMessages() {
     article.className = `message ${turn.role}`;
     const header = document.createElement('header');
     const label = document.createElement('strong');
-    label.textContent = turn.role === 'user' ? 'User' : params.get('kind') === 'claude' ? 'Claude' : 'Codex';
+    label.textContent = turn.role === 'user' ? 'User' : ({claude:'Claude', codex:'Codex', pi:'Pi'}[params.get('kind')] || 'Agent');
     header.append(label);
     if (turn.t && Number.isFinite(Date.parse(turn.t))) {
       const time = document.createElement('time'); time.dateTime = turn.t;
@@ -64,7 +64,7 @@ async function load() {
     });
     if (!response.ok) throw new Error(data.error || 'Could not load conversation.');
     turns = data.result.turns; start = Math.max(0, turns.length - 100);
-    $('meta').textContent = `${data.result.kind === 'claude' ? 'Claude' : 'Codex'} · ${turns.length} messages · Synced ${new Date(data.result.updatedAt).toLocaleString()}`;
+    $('meta').textContent = `${({claude:'Claude', codex:'Codex', pi:'Pi'}[data.result.kind] || 'Agent')} · ${turns.length} messages · Synced ${new Date(data.result.updatedAt).toLocaleString()}`;
     $('status').textContent = turns.length ? '' : 'No user messages or final replies have been archived yet.';
     renderMessages();
   } catch (error) {

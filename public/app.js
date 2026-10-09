@@ -1025,6 +1025,7 @@ function empty(container, text) {
 // Brand-ish icon for an agent type, drawn in `currentColor` so the per-agent CSS
 // tint applies. Kept simple/recognizable rather than pixel-exact logos.
 const AGENT_ICONS = {
+  pi: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M8 7v11M16 7v9q0 3 4 2"/></svg>',
   // Claude — Anthropic's radial "sunburst" mark.
   claude:
     '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M12 2l1.5 6L18 4.8l-2.3 4.4 6.3-.7-5.7 2.7 5.7 2.7-6.3-.7L18 19.2 13.5 16 12 22l-1.5-6L6 19.2l2.3-4.4-6.3.7L7.7 12 2 9.3l6.3.7L6 4.8 10.5 8 12 2z"/></svg>',

@@ -616,3 +616,29 @@ The legacy non-streaming endpoint can still be configured with
 
 The development-only local mode binds to loopback; deployed users and
 Connectors use the hosted HTTPS Controller.
+
+## Pi Agent
+
+Command Center supports Claude Code, Codex and Pi (`pi`; verified with Pi 1.1.0).
+The Connector installs a small managed extension at
+`~/.pi/agent/extensions/tmax-connector.js` (or under `PI_CODING_AGENT_DIR`).
+Restart Pi or run `/reload` once in already-open sessions. The extension records
+only local session identity, active branch, name, model and running/idle state;
+it adds no timers, network requests or model calls. The Connector never chooses
+between simultaneous Pi sessions by working-directory modification time.
+
+Pi cards support prompts, complete final responses, conversation links, native
+session names, starting new sessions and forking the exact selected session.
+Original JSONL records use the existing acknowledged, incremental archive and
+feed progress reports. Conversation display follows the last persisted branch;
+live cards additionally follow the extension's current leaf when `/tree` moves
+without appending a message. Reasoning and tool payloads are excluded from the
+dialogue view. Existing terminal input, Markdown and Mermaid rendering are reused.
+
+Default archive root: `~/.pi/agent/sessions`. Set
+`TMUX_MOBILE_PI_TRANSCRIPT_ROOT` on the Connector for a custom Pi session store;
+`PI_CODING_AGENT_SESSION_DIR` is also recognized. Paths outside that allowed root
+are not read or uploaded. With `--no-extensions`/`--no-session`, identification can
+still show a Pi card, but live state or persistent history may be unavailable.
+Pi model/effort are displayed; Claude/Codex-specific permission-mode keyboard
+shortcuts are not sent to Pi.
