@@ -13,6 +13,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readlinkSync,
   renameSync,
   rmSync,
   statSync,
@@ -498,20 +499,39 @@ async function stopOldConnectorPids(
   }
 }
 
-function connectorPids() {
-  const result = run("ps", ["-axo", "pid=,command="], { check: false });
+function connectorPids({
+  runCommand = spawnSync,
+  platform = process.platform,
+  uid = process.getuid?.(),
+  readlink = readlinkSync,
+} = {}) {
+  // Host ps includes container processes. Only stop connectors belonging to
+  // this user and this PID/mount namespace; never stop a container's connector
+  // while upgrading the host. Do not log the machine's full process arguments.
+  const result = runCommand("ps", ["-axo", "uid=,pid=,command="], { encoding: "utf8" });
   if (result.status !== 0) return [];
   return result.stdout
     .split("\n")
     .map((line) => {
-      const match = line.trim().match(/^(\d+)\s+(.+)$/);
+      const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
       if (!match) return null;
-      const pid = Number(match[1]);
-      const command = match[2];
+      if (uid === undefined || Number(match[1]) !== uid) return null;
+      const pid = Number(match[2]);
+      const command = match[3];
       // Match either the bundle connector or a repo connector for this controller.
       if (!/tmux-mobile-connector\.mjs|server\.mjs/.test(command)) return null;
       if (!command.includes("--register")) return null;
       if (controllerUrl && !command.includes(controllerUrl)) return null;
+      if (platform === "linux") {
+        try {
+          for (const namespace of ["pid", "mnt"]) {
+            if (readlink(`/proc/${pid}/ns/${namespace}`) !== readlink(`/proc/self/ns/${namespace}`)) return null;
+          }
+        } catch {
+          // A vanished process or unreadable namespace is not ours to kill.
+          return null;
+        }
+      }
       return pid;
     })
     .filter((pid) => Number.isInteger(pid) && pid > 0);
@@ -618,6 +638,7 @@ if (globalThis.__TMUX_MOBILE_UPDATE_BUNDLE_TEST__ !== true) {
 }
 
 export {
+  connectorPids,
   configureLaunchdPlist,
   launchdRunningService,
   restartConnector,

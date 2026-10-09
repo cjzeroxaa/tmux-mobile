@@ -6,6 +6,7 @@ import path from "node:path";
 
 globalThis.__TMUX_MOBILE_UPDATE_BUNDLE_TEST__ = true;
 const {
+  connectorPids,
   configureLaunchdPlist,
   launchdRunningService,
   restartConnector,
@@ -17,6 +18,28 @@ const {
 const dir = await mkdtemp(path.join(os.tmpdir(), "tmux-mobile-bundle-updater-"));
 
 try {
+  const processRows = [
+    "1001 201 node /home/homo/.local/share/tmux-mobile/tmux-mobile-connector.mjs --register https://eng.impo.ai",
+    "1001 202 node /home/homo/.local/share/tmux-mobile/tmux-mobile-connector.mjs --register https://eng.impo.ai",
+    "1001 203 node /home/homo/.local/share/tmux-mobile/tmux-mobile-connector.mjs --register https://eng.impo.ai",
+    "1002 204 node /home/other/server.mjs --register https://eng.impo.ai",
+    "1001 205 node /home/homo/server.mjs --register https://other.example",
+    "1001 206 node /home/homo/server.mjs --register https://eng.impo.ai",
+  ].join("\n");
+  const processOptions = {
+    platform: "linux",
+    uid: 1001,
+    runCommand: () => ({ status: 0, stdout: processRows }),
+    readlink(file) {
+      if (file.includes("/206/")) throw new Error("process exited");
+      if (file.includes("/202/") && file.endsWith("/pid")) return "container-pid";
+      if (file.includes("/203/") && file.endsWith("/mnt")) return "container-mount";
+      return file.endsWith("/pid") ? "host-pid" : "host-mount";
+    },
+  };
+  assert.deepEqual(connectorPids(processOptions), [201]);
+  assert.deepEqual(connectorPids({ ...processOptions, platform: "darwin" }), [201, 202, 203, 206]);
+
   // Plist edits happen only in a sibling temporary file. The validated file is
   // atomically renamed into place, and the returned recovery handle restores
   // the exact original bytes the same way.
