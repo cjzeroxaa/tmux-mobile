@@ -642,3 +642,10 @@ are not read or uploaded. With `--no-extensions`/`--no-session`, identification 
 still show a Pi card, but live state or persistent history may be unavailable.
 Pi model/effort are displayed; Claude/Codex-specific permission-mode keyboard
 shortcuts are not sent to Pi.
+
+### Notification quiet hours
+
+Web: **More → Notifications** (`/notification-settings.html`). Mobile: **Settings & updates → Notifications**.
+Quiet hours are off by default. An administrator can enable a daily start/end time and IANA timezone for the shared notification topic across all machines. Changes take effect on the controller without restarting it; muted completions are consumed, not replayed later. Deduplication and per-topic rate limiting still apply.
+
+`GET /api/notification-settings` returns the current settings and `canEdit`; `PUT` requires a super-admin session. Settings use the existing preferences DynamoDB table (`notification-settings#global`) when `TMUX_MOBILE_SNIPPETS_STORE=dynamo`. Local servers use `~/.config/tmux-mobile/notification-settings.json`; override with `TMUX_MOBILE_NOTIFICATION_SETTINGS_CONFIG`. There is no background settings polling.

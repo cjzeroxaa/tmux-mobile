@@ -3,54 +3,11 @@ import {
   buildAgentAppUrl,
   createAgentRoundNtfyNotifier,
   createNtfyConfig,
-  isNtfyQuietHours,
   NTFY_MESSAGE_MAX_BYTES,
-  NTFY_QUIET_HOURS_END_MINUTE,
-  NTFY_QUIET_HOURS_START_MINUTE,
-  NTFY_QUIET_HOURS_TIME_ZONE,
-  ntfyDeliveryWindowKey,
   ntfyTopicForMachine,
 } from "../lib/agent-ntfy.mjs";
 
-assert.equal(NTFY_QUIET_HOURS_TIME_ZONE, "Asia/Shanghai");
-assert.equal(NTFY_QUIET_HOURS_START_MINUTE, 21 * 60);
-assert.equal(NTFY_QUIET_HOURS_END_MINUTE, 8 * 60);
-assert.equal(
-  isNtfyQuietHours(Date.parse("2026-07-13T12:59:59Z")),
-  false,
-  "Beijing 20:59 is still inside the delivery window",
-);
-assert.equal(
-  isNtfyQuietHours(Date.parse("2026-07-13T13:00:00Z")),
-  true,
-  "Beijing 21:00 starts quiet hours",
-);
-assert.equal(
-  isNtfyQuietHours(Date.parse("2026-07-13T23:59:59Z")),
-  true,
-  "Beijing 07:59 remains inside quiet hours",
-);
-assert.equal(
-  isNtfyQuietHours(Date.parse("2026-07-14T00:00:00Z")),
-  false,
-  "Beijing 08:00 ends quiet hours",
-);
-assert.equal(isNtfyQuietHours(new Date(NaN)), false, "an invalid time fails open");
-assert.equal(
-  ntfyDeliveryWindowKey(Date.parse("2026-07-13T12:59:59Z")),
-  "2026-07-13",
-  "an allowed instant belongs to its Beijing delivery date",
-);
-assert.equal(
-  ntfyDeliveryWindowKey(Date.parse("2026-07-13T13:00:00Z")),
-  "",
-  "quiet hours do not have a delivery window",
-);
-assert.equal(
-  ntfyDeliveryWindowKey(Date.parse("2026-07-14T00:00:00Z")),
-  "2026-07-14",
-  "the next delivery window opens at Beijing 08:00",
-);
+const quietSettings = { enabled: true, start: "21:00", end: "08:00", timeZone: "Asia/Shanghai" };
 
 assert.equal(
   ntfyTopicForMachine({ hostname: "FIN Mini" }),
@@ -586,6 +543,7 @@ let publishBoundaryNowCalls = 0;
 const publishBoundaryNotifier = createAgentRoundNtfyNotifier(
   { enabled: true, baseUrl: "https://ntfy.example" },
   {
+    getQuietHours: () => quietSettings,
     fetchImpl: async (url, options) => {
       publishBoundaryPosts.push({ url, options });
       return { ok: true, status: 200 };
@@ -593,7 +551,7 @@ const publishBoundaryNotifier = createAgentRoundNtfyNotifier(
     logEvent: (event, details) => publishBoundaryLogs.push({ event, details }),
     now: () => {
       publishBoundaryNowCalls += 1;
-      return publishBoundaryNowCalls <= 3 ? beforeQuietBoundary : atQuietBoundary;
+      return publishBoundaryNowCalls <= 2 ? beforeQuietBoundary : atQuietBoundary;
     },
   },
 );
@@ -617,7 +575,7 @@ await publishBoundaryNotifier.observeAgents({
     },
   ],
 });
-assert.equal(publishBoundaryNowCalls, 4, "the publish boundary performs a final time check");
+assert.equal(publishBoundaryNowCalls, 3, "the publish boundary performs a final time check");
 assert.equal(
   publishBoundaryPosts.length,
   0,
@@ -636,6 +594,7 @@ const quietNotifier = createAgentRoundNtfyNotifier(
     appBaseUrl: "https://eng.impo.ai",
   },
   {
+    getQuietHours: () => quietSettings,
     fetchImpl: async (url, options) => {
       quietPosts.push({ url, options });
       return { ok: true, status: 200 };
@@ -721,6 +680,7 @@ restartClock.advanceTo(Date.parse("2026-07-14T00:00:00Z")); // Beijing 08:00
 const restartNotifier = createAgentRoundNtfyNotifier(
   { enabled: true, baseUrl: "https://ntfy.example" },
   {
+    getQuietHours: () => quietSettings,
     fetchImpl: async (url, options) => {
       restartPosts.push({ url, options });
       return { ok: true, status: 200 };
@@ -748,52 +708,6 @@ await restartNotifier.observeAgents({
 assert.equal(restartPosts.length, 0, "a recent night completion is not replayed after restart");
 assert.equal(restartLogs.at(-1)?.details?.basis, "event_time");
 
-const delayedCandidateClock = createFakeClock();
-const delayedCandidatePosts = [];
-const delayedCandidateLogs = [];
-delayedCandidateClock.advanceTo(Date.parse("2026-07-13T12:00:00Z")); // Beijing 20:00
-const delayedCandidateNotifier = createAgentRoundNtfyNotifier(
-  { enabled: true, baseUrl: "https://ntfy.example" },
-  {
-    fetchImpl: async (url, options) => {
-      delayedCandidatePosts.push({ url, options });
-      return { ok: true, status: 200 };
-    },
-    logEvent: (event, details) => delayedCandidateLogs.push({ event, details }),
-    now: delayedCandidateClock.now,
-    setTimeoutImpl: delayedCandidateClock.setTimeout,
-    clearTimeoutImpl: delayedCandidateClock.clearTimeout,
-  },
-);
-const delayedCandidateAgent = { ...baseAgent, agentSessionId: "session-delayed-candidate" };
-await delayedCandidateNotifier.observeAgents({
-  machines: [machine],
-  agents: [
-    { ...delayedCandidateAgent, status: "running", lastAssistantText: "", turnCount: 0 },
-  ],
-});
-delayedCandidateClock.advanceTo(Date.parse("2026-07-14T00:00:00Z")); // Beijing 08:00
-await delayedCandidateNotifier.observeAgents({
-  machines: [machine],
-  agents: [
-    {
-      ...delayedCandidateAgent,
-      status: "idle",
-      lastAssistantText: "completed before the overnight disconnect",
-      lastAssistantAt: "2026-07-13T12:59:00Z",
-      lastActivityAt: "2026-07-13T12:59:00Z",
-      turnCount: 1,
-    },
-  ],
-});
-assert.equal(
-  delayedCandidatePosts.length,
-  0,
-  "a previous delivery-window completion first observed at 08:00 is not replayed",
-);
-assert.equal(delayedCandidateLogs.at(-1)?.details?.basis, "delivery_window");
-assert.equal(delayedCandidateLogs.at(-1)?.details?.reason, "quiet_hours_expired");
-
 const overnightClock = createFakeClock();
 const overnightPosts = [];
 const overnightLogs = [];
@@ -806,6 +720,7 @@ const overnightNotifier = createAgentRoundNtfyNotifier(
     topicMinIntervalMs: 60_000,
   },
   {
+    getQuietHours: () => quietSettings,
     fetchImpl: async (url, options) => {
       overnightPosts.push({ url, options });
       return { ok: true, status: 200 };
@@ -854,14 +769,33 @@ await overnightNotifier.observeAgents({
   ],
 });
 assert.equal(overnightClock.pendingTimers().length, 1, "the second completion is rate-limited");
-overnightClock.advanceTo(Date.parse("2026-07-14T00:00:00Z")); // timer wakes at 08:00
+overnightClock.advanceTo(Date.parse("2026-07-13T13:00:30Z")); // timer wakes during configured quiet hours
 await overnightClock.runDueTimers();
-assert.equal(overnightPosts.length, 1, "a delayed pre-quiet batch is not sent the next morning");
-assert.equal(
-  overnightLogs.at(-1)?.details?.reason,
-  "quiet_hours_expired",
-  "an overnight-delayed batch is discarded as expired",
-);
+assert.equal(overnightPosts.length, 1, "a pending batch is discarded if its send time falls in quiet hours");
+assert.equal(overnightLogs.at(-1)?.details?.reason, "quiet_hours");
+
+// Settings are read dynamically. Default-off and turning quiet hours off both
+// allow completions at the exact time the old hardcoded policy suppressed them.
+for (const configured of [false, true]) {
+  const clock = createFakeClock();
+  clock.advanceTo(Date.parse("2026-10-10T15:00:00Z"));
+  const posts = [];
+  let settings = configured ? quietSettings : undefined;
+  const notifier = createAgentRoundNtfyNotifier({ enabled: true, baseUrl: "https://ntfy.example", topicMinIntervalMs: 1 }, {
+    now: clock.now, setTimeoutImpl: clock.setTimeout, clearTimeoutImpl: clock.clearTimeout,
+    ...(configured ? { getQuietHours: () => settings } : {}),
+    fetchImpl: async (...args) => { posts.push(args); return { ok: true, status: 200 }; },
+  });
+  const agent = { ...baseAgent, agentSessionId: `dynamic-${configured}` };
+  await notifier.observeAgents({ machines: [machine], agents: [{ ...agent, status: "running", lastAssistantText: "", turnCount: 0 }] });
+  await notifier.observeAgents({ machines: [machine], agents: [{ ...agent, status: "idle", lastAssistantText: "first", turnCount: 1 }] });
+  assert.equal(posts.length, configured ? 0 : 1);
+  settings = { ...quietSettings, enabled: false };
+  clock.advanceTo(clock.now() + 2000);
+  await notifier.observeAgents({ machines: [machine], agents: [{ ...agent, status: "running", lastAssistantText: "first", turnCount: 1 }] });
+  await notifier.observeAgents({ machines: [machine], agents: [{ ...agent, status: "idle", lastAssistantText: "second", turnCount: 2 }] });
+  assert.equal(posts.length, configured ? 1 : 2, "disabling quiet hours takes effect without restarting the notifier");
+}
 
 const failingClock = createFakeClock();
 const failingPosts = [];

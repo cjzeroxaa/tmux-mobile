@@ -426,6 +426,8 @@ try {
   const controller = startNode("controller", ["server.mjs", "--controller"], {
     HOST: "127.0.0.1",
     PORT: String(port),
+    TMUX_MOBILE_NOTIFICATION_SETTINGS_STORE: "file",
+    TMUX_MOBILE_NOTIFICATION_SETTINGS_CONFIG: path.join(tmpDir, "notifications.json"),
     GOOGLE_AUTH_URL: `${fakeGoogle.url}/auth`,
     GOOGLE_TOKEN_URL: `${fakeGoogle.url}/token`,
     GOOGLE_DEVICE_CODE_URL: `${fakeGoogle.url}/device/code`,
@@ -458,7 +460,22 @@ try {
   const bobCookie = await loginBrowser(baseUrl, BOB);
   const consumerCookie = await loginBrowser(baseUrl, CONSUMER);
   const adminCookie = await loginBrowser(baseUrl, ADMIN);
+  await requestJson(baseUrl, "/api/notification-settings", { status: 401 });
+  const initialSettings = await requestJson(baseUrl, "/api/notification-settings", { cookie: adminCookie });
+  assert.equal(initialSettings.canEdit, true);
+  assert.equal(initialSettings.settings.enabled, false);
+  const notificationSettings = { enabled: true, start: "22:00", end: "07:30", timeZone: "America/Los_Angeles" };
+  await requestJson(baseUrl, "/api/notification-settings", { cookie: aliceCookie, method: "PUT", body: notificationSettings, status: 403 });
+  await requestJson(baseUrl, "/api/notification-settings", { cookie: adminCookie, method: "PUT", body: { ...notificationSettings, start: "invalid" }, status: 400 });
+  await requestJson(baseUrl, "/api/notification-settings", { cookie: adminCookie, method: "PUT", body: notificationSettings });
+  const sharedSettings = await requestJson(baseUrl, "/api/notification-settings", { cookie: aliceCookie });
+  assert.equal(sharedSettings.canEdit, false);
+  assert.equal(sharedSettings.settings.enabled, true);
+  assert.equal(sharedSettings.settings.start, "22:00");
+  await requestJson(baseUrl, "/api/notification-settings", { cookie: adminCookie, method: "PUT", body: { ...notificationSettings, enabled: false } });
   const terminalLogin = await loginDeviceSession(baseUrl);
+  const mobileNotificationSettings = await requestJson(baseUrl, "/api/notification-settings", { bearer: terminalLogin.sessionToken });
+  assert.equal(mobileNotificationSettings.settings.enabled, false, "mobile bearer reads the same saved policy");
   const terminalRuntime = await requestJson(baseUrl, "/api/runtime", {
     bearer: terminalLogin.sessionToken,
   });

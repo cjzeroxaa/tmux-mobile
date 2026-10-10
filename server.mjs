@@ -68,6 +68,7 @@ import {
   resetUserCardStars,
   updateUserCardStars,
 } from "./lib/user-card-stars.mjs";
+import { createNotificationSettingsStore, canEditNotificationSettings } from "./lib/notification-settings.mjs";
 import { appRevision } from "./lib/revision.mjs";
 import { readAccessControlFile } from "./lib/access-control.mjs";
 import {
@@ -3212,9 +3213,7 @@ function startAgentRoundNtfyWatcher({ hub = null } = {}) {
     topicMinIntervalMs: agentRoundNtfyNotifier.topicMinIntervalMs,
     baseUrl: agentRoundNtfyNotifier.baseUrl,
     topicPrefix: NTFY_TOPIC_PREFIX,
-    quietHoursTimeZone: agentRoundNtfyNotifier.quietHoursTimeZone,
-    quietHoursStartMinute: agentRoundNtfyNotifier.quietHoursStartMinute,
-    quietHoursEndMinute: agentRoundNtfyNotifier.quietHoursEndMinute,
+    quietHours: NOTIFICATION_SETTINGS?.current(),
   });
   return () => {
     clearInterval(timer);
@@ -4227,6 +4226,7 @@ function logServerEvent(event, details = {}) {
   );
 }
 
+let NOTIFICATION_SETTINGS;
 const agentRoundNtfyNotifier = createAgentRoundNtfyNotifier({
   ...createNtfyConfig(process.env),
   appBaseUrl:
@@ -4235,6 +4235,7 @@ const agentRoundNtfyNotifier = createAgentRoundNtfyNotifier({
     DEFAULT_CONTROLLER_URL,
 }, {
   logEvent: logServerEvent,
+  getQuietHours: () => NOTIFICATION_SETTINGS?.current(),
 });
 
 function logRequestError(req, url, status, error) {
@@ -5447,6 +5448,8 @@ try {
   SNIPPET_STORE = createMemorySnippetStore();
 }
 
+if (MODE.kind !== "register") NOTIFICATION_SETTINGS = await createNotificationSettingsStore();
+
 let CARD_STAR_STORE;
 try {
   CARD_STAR_STORE = await createCardStarStore();
@@ -5656,6 +5659,21 @@ if (MODE.kind === "register") {
       const viewer = REQUIRE_BROWSER_AUTH
         ? authenticatedUser
         : { userId, email: userId, hd: "" };
+
+      if (url.pathname === "/api/notification-settings") {
+        res.setHeader("Cache-Control", "private, no-store");
+        const canEdit = canEditNotificationSettings(viewer, ACCESS_CONTROL.superAdminEmails, REQUIRE_BROWSER_AUTH);
+        if (req.method === "GET") {
+          const settings = await NOTIFICATION_SETTINGS.refresh();
+          sendJson(res, 200, { settings, canEdit, scope: "all-machines" });
+        } else if (req.method === "PUT") {
+          if (!canEdit) { sendJson(res, 403, { error: "Only an administrator can change shared notification settings." }); return; }
+          const settings = await NOTIFICATION_SETTINGS.save(await readJsonBody(req));
+          logServerEvent("ntfy_settings_updated", { userId, settings });
+          sendJson(res, 200, { settings, canEdit, scope: "all-machines" });
+        } else sendJson(res, 405, { error: "Method not allowed" });
+        return;
+      }
 
       if (req.method === "GET" && url.pathname === "/api/reports") {
         res.setHeader("Cache-Control", "private, no-store");
