@@ -15,6 +15,12 @@ import time
 import urllib.request
 
 
+PRODUCTION_HEALTH_URLS = (
+    "https://eng.xyznot.com/api/health",
+    "https://eng.impo.ai/api/health",
+)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-tag", required=True)
@@ -25,6 +31,12 @@ def main():
     parser.add_argument("--receipt-dir", required=True)
     parser.add_argument("--plan", action="store_true", help="Read-only preflight")
     args = parser.parse_args()
+    # Both production domains are permanent entry points. Selecting either
+    # must also verify the other; custom development endpoints stay isolated.
+    health_urls = list(dict.fromkeys([
+        args.health_url,
+        *(PRODUCTION_HEALTH_URLS if args.health_url in PRODUCTION_HEALTH_URLS else ()),
+    ]))
     receipt = Path(args.receipt_dir)
     receipt.mkdir(parents=True, exist_ok=False, mode=0o700)
 
@@ -47,8 +59,19 @@ def main():
         return result["services"][0]
 
     def health():
-        with urllib.request.urlopen(args.health_url, timeout=15) as response:
-            return json.load(response)
+        endpoints = {}
+        for url in health_urls:
+            with urllib.request.urlopen(url, timeout=15) as response:
+                endpoints[url] = json.load(response)
+        save("health-endpoints.json", endpoints)
+        primary = endpoints[args.health_url]
+        for url, result in endpoints.items():
+            if not result.get("ok"):
+                raise RuntimeError(f"Health check failed: {url}")
+            if any(result.get(key) != primary.get(key)
+                   for key in ("revision", "connectorVersion")):
+                raise RuntimeError(f"Production domain versions differ: {url}")
+        return primary
 
     def manifest(tag):
         result = aws("ecr", "batch-get-image", "--repository-name", args.name,
@@ -95,7 +118,8 @@ def main():
                 expectedRevision=args.expected_revision,
                 taskDefinition=before["taskDefinition"], rollbackTag=rollback_tag,
                 oldDigest=old["imageId"]["imageDigest"],
-                newDigest=new["imageId"]["imageDigest"], baselineHealth=baseline)
+                newDigest=new["imageId"]["imageDigest"], baselineHealth=baseline,
+                healthUrls=health_urls)
     save("plan.json", plan)
     save("old-image.json", old)
     save("new-image.json", new)

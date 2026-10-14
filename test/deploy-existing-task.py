@@ -15,12 +15,13 @@ spec.loader.exec_module(deploy)
 
 
 class ReleaseTest(unittest.TestCase):
-    def run_release(self, mode):
+    def run_release(self, mode, health_url=None):
         old_digest, new_digest = "sha256:" + "a" * 64, "sha256:" + "b" * 64
         images = {"old-deployment": old_digest, "candidate": new_digest}
         current_digest = old_digest
         deployment_id = "initial"
         calls = []
+        health_calls = []
 
         def service():
             return dict(taskDefinition="controller:163", desiredCount=1,
@@ -59,20 +60,25 @@ class ReleaseTest(unittest.TestCase):
                 self.fail(f"Unexpected cloud operation: {action}")
             return subprocess.CompletedProcess(command, 0, json.dumps(data), "")
 
-        def health(*args, **kwargs):
+        def health(url, **kwargs):
+            health_calls.append(url)
             revision = "old" if current_digest == old_digest else "new"
             if mode == "fail" and revision == "new":
                 revision = "wrong"
+            if mode == "legacy-fail" and revision == "new" and url == deploy.PRODUCTION_HEALTH_URLS[1]:
+                revision = "old"
             return io.BytesIO(json.dumps(dict(ok=True, revision=revision)).encode())
 
         with tempfile.TemporaryDirectory() as root:
             receipt = Path(root) / "receipt"
             argv = ["deploy", "--source-tag", "candidate", "--expected-revision", "new", "--receipt-dir", str(receipt)]
+            if health_url:
+                argv.extend(["--health-url", health_url])
             if mode == "plan":
                 argv.append("--plan")
             with patch("sys.argv", argv), patch.object(deploy.subprocess, "run", side_effect=run), patch.object(deploy.urllib.request, "urlopen", side_effect=health), patch("sys.stdout", new_callable=io.StringIO):
-                if mode == "fail":
-                    with self.assertRaisesRegex(RuntimeError, "Live revision"):
+                if mode in ("fail", "legacy-fail"):
+                    with self.assertRaisesRegex(RuntimeError, "Live revision|Production domain versions differ"):
                         deploy.main()
                     self.assertTrue((receipt / "rollback.json").exists())
                     self.assertEqual(images["old-deployment"], old_digest)
@@ -86,6 +92,9 @@ class ReleaseTest(unittest.TestCase):
                         self.assertEqual(current_digest, new_digest)
                         plan = json.loads((receipt / "plan.json").read_text())
                         self.assertEqual(images[plan["rollbackTag"]], old_digest)
+            expected_urls = set(deploy.PRODUCTION_HEALTH_URLS) if not health_url or health_url in deploy.PRODUCTION_HEALTH_URLS else {health_url}
+            self.assertEqual(set(health_calls), expected_urls)
+            self.assertTrue(all(health_calls.count(url) == health_calls.count(health_calls[0]) for url in expected_urls))
 
     def test_plan_is_read_only(self):
         self.run_release("plan")
@@ -95,6 +104,15 @@ class ReleaseTest(unittest.TestCase):
 
     def test_failed_health_restores_old_image(self):
         self.run_release("fail")
+
+    def test_old_domain_revision_failure_rolls_back(self):
+        self.run_release("legacy-fail")
+
+    def test_old_primary_still_checks_new_domain(self):
+        self.run_release("success", deploy.PRODUCTION_HEALTH_URLS[1])
+
+    def test_custom_endpoint_does_not_check_production(self):
+        self.run_release("success", "http://localhost:8080/api/health")
 
 
 if __name__ == "__main__":

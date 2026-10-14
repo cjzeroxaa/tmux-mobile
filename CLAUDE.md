@@ -10,7 +10,11 @@ automatic iOS/TestFlight releases.
 
 ## 1. eng.xyznot.com is the canonical runtime
 
-`eng.impo.ai` remains a supported compatibility endpoint. Keep its DNS, TLS certificate, and Google OAuth callback active; do not redirect or remove it during migration.
+Both `eng.xyznot.com` and `eng.impo.ai` are permanently supported entry points
+to the same service. The old domain has no retirement date. Keep both domains'
+DNS, TLS certificates (including renewal validation records), and Google OAuth
+callbacks active. Do not redirect or remove either domain without an explicit
+user request.
 
 The deployed AWS Controller at `https://eng.xyznot.com` is the browser/API entry
 point. Local repository checkouts are for development, building, and publishing;
@@ -28,8 +32,10 @@ Use `scripts/push-image.sh` after checks. It builds a unique source image tag,
 then calls `scripts/deploy-existing-task.py` to save the current image under a
 rollback tag, update the mutable image tag already referenced by the live ECS
 service, and call `update-service --force-new-deployment` on the same task
-definition. It waits for rollout completion and checks the live revision and
-running image digest; a failed rollout restores the previous image.
+definition. It waits for rollout completion and checks the live revision on
+both production domains and the running image digest; a failed rollout restores
+the previous image. Selecting either production `--health-url` still checks
+both domains.
 
 This existing ECR/ECS release channel successfully published `b056ec4` and
 `698fd75` before this runbook was corrected. At the 2026-09-09 preflight,
