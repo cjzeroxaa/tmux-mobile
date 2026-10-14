@@ -25,7 +25,7 @@ set -euo pipefail
 # ---------------------- configuration ----------------------
 AWS_REGION="${AWS_REGION:-us-east-1}"
 NAME="tmux-mobile-controller"
-DOMAIN="eng.impo.ai"
+DOMAIN="eng.xyznot.com"
 CONTAINER_PORT=3737
 TASK_CPU=256
 TASK_MEMORY=512

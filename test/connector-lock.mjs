@@ -38,7 +38,7 @@ try {
     "owner record contains the durable lock identity",
   );
 
-  const duplicate = acquireConnectorLock("https://eng.impo.ai/", {
+  const duplicate = acquireConnectorLock("https://eng.xyznot.com/", {
     rootDir: tmp,
     agentId: "agent-one",
     pid: 202,

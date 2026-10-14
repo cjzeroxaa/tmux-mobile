@@ -25,6 +25,8 @@ try {
     "1002 204 node /home/other/server.mjs --register https://eng.impo.ai",
     "1001 205 node /home/homo/server.mjs --register https://other.example",
     "1001 206 node /home/homo/server.mjs --register https://eng.impo.ai",
+    "1001 207 node /home/homo/server.mjs --register https://eng.xyznot.com",
+    "1001 208 node /home/homo/server.mjs --register https://eng.xyznot.com.other.example",
   ].join("\n");
   const processOptions = {
     platform: "linux",
@@ -37,8 +39,8 @@ try {
       return file.endsWith("/pid") ? "host-pid" : "host-mount";
     },
   };
-  assert.deepEqual(connectorPids(processOptions), [201]);
-  assert.deepEqual(connectorPids({ ...processOptions, platform: "darwin" }), [201, 202, 203, 206]);
+  assert.deepEqual(connectorPids(processOptions), [201, 207]);
+  assert.deepEqual(connectorPids({ ...processOptions, platform: "darwin" }), [201, 202, 203, 206, 207]);
 
   // Plist edits happen only in a sibling temporary file. The validated file is
   // atomically renamed into place, and the returned recovery handle restores

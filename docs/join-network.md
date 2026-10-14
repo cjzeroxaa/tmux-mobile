@@ -1,13 +1,13 @@
-# Add a machine to eng.impo.ai
+# Add a machine to eng.xyznot.com
 
 This is the current connector setup for a Mac or Linux machine.
 
 ## What has to run
 
-`https://eng.impo.ai` is the controller. Each machine runs one connector process:
+`https://eng.xyznot.com` is the controller. Each machine runs one connector process:
 
 ```text
-browser -> eng.impo.ai controller -> outbound WebSocket -> connector -> tmux/rmux
+browser -> eng.xyznot.com controller -> outbound WebSocket -> connector -> tmux/rmux
 ```
 
 Running `tmux` by itself is not enough. The machine only appears after the
@@ -54,7 +54,7 @@ git clone --branch "$TMUX_MOBILE_REF" https://github.com/cjzeroxaa/tmux-mobile.g
 cd ~/src/tmux-mobile
 npm install --omit=dev
 
-TMUX_MOBILE_MUXES=tmux,rmux node server.mjs --register https://eng.impo.ai --login
+TMUX_MOBILE_MUXES=tmux,rmux node server.mjs --register https://eng.xyznot.com --login
 ```
 
 The first run prints a Google device-login URL and code. Approve it in a browser.
@@ -75,7 +75,7 @@ git checkout "$TMUX_MOBILE_REF"
 git pull --ff-only origin "$TMUX_MOBILE_REF"
 npm install --omit=dev
 
-TMUX_MOBILE_MUXES=tmux,rmux node server.mjs --register https://eng.impo.ai --login
+TMUX_MOBILE_MUXES=tmux,rmux node server.mjs --register https://eng.xyznot.com --login
 ```
 
 ## Keep it running
@@ -84,7 +84,7 @@ For a quick temporary run, put the connector in tmux:
 
 ```bash
 tmux new-session -d -s tmux-mobile-connector \
-  'cd ~/src/tmux-mobile && TMUX_MOBILE_MUXES=tmux,rmux node server.mjs --register https://eng.impo.ai'
+  'cd ~/src/tmux-mobile && TMUX_MOBILE_MUXES=tmux,rmux node server.mjs --register https://eng.xyznot.com'
 ```
 
 For a real machine, use the OS user service below.
@@ -105,7 +105,7 @@ Create `~/Library/LaunchAgents/com.tmux-mobile.agent.plist`:
   <array>
     <string>/bin/zsh</string>
     <string>-lc</string>
-    <string>cd /Users/YOUR-USER/src/tmux-mobile && exec node server.mjs --register https://eng.impo.ai</string>
+    <string>cd /Users/YOUR-USER/src/tmux-mobile && exec node server.mjs --register https://eng.xyznot.com</string>
   </array>
 
   <key>EnvironmentVariables</key>
@@ -159,7 +159,7 @@ Fix both up front:
 
 ```ini
 [Unit]
-Description=tmux-mobile connector -> eng.impo.ai
+Description=tmux-mobile connector -> eng.xyznot.com
 After=network-online.target
 Wants=network-online.target
 
@@ -167,7 +167,7 @@ Wants=network-online.target
 WorkingDirectory=%h/src/tmux-mobile
 Environment=TMUX_MOBILE_MUXES=tmux,rmux
 # Use the output of `command -v node` — do NOT assume /usr/bin/node:
-ExecStart=/home/YOUR-USER/.local/node/bin/node server.mjs --register https://eng.impo.ai
+ExecStart=/home/YOUR-USER/.local/node/bin/node server.mjs --register https://eng.xyznot.com
 Environment=AGENT_MACHINE=YOUR-MACHINE-NAME
 Restart=always
 RestartSec=5
@@ -207,8 +207,8 @@ The agent prints a JSON line on every state change. A healthy registration
 looks like:
 
 ```json
-{"event":"agent_registered","controller":"https://eng.impo.ai",
- "websocket":"wss://eng.impo.ai/agent/connect",
+{"event":"agent_registered","controller":"https://eng.xyznot.com",
+ "websocket":"wss://eng.xyznot.com/agent/connect",
  "machine":"<your-hostname>","auth":"device_token"}
 ```
 
@@ -247,7 +247,7 @@ Clicking **Update connector** does this on the selected machine:
    update script URL.
 4. Runs the update with environment supplied by the controller:
    - `TMUX_MOBILE_UPDATE_REPO`, normally `~/src/tmux-mobile`
-   - `TMUX_MOBILE_UPDATE_CONTROLLER`, normally `https://eng.impo.ai`
+   - `TMUX_MOBILE_UPDATE_CONTROLLER`, normally `https://eng.xyznot.com`
    - `TMUX_MOBILE_UPDATE_REF`, currently `fix-connector-update-inventory`
    - `TMUX_MOBILE_UPDATE_EXPECTED_REVISION`, the controller's expected revision
    - optional `AGENT_MACHINE` / mux settings
@@ -279,13 +279,13 @@ and rerun the fresh install/start commands manually.
 Controller health:
 
 ```bash
-curl -fsS https://eng.impo.ai/api/health
+curl -fsS https://eng.xyznot.com/api/health
 ```
 
 Local connector process:
 
 ```bash
-ps -axo pid,command | grep '[s]erver.mjs --register https://eng.impo.ai'
+ps -axo pid,command | grep '[s]erver.mjs --register https://eng.xyznot.com'
 ```
 
 Mux availability:

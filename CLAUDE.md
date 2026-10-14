@@ -8,9 +8,11 @@ waiting for a separate release request or confirmation. The user explicitly
 authorized this workflow for the Web app. This preference does not authorize
 automatic iOS/TestFlight releases.
 
-## 1. eng.impo.ai is the canonical runtime
+## 1. eng.xyznot.com is the canonical runtime
 
-The deployed AWS Controller at `https://eng.impo.ai` is the browser/API entry
+`eng.impo.ai` remains a supported compatibility endpoint. Keep its DNS, TLS certificate, and Google OAuth callback active; do not redirect or remove it during migration.
+
+The deployed AWS Controller at `https://eng.xyznot.com` is the browser/API entry
 point. Local repository checkouts are for development, building, and publishing;
 they are not a production gateway for the machine. Do not treat a local
 `node server.mjs` address as special infrastructure, and do not add or maintain
@@ -72,7 +74,7 @@ Preferred flow for updating connectors one by one:
 
 1. Deploy the controller first and verify it:
    ```bash
-   curl -fsS https://eng.impo.ai/api/health | jq .
+   curl -fsS https://eng.xyznot.com/api/health | jq .
    ```
 
 2. Get a super-admin-authenticated view of every machine. Either log in as a
@@ -101,7 +103,7 @@ Preferred flow for updating connectors one by one:
    const sig = createHmac("sha256", secret).update(body).digest("base64url");
    fs.writeFileSync(
      out,
-     `# Netscape HTTP Cookie File\neng.impo.ai\tFALSE\t/\tTRUE\t${now + 3600}\ttmux_mobile_session\t${body}.${sig}\n`,
+     `# Netscape HTTP Cookie File\neng.xyznot.com\tFALSE\t/\tTRUE\t${now + 3600}\ttmux_mobile_session\t${body}.${sig}\n`,
    );
    NODE
    unset SECRET
@@ -110,7 +112,7 @@ Preferred flow for updating connectors one by one:
 3. Inspect all machines before touching anything:
    ```bash
    curl -fsS -b /tmp/tmux-mobile-prod-super-cookie.txt \
-     https://eng.impo.ai/api/command-center \
+     https://eng.xyznot.com/api/command-center \
      | jq -r '.machines[] | [.hostname, .ownerEmail, .agentRevision, .connectorVersion, .expectedConnectorVersion, .stale, .connectorStatus, .agentCwd] | @tsv'
    ```
 
@@ -121,7 +123,7 @@ Preferred flow for updating connectors one by one:
    ```bash
    MACHINE="MSB-SRP"
    row="$(curl -fsS -b /tmp/tmux-mobile-prod-super-cookie.txt \
-     https://eng.impo.ai/api/command-center \
+     https://eng.xyznot.com/api/command-center \
      | jq -c --arg host "$MACHINE" '.machines[] | select(.hostname == $host)')"
 
    id="$(printf '%s' "$row" | jq -r .id)"
@@ -129,7 +131,7 @@ Preferred flow for updating connectors one by one:
      repoDir: (.agentCwd // "~/.local/share/tmux-mobile"),
      expectedRevision: (.expectedRevision // ""),
      targetRef: (.updateRef // "main"),
-     updateScriptUrl: (.updateScriptUrl // "https://eng.impo.ai/connector/update.mjs"),
+     updateScriptUrl: (.updateScriptUrl // "https://eng.xyznot.com/connector/update.mjs"),
      nodePath: (.nodePath // "node"),
      agentMachine: (.machineAlias // .hostname // .machineId // ""),
      machineLabel: (.hostname // .machineId // ""),
@@ -140,7 +142,7 @@ Preferred flow for updating connectors one by one:
    curl -fsS -b /tmp/tmux-mobile-prod-super-cookie.txt \
      -H "content-type: application/json" \
      -H "x-machine-id: $id" \
-     -X POST https://eng.impo.ai/api/connector-update \
+     -X POST https://eng.xyznot.com/api/connector-update \
      --data "$body" | jq .
    ```
 
@@ -149,7 +151,7 @@ Preferred flow for updating connectors one by one:
    `expectedConnectorVersion`:
    ```bash
    curl -fsS -b /tmp/tmux-mobile-prod-super-cookie.txt \
-     https://eng.impo.ai/api/command-center \
+     https://eng.xyznot.com/api/command-center \
      | jq -r --arg host "$MACHINE" '.machines[] | select(.hostname == $host) | [.hostname, .agentRevision, .connectorVersion, .expectedConnectorVersion, .stale, .connectorStatus, .agentCwd] | @tsv'
    ```
 
@@ -159,7 +161,7 @@ After the rollout, this command should show no stale machines:
 
 ```bash
 curl -fsS -b /tmp/tmux-mobile-prod-super-cookie.txt \
-  https://eng.impo.ai/api/command-center \
+  https://eng.xyznot.com/api/command-center \
   | jq '[.machines[] | select(.stale == true)]'
 ```
 

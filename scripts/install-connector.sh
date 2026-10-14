@@ -3,12 +3,12 @@
 # controller network by downloading the self-contained connector bundle and
 # running it. No git checkout, no npm install. One-liner:
 #
-#   curl -fsSL https://eng.impo.ai/connector/install.sh | sh
+#   curl -fsSL https://eng.xyznot.com/connector/install.sh | sh
 #
 # Name the machine (optional) and/or restart in the background instead of the
 # foreground:
 #
-#   curl -fsSL https://eng.impo.ai/connector/install.sh | AGENT_MACHINE=my-box sh
+#   curl -fsSL https://eng.xyznot.com/connector/install.sh | AGENT_MACHINE=my-box sh
 #
 # The controller origin is substituted in when this script is served; it also
 # honors TMUX_MOBILE_CONTROLLER if you fetch the raw script.

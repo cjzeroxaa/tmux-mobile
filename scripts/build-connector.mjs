@@ -49,7 +49,7 @@ await writeFile(
       revision,
       file: path.basename(outfile),
       bytes: info.size,
-      run: "node dist/tmux-mobile-connector.mjs --register https://eng.impo.ai",
+      run: "node dist/tmux-mobile-connector.mjs --register https://eng.xyznot.com",
     },
     null,
     2,

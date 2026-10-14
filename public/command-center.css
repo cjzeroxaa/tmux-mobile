@@ -358,7 +358,7 @@
   font-size: 11px;
   line-height: 1.45;
   /* WRAP on small screens instead of side-scrolling. The git clone URL +
-   * the eng.impo.ai --register lines are too long to fit a phone, and a
+   * the eng.xyznot.com --register lines are too long to fit a phone, and a
    * horizontal scroll inside the page (which the original overflow-x:auto
    * gave us) was unreliable on iOS Safari. word-break: break-word breaks
    * on hyphens/punctuation/etc. first, then mid-word as a fallback so

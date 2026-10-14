@@ -117,13 +117,13 @@ Minimum fields to derive:
 Set an app URL that already points at the tmux-mobile app page:
 
 ```bash
-export TMUX_MOBILE_APP_URL="https://eng.impo.ai/app/"
+export TMUX_MOBILE_APP_URL="https://eng.xyznot.com/app/"
 ```
 
 Then append whatever targeting data you can find:
 
 - `machineId`: the durable tmux-mobile agent UUID from
-  `~/.config/tmux-mobile/agent.json` (`controllers["https://eng.impo.ai"].agentId`).
+  `~/.config/tmux-mobile/agent.json` (`controllers["https://eng.impo.ai"].agentId (the shared legacy identity key)`).
   The query parameter is still named `machineId` for compatibility, but the
   value should not be a display name like `mini` or `MSB-REBYTE`; names can
   collide.
@@ -134,11 +134,11 @@ Then append whatever targeting data you can find:
 Final links should look like:
 
 ```text
-https://eng.impo.ai/app/?machineId=4503e6cd-795a-4f59-9592-d6c4a5df764f&session=work&window=2&windowName=Codex+Task
+https://eng.xyznot.com/app/?machineId=4503e6cd-795a-4f59-9592-d6c4a5df764f&session=work&window=2&windowName=Codex+Task
 ```
 
 The hook should include that URL in the ntfy body, for example:
 
 ```text
-Open: https://eng.impo.ai/app/?machineId=4503e6cd-795a-4f59-9592-d6c4a5df764f&session=work&window=2
+Open: https://eng.xyznot.com/app/?machineId=4503e6cd-795a-4f59-9592-d6c4a5df764f&session=work&window=2
 ```

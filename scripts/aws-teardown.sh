@@ -106,7 +106,7 @@ fi
 
 # ---------------------- ACM cert ----------------------
 section "ACM certificate"
-ACM_ARN="${ACM_ARN:-$(aws acm list-certificates --region "$AWS_REGION" --query "CertificateSummaryList[?DomainName=='${DOMAIN:-eng.impo.ai}'].CertificateArn | [0]" --output text 2>/dev/null || true)}"
+ACM_ARN="${ACM_ARN:-$(aws acm list-certificates --region "$AWS_REGION" --query "CertificateSummaryList[?DomainName=='${DOMAIN:-eng.xyznot.com}'].CertificateArn | [0]" --output text 2>/dev/null || true)}"
 if [[ -n "$ACM_ARN" && "$ACM_ARN" != "None" ]]; then
   say aws acm delete-certificate --region "$AWS_REGION" --certificate-arn "$ACM_ARN" >/dev/null
   note "deleted cert"
@@ -175,6 +175,6 @@ echo "Done. Kept around (delete manually if wanted):"
 echo "  - CloudWatch log group /ecs/${NAME}"
 echo "  - Secrets Manager entries under ${NAME}/* (7-day recovery window)"
 echo "  - ECR repo ${NAME} and any images"
-echo "  - Cloudflare DNS records for ${DOMAIN:-eng.impo.ai}"
+echo "  - Cloudflare DNS records for ${DOMAIN:-eng.xyznot.com}"
 echo
 echo "State file: $STATE_FILE — clear it or delete it before the next aws-setup.sh run."

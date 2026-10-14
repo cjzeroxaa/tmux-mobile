@@ -24,7 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
-const DEFAULT_CONTROLLER = "https://eng.impo.ai";
+const DEFAULT_CONTROLLER = "https://eng.xyznot.com";
 const controllerUrl = (process.env.TMUX_MOBILE_UPDATE_CONTROLLER || DEFAULT_CONTROLLER).replace(/\/+$/, "");
 const installDir = expandHome(
   process.env.TMUX_MOBILE_DIR || path.join(os.homedir(), ".local", "share", "tmux-mobile"),
@@ -521,7 +521,10 @@ function connectorPids({
       // Match either the bundle connector or a repo connector for this controller.
       if (!/tmux-mobile-connector\.mjs|server\.mjs/.test(command)) return null;
       if (!command.includes("--register")) return null;
-      if (controllerUrl && !command.includes(controllerUrl)) return null;
+      const origins = ["https://eng.impo.ai", "https://eng.xyznot.com"];
+      const candidates = origins.includes(controllerUrl) ? origins : [controllerUrl];
+      const registered = command.match(/(?:^|\s)--register\s+([^\s'";]+)/)?.[1];
+      if (controllerUrl && !candidates.includes(registered?.replace(/\/+$/, ""))) return null;
       if (platform === "linux") {
         try {
           for (const namespace of ["pid", "mnt"]) {

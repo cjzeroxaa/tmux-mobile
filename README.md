@@ -2,7 +2,8 @@
 
 A mobile browser UI for selecting tmux sessions and windows, then reading snapshots or sending voice commands without a terminal emulator.
 
-The canonical runtime is the hosted Controller at `https://eng.impo.ai`.
+The canonical runtime is the hosted Controller at `https://eng.xyznot.com`.
+`https://eng.impo.ai` remains supported on the same server. Both names share account, machine and archive identities; existing Connector credentials need no new login.
 Browsers connect to that HTTPS endpoint; every machine runs an outbound
 Connector that brokers tmux/rmux commands. A local server mode remains in the
 codebase for isolated development and tests, but it is not the deployed access
@@ -10,13 +11,13 @@ path and should not be published through Tailscale.
 
 ## Use the hosted Controller
 
-Open `https://eng.impo.ai`. To attach another machine, follow
+Open `https://eng.xyznot.com`. To attach another machine, follow
 [docs/join-network.md](docs/join-network.md); the machine needs no inbound web
 server or tailnet route.
 
 ## Hosted controller
 
-> **Want to join an already-running controller (e.g. https://eng.impo.ai)?**
+> **Want to join an already-running controller (e.g. https://eng.xyznot.com)?**
 > Skip everything below — see [docs/join-network.md](docs/join-network.md)
 > for the one-command device-login flow.
 
@@ -175,7 +176,7 @@ npm run terminal
 npm run terminal -- https://YOUR-CLOUD-RUN-URL
 ```
 
-By default this connects to `https://eng.impo.ai`; pass a URL to point it at
+By default this connects to `https://eng.xyznot.com`; pass a URL to point it at
 another controller. In controller mode it starts the same Google
 device-login flow as connector registration, but stores a separate
 browser-session bearer token at `~/.config/tmux-mobile/terminal.json`. Machine

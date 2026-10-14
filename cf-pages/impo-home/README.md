@@ -14,5 +14,5 @@ npx wrangler pages deploy cf-pages/impo-home --project-name=impo-ai --branch=mai
 Registration CTA:
 
 ```text
-https://eng.impo.ai/auth/google/login?returnTo=%2Fcommand-center
+https://eng.xyznot.com/auth/google/login?returnTo=%2Fcommand-center
 ```

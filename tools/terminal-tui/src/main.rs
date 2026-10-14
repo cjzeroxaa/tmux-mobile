@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use tokio::time::sleep;
 
-const DEFAULT_URL: &str = "https://eng.impo.ai";
+const DEFAULT_URL: &str = "https://eng.xyznot.com";
 const DEFAULT_REFRESH_MS: u64 = 4000;
 const DEFAULT_LINES: u16 = 160;
 const LOGIN_POLL_FLOOR_MS: u64 = 1000;
@@ -1977,7 +1977,8 @@ fn controller_key(url: &Url) -> String {
         .port()
         .map(|port| format!(":{port}"))
         .unwrap_or_default();
-    format!("{}://{host}{port}", url.scheme())
+    let origin = format!("{}://{host}{port}", url.scheme());
+    if origin == "https://eng.xyznot.com" { "https://eng.impo.ai".to_string() } else { origin }
 }
 
 fn clamp_lines(value: u16) -> u16 {

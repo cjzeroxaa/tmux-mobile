@@ -21,7 +21,7 @@ def main():
     parser.add_argument("--expected-revision", required=True)
     parser.add_argument("--region", default="us-east-1")
     parser.add_argument("--name", default="tmux-mobile-controller")
-    parser.add_argument("--health-url", default="https://eng.impo.ai/api/health")
+    parser.add_argument("--health-url", default="https://eng.xyznot.com/api/health")
     parser.add_argument("--receipt-dir", required=True)
     parser.add_argument("--plan", action="store_true", help="Read-only preflight")
     args = parser.parse_args()

@@ -6,7 +6,7 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
 const DEFAULT_REPO_DIR = "~/src/tmux-mobile";
-const DEFAULT_CONTROLLER = "https://eng.impo.ai";
+const DEFAULT_CONTROLLER = "https://eng.xyznot.com";
 const DEFAULT_CLONE_URL = "https://github.com/cjzeroxaa/tmux-mobile.git";
 const DEFAULT_TARGET_REF = "main";
 const LAUNCHD_LABEL = process.env.TMUX_MOBILE_UPDATE_LAUNCHD_LABEL || "com.tmux-mobile.agent";
@@ -290,7 +290,10 @@ function connectorPids() {
       const command = match[2];
       if (!command.includes("server.mjs")) return null;
       if (!command.includes("--register")) return null;
-      if (controllerUrl && !command.includes(controllerUrl)) return null;
+      const origins = ["https://eng.impo.ai", "https://eng.xyznot.com"];
+      const candidates = origins.includes(controllerUrl) ? origins : [controllerUrl];
+      const registered = command.match(/(?:^|\s)--register\s+([^\s'";]+)/)?.[1];
+      if (controllerUrl && !candidates.includes(registered?.replace(/\/+$/, ""))) return null;
       return pid;
     })
     .filter((pid) => Number.isInteger(pid) && pid > 0);

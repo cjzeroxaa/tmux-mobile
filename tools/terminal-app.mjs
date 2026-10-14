@@ -5,13 +5,14 @@
 // and /api/key. In controller mode it authenticates with Google device login
 // and stores a browser-session bearer token, not an agent registration token.
 
+import { controllerIdentityKey } from "../lib/controller-origin.mjs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
-const DEFAULT_URL = process.env.TMUX_MOBILE_URL || "https://eng.impo.ai";
+const DEFAULT_URL = process.env.TMUX_MOBILE_URL || "https://eng.xyznot.com";
 const CONFIG_PATH =
   process.env.TMUX_MOBILE_TERMINAL_CONFIG ||
   path.join(os.homedir(), ".config", "tmux-mobile", "terminal.json");
@@ -82,7 +83,7 @@ function normalizeBaseUrl(inputUrl) {
 }
 
 function controllerKey(baseUrl) {
-  return new URL(baseUrl).origin;
+  return controllerIdentityKey(baseUrl);
 }
 
 async function loadConfig() {
@@ -200,7 +201,7 @@ function connectionErrorMessage(baseUrl, error) {
   const details = cause?.code || cause?.message || error?.message || "connection failed";
   const localHint =
     new URL(baseUrl).hostname === "127.0.0.1" || new URL(baseUrl).hostname === "localhost"
-      ? " Start the local server with `npm start`, or pass the controller URL: `npm run terminal -- https://eng.impo.ai`."
+      ? " Start the local server with `npm start`, or pass the controller URL: `npm run terminal -- https://eng.xyznot.com`."
       : "";
   return `Could not connect to ${baseUrl} (${details}).${localHint}`;
 }

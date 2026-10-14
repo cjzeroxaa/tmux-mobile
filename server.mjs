@@ -1,3 +1,4 @@
+import { CONTROLLER_ORIGIN, canonicalControllerUrl, controllerOAuthRedirectUri } from "./lib/controller-origin.mjs";
 import { isPiCommand, installPiExtension } from "./lib/pi-runtime.mjs";
 import { createProgressReports, createGeminiSummarizer, loadReportConfig, validReportId } from './lib/progress-reports.mjs';
 import { createConversationReader } from "./lib/conversation.mjs";
@@ -1051,7 +1052,7 @@ const CONNECTOR_CLONE_URL =
   process.env.TMUX_MOBILE_CLONE_URL ||
   "https://github.com/cjzeroxaa/tmux-mobile.git";
 const DEFAULT_CONTROLLER_URL =
-  process.env.TMUX_MOBILE_CONTROLLER_URL || "https://eng.impo.ai";
+  canonicalControllerUrl(process.env.TMUX_MOBILE_CONTROLLER_URL || CONTROLLER_ORIGIN);
 const CONNECTOR_UPDATE_REF =
   safeUpdateToken(process.env.TMUX_MOBILE_UPDATE_REF) || "main";
 const CONNECTOR_EXPECTED_REVISION =
@@ -1059,8 +1060,8 @@ const CONNECTOR_EXPECTED_REVISION =
   safeUpdateToken(APP_REVISION) ||
   "";
 const CONNECTOR_UPDATE_SCRIPT_URL =
-  process.env.TMUX_MOBILE_UPDATE_SCRIPT_URL ||
-  `${DEFAULT_CONTROLLER_URL}${CONNECTOR_UPDATE_BUNDLE_ROUTE}`;
+  canonicalControllerUrl(process.env.TMUX_MOBILE_UPDATE_SCRIPT_URL ||
+  `${DEFAULT_CONTROLLER_URL}${CONNECTOR_UPDATE_BUNDLE_ROUTE}`);
 const WINDOW_BRIEFING_MODEL =
   process.env.OPENAI_WINDOW_BRIEFING_MODEL || "gpt-5.4-mini";
 const configuredSubmitNudgeDelayMs = Number(
@@ -3838,10 +3839,7 @@ function googleOAuthEndpoints() {
 }
 
 function oauthRedirectUri(req) {
-  return (
-    process.env.GOOGLE_OAUTH_REDIRECT_URI ||
-    `${originForRequest(req)}/auth/google/callback`
-  );
+  return controllerOAuthRedirectUri(originForRequest(req), process.env.GOOGLE_OAUTH_REDIRECT_URI);
 }
 
 async function googleTokenInfo(idToken, expectedAudience) {
@@ -4229,10 +4227,8 @@ function logServerEvent(event, details = {}) {
 let NOTIFICATION_SETTINGS;
 const agentRoundNtfyNotifier = createAgentRoundNtfyNotifier({
   ...createNtfyConfig(process.env),
-  appBaseUrl:
-    process.env.NTFY_APP_BASE_URL ||
-    process.env.TMUX_MOBILE_PUBLIC_URL ||
-    DEFAULT_CONTROLLER_URL,
+  appBaseUrl: canonicalControllerUrl(
+    process.env.NTFY_APP_BASE_URL || process.env.TMUX_MOBILE_PUBLIC_URL || DEFAULT_CONTROLLER_URL),
 }, {
   logEvent: logServerEvent,
   getQuietHours: () => NOTIFICATION_SETTINGS?.current(),
