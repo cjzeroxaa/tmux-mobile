@@ -288,117 +288,6 @@
   background: color-mix(in srgb, var(--surface) 88%, #b91c1c);
 }
 
-/* "How to join" + "Who can see what" — the only onboarding block. Sits
- * above the controls when present; dismissed by ✕ (persisted), recovered
- * via the ? in the topbar. Two short blocks in a card; intentionally
- * plain so it doesn't compete with the agent feed visually. */
-.cc-welcome {
-  position: relative;
-  display: grid;
-  /* Same min-width: 0 reason as .cc-shell — without it the welcome <pre>
-   * inside makes this grid item track its min-content width. */
-  min-width: 0;
-  max-width: 100%;
-  gap: 12px;
-  padding: 14px 14px 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  font-size: 12.5px;
-  line-height: 1.45;
-  color: var(--ink);
-}
-
-.cc-welcome[hidden] { display: none; }
-
-.cc-welcome-close {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.cc-welcome-close:hover,
-.cc-welcome-close:focus-visible {
-  background: var(--surface-soft);
-  color: var(--ink);
-}
-
-.cc-welcome-block { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-
-.cc-welcome-block h2 {
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--accent-dark);
-  margin: 0;
-}
-
-.cc-welcome-block p { margin: 0; }
-
-.cc-welcome-block pre {
-  margin: 2px 0 0;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--code-bg);
-  color: var(--code-ink);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  line-height: 1.45;
-  /* WRAP on small screens instead of side-scrolling. The git clone URL +
-   * the eng.xyznot.com --register lines are too long to fit a phone, and a
-   * horizontal scroll inside the page (which the original overflow-x:auto
-   * gave us) was unreliable on iOS Safari. word-break: break-word breaks
-   * on hyphens/punctuation/etc. first, then mid-word as a fallback so
-   * even unbreakable tokens like the full git URL still fit. The visual
-   * indent on wrapped lines uses padding-left + text-indent to keep
-   * continuation lines distinguishable from new commands. */
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-}
-
-.cc-welcome-block code:not(pre code) {
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--surface-soft);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px;
-}
-
-.cc-welcome-block a {
-  color: var(--accent-dark);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.cc-welcome-muted {
-  color: var(--muted);
-  font-size: 11.5px;
-}
-
-.cc-welcome-list {
-  margin: 4px 0 0;
-  padding-left: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.cc-welcome-list li { margin: 0; }
-
 /* Sort + filter row between the topbar and the cards. Keep it to one physical
  * row on phones; machine chips scroll horizontally instead of pushing the sort
  * picker onto a second line. */
@@ -2075,8 +1964,7 @@ html:not([data-theme="kami"]) .command-center-body {
 
 .command-center-body .cc-topbar,
 .command-center-body .cc-controls,
-.command-center-body .cc-card,
-.command-center-body .cc-welcome {
+.command-center-body .cc-card {
   box-shadow: none;
 }
 
@@ -2528,20 +2416,7 @@ html:not([data-theme="kami"]) .command-center-body {
     gap: 12px;
   }
 
-  .command-center-body .cc-welcome:not([hidden]) {
-    position: fixed;
-    inset: 50% auto auto calc(50% + 128px);
-    z-index: 100;
-    width: min(760px, calc(100vw - 320px));
-    max-height: min(78dvh, 720px);
-    overflow-y: auto;
-    transform: translate(-50%, -50%);
-    padding: 22px;
-    border-color: var(--cc-hairline);
-    border-radius: 18px;
-    background: var(--surface);
-    box-shadow: 0 20px 70px oklch(0.1 0.01 255 / 0.2);
-  }
+
 }
 
 @media (max-width: 759px) {

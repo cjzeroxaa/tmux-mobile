@@ -353,7 +353,6 @@ const initialUrlTarget = readUrlTarget();
 const state = {
   runtimeMode: "local",
   serverRevision: "",
-  cloneUrl: "https://github.com/cjzeroxaa/tmux-mobile.git",
   machines: [],
   machineId: initialUrlTarget.machineId || "",
   mux: initialUrlTarget.mux || "",
@@ -500,9 +499,6 @@ const els = {
   reconnectBannerText: document.querySelector("#reconnectBannerText"),
   exitCopyMode: document.querySelector("#exitCopyMode"),
   snapshot: document.querySelector("#snapshot"),
-  connectorHelp: document.querySelector("#connectorHelp"),
-  connectorClone: document.querySelector("#connectorClone"),
-  connectorRun: document.querySelector("#connectorRun"),
   chat: document.querySelector("#chat"),
   mobileRefreshTree: document.querySelector("#mobileRefreshTree"),
   mobileRefresh: document.querySelector("#mobileRefresh"),
@@ -852,7 +848,6 @@ async function loadRuntimeAndMachines() {
   }
   state.serverRevision = runtime.revision || state.serverRevision;
   state.runtimeMode = runtime.mode || "local";
-  if (runtime.cloneUrl) state.cloneUrl = runtime.cloneUrl;
   if (state.runtimeMode !== "hub") {
     state.machines = [];
     state.machineId = "";
@@ -923,7 +918,6 @@ function updateStaleAgentBanner() {
 }
 
 function renderMachinePicker() {
-  renderConnectorHelp();
   updateStaleAgentBanner();
   if (!els.machinePicker || !els.machineSelect) return;
   const show = state.runtimeMode === "hub";
@@ -951,22 +945,6 @@ function renderMachinePicker() {
   }
   els.machineSelect.value = state.machineId;
   els.machineSelect.disabled = state.machines.length === 0 && !state.machineId;
-}
-
-// Show clone+connector instructions only in hub mode with no machine online.
-// The controller URL is the page's own origin (so it's correct on whatever
-// domain the user reached, e.g. https://example.ts.net); the clone URL comes
-// from /api/runtime. Hidden in every other state.
-function renderConnectorHelp() {
-  if (!els.connectorHelp) return;
-  const showHelp =
-    state.runtimeMode === "hub" && state.machines.length === 0;
-  els.connectorHelp.hidden = !showHelp;
-  els.snapshot.classList.toggle("dimmed", showHelp);
-  if (!showHelp) return;
-  const controllerUrl = window.location.origin;
-  els.connectorClone.textContent = `git clone ${state.cloneUrl} && cd tmux-mobile && npm install`;
-  els.connectorRun.textContent = `node server.mjs --register ${controllerUrl}`;
 }
 
 function machineLabel(machine) {
@@ -5121,32 +5099,6 @@ if (els.staleAgentDismiss) {
   });
 }
 
-// Copy buttons in the connector-help panel: copy the referenced <code> text.
-if (els.connectorHelp) {
-  els.connectorHelp.addEventListener("click", async (event) => {
-    const button = event.target.closest(".connector-copy");
-    if (!button) return;
-    const source = els[button.dataset.copy];
-    if (!source) return;
-    const text = source.textContent;
-    try {
-      await navigator.clipboard.writeText(text);
-      const previous = button.textContent;
-      button.textContent = "Copied";
-      setTimeout(() => {
-        button.textContent = previous;
-      }, 1200);
-    } catch {
-      // Clipboard blocked (e.g. insecure context): select the text so the user
-      // can copy manually.
-      const range = document.createRange();
-      range.selectNodeContents(source);
-      const selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
-    }
-  });
-}
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !els.voiceSettingsSheet.hidden) closeVoiceSettings();
 });
