@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { newMcpKey } from "../lib/mcp-access.mjs";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { homedir, tmpdir } from "node:os";
 import http from "node:http";
 import net from "node:net";
@@ -421,6 +424,9 @@ let tmpDir;
 try {
   fakeGoogle = await startFakeGoogle([ALICE, ALICE, ALICE, BOB, CONSUMER]);
   tmpDir = await mkdtemp(path.join(tmpdir(), "tmux-mobile-e2e-"));
+  const mcpKey = newMcpKey(ADMIN);
+  const mcpConfig = path.join(tmpDir, "mcp.json");
+  await writeFile(mcpConfig, JSON.stringify(mcpKey.record));
   const port = await getFreePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const controller = startNode("controller", ["server.mjs", "--controller"], {
@@ -428,6 +434,8 @@ try {
     PORT: String(port),
     TMUX_MOBILE_NOTIFICATION_SETTINGS_STORE: "file",
     TMUX_MOBILE_NOTIFICATION_SETTINGS_CONFIG: path.join(tmpDir, "notifications.json"),
+    TMUX_MOBILE_MCP_STORE: "file",
+    TMUX_MOBILE_MCP_CONFIG: mcpConfig,
     GOOGLE_AUTH_URL: `${fakeGoogle.url}/auth`,
     GOOGLE_TOKEN_URL: `${fakeGoogle.url}/token`,
     GOOGLE_DEVICE_CODE_URL: `${fakeGoogle.url}/device/code`,
@@ -661,6 +669,47 @@ try {
     status: 503,
   });
   await waitForMachines(baseUrl, adminCookie, [aliceOne, aliceTwo, bobOne, consumerOne]);
+
+  // The real MCP transport reaches the same routed Connector and terminal
+  // primitives as Web. Exercise only a session created by this test.
+  assert.equal((await fetch(`${baseUrl}/mcp`, { method: "POST", headers: { cookie: adminCookie } })).status, 401);
+  assert.equal((await fetch(`${baseUrl}/mcp`, { method: "POST", headers: { authorization: `Bearer ${terminalLogin.sessionToken}` } })).status, 401);
+  assert.equal((await fetch(`${baseUrl}/api/machines`, { headers: { authorization: `Bearer ${mcpKey.key}` } })).status, 401);
+  const mcp = new Client({ name: "controller-e2e", version: "1" });
+  try {
+    await mcp.connect(new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${mcpKey.key}` } } }));
+    const call = async (name, args = {}) => {
+      const response = await mcp.callTool({ name, arguments: args });
+      assert.ok(!response.isError, response.content?.[0]?.text);
+      return response.structuredContent;
+    };
+    const machines = await call("list_machines");
+    assert.equal(machines.machines.length, 4, "MCP super-user sees all owners' machines");
+    const scope = { machineId: aliceOneRoute, mux: "tmux" };
+    const bad = await mcp.callTool({ name: "list_terminals", arguments: { ...scope, machineId: aliceOne } });
+    assert.equal(bad.isError, true, "MCP does not guess routes from hostnames");
+    const sessionName = `tmux_mobile_mcp_e2e_${process.pid}`;
+    sessionsToClean.add(sessionName);
+    const session = await call("create_terminal_session", { ...scope, name: sessionName });
+    const tree = await call("list_terminals", scope);
+    assert.ok(tree.sessions.some(s => s.id === session.id));
+    const windows = await requestJson(baseUrl, `/api/windows?sessionId=${encodeURIComponent(session.id)}`, { cookie: adminCookie, machineId: aliceOneRoute });
+    const windowId = windows[0].id;
+    const { panes } = await call("list_panes", { ...scope, windowId });
+    const paneId = panes[0].id;
+    await call("send_prompt", { ...scope, paneId, text: "printf 'MCP_%s_OK\\n' 'ROUNDTRIP'", enter: true });
+    await waitFor("MCP prompt delivery", async () => {
+      const screen = await call("read_terminal", { ...scope, paneId });
+      assert.match(screen.text, /MCP_ROUNDTRIP_OK/);
+    });
+    await call("send_key", { ...scope, paneId, key: "C-c" });
+    await call("rename_window", { ...scope, windowId, name: "mcp-tested" });
+    const renamed = await requestJson(baseUrl, `/api/windows?sessionId=${encodeURIComponent(session.id)}`, { cookie: adminCookie, machineId: aliceOneRoute });
+    assert.equal(renamed[0].name, "mcp-tested");
+    await call("close_window", { ...scope, windowId });
+    assert.ok(!(await call("list_terminals", scope)).sessions.some(s => s.id === session.id));
+    sessionsToClean.delete(sessionName);
+  } finally { await mcp.close(); }
 
   const runtime = await requestJson(baseUrl, "/api/runtime", { cookie: aliceCookie });
   assert.equal(runtime.mode, "hub");

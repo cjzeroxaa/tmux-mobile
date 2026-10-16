@@ -1,3 +1,4 @@
+import { syncInputWakeLock } from "./screen-awake.mjs";
 import { conversationUrl } from "./conversation-link.mjs";
 import { createFullResponseLoader } from "./full-response.mjs";
 import { addMermaidButtons } from "./mermaid-diagrams.mjs";
@@ -4551,6 +4552,7 @@ renderInteractSnippets();
 let viewActive = false;
 export function deactivateView() {
   viewActive = false;
+  queueMicrotask(syncInputWakeLock);
   viewReads.stop();
   listRefresh.stop();
   state.loadGeneration++;
@@ -4559,6 +4561,7 @@ export function deactivateView() {
 export function activateView() {
   if (viewActive || document.hidden) return;
   viewActive = true;
+  syncInputWakeLock();
   viewReads.activate();
   initSnippets();
   initStarredCards();

@@ -1,3 +1,4 @@
+import { setScreenAwake, syncInputWakeLock } from "./screen-awake.mjs";
 import { createReadScope, createRefreshLoop } from "./view-work.mjs";
 import { createRefreshWindow, watchTerminalActivity } from "./refresh-window.mjs";
 import { escapeHtml, filePathFromLocalHref, linkifyEscaped } from "./linkify.js";
@@ -15,8 +16,6 @@ import { windowKey, windowStableId, windowDescriptor, windowTitleText, windowHov
 const SNAPSHOT_BOTTOM_SLOP_PX = 8;
 const MAX_WAVEFORM_SAMPLES = 40;
 const WAVEFORM_SAMPLE_INTERVAL_MS = 200;
-
-let screenWakeLock = null;
 
 function createPersistedAtom(key, defaultValue) {
   let value = defaultValue;
@@ -2249,35 +2248,13 @@ function renderHistoryList() {
   }
 }
 
-async function requestScreenWakeLock() {
-  if (!("wakeLock" in navigator) || screenWakeLock) return;
-  try {
-    screenWakeLock = await navigator.wakeLock.request("screen");
-    screenWakeLock.addEventListener("release", () => {
-      screenWakeLock = null;
-    });
-  } catch {
-    screenWakeLock = null;
-  }
-}
-
-function releaseScreenWakeLock() {
-  if (!screenWakeLock) return;
-  const lock = screenWakeLock;
-  screenWakeLock = null;
-  lock.release().catch(() => {});
-}
-
 function shouldHoldScreenAwake() {
-  return state.voice.status !== "idle" || state.audio.busy;
+  return !document.querySelector(".spa-view-app")?.hidden &&
+    (state.voice.status !== "idle" || state.audio.busy);
 }
 
 function syncScreenWakeLock() {
-  if (shouldHoldScreenAwake()) {
-    requestScreenWakeLock();
-  } else {
-    releaseScreenWakeLock();
-  }
+  void setScreenAwake("terminal-audio", shouldHoldScreenAwake());
 }
 
 function setVoiceStatus(status, title, subtitle) {
@@ -5827,7 +5804,7 @@ document.addEventListener("keydown", (event) => {
 });
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && shouldHoldScreenAwake()) {
-    requestScreenWakeLock();
+    syncScreenWakeLock();
   }
 });
 // Attach: open the file picker; on selection, upload + insert the temp path(s).
@@ -6009,6 +5986,8 @@ els.autoRefresh.checked = true;
 let viewActive = false;
 export function deactivateView() {
   viewActive = false;
+  void setScreenAwake("terminal-audio", false);
+  queueMicrotask(syncInputWakeLock);
   terminalRefreshWindow.stop();
   viewReads.stop();
   detailRefresh.stop();
@@ -6023,6 +6002,8 @@ export function deactivateView() {
 export function activateView() {
   if (viewActive || document.hidden) return;
   viewActive = true;
+  syncScreenWakeLock();
+  syncInputWakeLock();
   viewReads.activate();
   renewTerminalRefresh();
   detailForbidden = false;

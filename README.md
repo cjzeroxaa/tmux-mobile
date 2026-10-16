@@ -4,6 +4,9 @@ A mobile browser UI for selecting tmux sessions and windows, then reading snapsh
 
 The canonical runtime is the hosted Controller at `https://eng.xyznot.com`.
 `https://eng.impo.ai` remains supported on the same server. Both names share account, machine and archive identities; existing Connector credentials need no new login.
+
+External Agents can control machines and sessions through the super-user
+[MCP endpoint](docs/mcp.md) at `https://eng.xyznot.com/mcp` (Streamable HTTP).
 Browsers connect to that HTTPS endpoint; every machine runs an outbound
 Connector that brokers tmux/rmux commands. A local server mode remains in the
 codebase for isolated development and tests, but it is not the deployed access

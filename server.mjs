@@ -4248,6 +4248,44 @@ function logRequestError(req, url, status, error) {
   );
 }
 
+async function submitPaneText(body) {
+  const paneId = requireId(body.paneId, "pane");
+  const text = String(body.text ?? "");
+  const sendEnter = body.enter !== false;
+  const submitNudge = body.submitNudge === true;
+
+  if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
+    throw Object.assign(new Error("Text is too large"), { status: 413 });
+  }
+
+  // If the pane is parked in copy-mode, our input would be swallowed by the
+  // scrollback pager — exit it first so the paste/Enter reaches the program.
+  await exitCopyModeIfNeeded(paneId);
+
+  let sendResult;
+  if (text.length > 0) {
+    // Paste + (optionally) Enter in one call so the paste->Enter delay applies
+    // and the Enter reliably submits rather than being eaten by the paste.
+    sendResult = await sendTextToPane(paneId, text, { enter: sendEnter });
+    if (sendEnter && submitNudge) {
+      sendSubmitNudge(paneId);
+    }
+  } else {
+    // No text — a bare Enter keypress (e.g. the Enter quick-key). No paste, so
+    // no race; send it directly.
+    sendResult = { mode: "none", sentEnter: false };
+    if (sendEnter) {
+      await currentWindowRuntime().sendKeyToSurface({ surfaceId: paneId, key: "Enter" });
+    }
+  }
+  return {
+    ok: true,
+    sendMode: sendResult.mode,
+    submitNudgeDelayMs:
+      submitNudge && sendEnter && text.length > 0 ? SUBMIT_NUDGE_DELAY_MS : 0,
+  };
+}
+
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
     sendJson(res, 200, {
@@ -4805,43 +4843,7 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/send") {
-    const body = await readJsonBody(req);
-    const paneId = requireId(body.paneId, "pane");
-    const text = String(body.text ?? "");
-    const sendEnter = body.enter !== false;
-    const submitNudge = body.submitNudge === true;
-
-    if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
-      sendJson(res, 413, { error: "Text is too large" });
-      return;
-    }
-
-    // If the pane is parked in copy-mode, our input would be swallowed by the
-    // scrollback pager — exit it first so the paste/Enter reaches the program.
-    await exitCopyModeIfNeeded(paneId);
-
-    let sendResult;
-    if (text.length > 0) {
-      // Paste + (optionally) Enter in one call so the paste->Enter delay applies
-      // and the Enter reliably submits rather than being eaten by the paste.
-      sendResult = await sendTextToPane(paneId, text, { enter: sendEnter });
-      if (sendEnter && submitNudge) {
-        sendSubmitNudge(paneId);
-      }
-    } else {
-      // No text — a bare Enter keypress (e.g. the Enter quick-key). No paste, so
-      // no race; send it directly.
-      sendResult = { mode: "none", sentEnter: false };
-      if (sendEnter) {
-        await currentWindowRuntime().sendKeyToSurface({ surfaceId: paneId, key: "Enter" });
-      }
-    }
-    sendJson(res, 200, {
-      ok: true,
-      sendMode: sendResult.mode,
-      submitNudgeDelayMs:
-        submitNudge && sendEnter && text.length > 0 ? SUBMIT_NUDGE_DELAY_MS : 0,
-    });
+    sendJson(res, 200, await submitPaneText(await readJsonBody(req)));
     return;
   }
 
@@ -5568,12 +5570,21 @@ if (MODE.kind === "register") {
   }
 } else {
   let hub = null;
+  let mcpHandler = null;
   let stopAgentRoundWatcher = () => {};
 
   const server = http.createServer(async (req, res) => {
     let url;
     try {
       url = new URL(req.url || "/", `http://${req.headers.host || HOST}`);
+
+      // MCP has its own super-user API key. Browser cookies and agent tokens
+      // never authorize this endpoint, and the key cannot access other APIs.
+      if (url.pathname === "/mcp") {
+        if (!mcpHandler) { sendJson(res, 503, { error: "MCP is only available on the controller" }); return; }
+        await mcpHandler(req, res);
+        return;
+      }
 
       if (await handleAuthRoute(req, res, url)) {
         return;
@@ -6256,6 +6267,66 @@ if (MODE.kind === "register") {
               signal,
             })
         : null,
+    });
+  }
+  if (hub && !process.env.TMUX_MOBILE_CONNECTOR_BUNDLE) {
+    const { createMcpAccessStore, createMcpAuthenticator } = await import("./lib/mcp-access.mjs");
+    const { createMcpHttpHandler } = await import("./lib/mcp-server.mjs");
+    const store = await createMcpAccessStore();
+    const exactMachine = (viewer, id) => {
+      const machine = hub.listMachines(viewer).find(machine => machine.id === id);
+      if (!machine) throw new Error("Machine is offline or the exact machineId is invalid; call list_machines");
+      return machine;
+    };
+    const service = {
+      machines: viewer => ({ machines: hub.listMachines(viewer).map(m => ({
+        machineId: m.id, name: m.hostname, online: true, os: m.os, arch: m.arch,
+        muxes: m.muxes, connectorVersion: m.connectorVersion, connectorStatus: m.connectorStatus,
+        inventoryStatus: m.inventoryStatus, inventoryObservedAt: m.inventoryObservedAt,
+        inventoryAgeMs: m.inventoryAgeMs, inventoryError: m.inventoryError,
+      })) }),
+      async inventory(viewer, machineId) {
+        const machines = machineId ? [exactMachine(viewer, machineId)] : hub.listMachines(viewer);
+        const results = await Promise.all(machines.map(m => commandCenterResultForMachine(hub, viewer, m)));
+        return { machines: results.flatMap(r => r.machines), agents: results.flatMap(r => r.agents) };
+      },
+      async conversation(viewer, args) {
+        const source = hub.archiveSourceFor(viewer, args.machineId);
+        if (!source) throw new Error("Unknown or inaccessible archive machineId");
+        if (!CONVERSATION_READER) throw new Error("Conversation archive is unavailable");
+        return CONVERSATION_READER.read({ ...source, agentKind: args.kind, agentSessionId: args.agentSessionId });
+      },
+      async run(viewer, action, args) {
+        const machine = exactMachine(viewer, args.machineId);
+        const result = await withBackend(hub.backendFor(viewer, machine.id), () => withRequestMux(args.mux, async () => {
+          switch (action) {
+            case "list_terminals":
+              try { return await listTree(); }
+              catch (error) { if (isNoServerError(error)) return { sessions: [], windows: [] }; throw error; }
+            case "list_panes": return { panes: await listPanes(args.windowId) };
+            case "read_session": return safeAgentTranscript((await getPaneContext(args.paneId)).pane);
+            case "read_terminal": return { text: cleanTerminalText(await capturePane(args.paneId, "tail", args.lines)) };
+            case "send_prompt": return submitPaneText(args);
+            case "send_key":
+              await exitCopyModeIfNeeded(args.paneId);
+              await currentWindowRuntime().sendKeyToSurface({ surfaceId: args.paneId, key: args.key });
+              return { ok: true };
+            case "create_agent_session": return startAgentSession(args);
+            case "create_terminal_session": return createSession(args.name);
+            case "rename_window": return renameWindow(args.windowId, args.name);
+            case "close_window": return killWindow(args.windowId);
+            default: throw new Error("Unknown MCP action");
+          }
+        }));
+        if (["send_prompt", "send_key", "create_agent_session", "create_terminal_session", "rename_window", "close_window"].includes(action)) {
+          logServerEvent("mcp_action", { action, userId: viewer.userId, machineId: args.machineId, mux: args.mux, paneId: args.paneId, windowId: args.windowId });
+        }
+        return result;
+      },
+    };
+    mcpHandler = createMcpHttpHandler({
+      authenticate: createMcpAuthenticator({ store, superAdmins: ACCESS_CONTROL.superAdminEmails }), service,
+      allowedOrigins: [CONTROLLER_ORIGIN, "https://eng.impo.ai"],
     });
   }
   reportInventories = () => hub?.listAllCommandCenterInventories() || [];
