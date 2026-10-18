@@ -1,3 +1,6 @@
+import { createDraftStore } from "./lib/draft-store.mjs";
+import { createDrafts, DRAFT_UPLOAD_PATH, MAX_DRAFT_BYTES } from "./lib/drafts.mjs";
+import { handleDraftHttp } from "./lib/draft-http.mjs";
 import { CONTROLLER_ORIGIN, canonicalControllerUrl, controllerOAuthRedirectUri } from "./lib/controller-origin.mjs";
 import { isPiCommand, installPiExtension } from "./lib/pi-runtime.mjs";
 import { createProgressReports, createGeminiSummarizer, loadReportConfig, validReportId } from './lib/progress-reports.mjs';
@@ -5162,6 +5165,7 @@ async function handleApi(req, res, url) {
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
   [".css", "text/css; charset=utf-8"],
+  [".md", "text/plain; charset=utf-8"],
   [".js", "text/javascript; charset=utf-8"],
   // .mjs needs an explicit JS MIME — browsers refuse to execute `<script
   // type="module">` over application/octet-stream. The SPA router lives at
@@ -5194,6 +5198,7 @@ async function serveStatic(req, res, url) {
   ) {
     pathname = "/spa.html";
   }
+  if (pathname === "/drafts") pathname = "/drafts.html";
   if (pathname === "/reports") pathname = "/reports.html";
   if (pathname === "/conversation") pathname = "/conversation.html";
   if (pathname === "/manifest.webmanifest") {
@@ -5570,6 +5575,24 @@ if (MODE.kind === "register") {
   }
 } else {
   let hub = null;
+  let drafts = null;
+  try {
+    drafts = createDrafts({ store: await createDraftStore(), storage: ARTIFACT_STORAGE,
+      canAccess: (viewer, machineId) => Boolean(hub?.archiveSourceFor(viewer,machineId)),
+    });
+  } catch(error) { console.error(`Draft storage unavailable: ${error.message}`); }
+  async function sendDraftPrompt(viewer, target, text) {
+    if (!hub?.archiveSourceFor(viewer,target.machineId)) throw Object.assign(new Error("Session not accessible"),{status:403});
+    const inventory = hub.commandCenterInventory(viewer,target.machineId);
+    const matches = inventory?.agents.filter(a => a.kind === target.kind && a.agentSessionId === target.sessionId) || [];
+    if (matches.length !== 1) throw Object.assign(new Error("Open this Agent session on its machine before sending feedback"),{status:409});
+    const agent = matches[0];
+    await withBackend(hub.backendFor(viewer,target.machineId), () => withRequestMux(agent.mux,async () => {
+      const live = await safeAgentTranscript((await getPaneContext(agent.paneId)).pane);
+      if (live?.kind !== target.kind || live?.sessionId !== target.sessionId) throw Object.assign(new Error("The pane changed sessions; refresh and try again"),{status:409});
+      await submitPaneText({paneId:agent.paneId,text,enter:true,submitNudge:true});
+    }));
+  }
   let mcpHandler = null;
   let stopAgentRoundWatcher = () => {};
 
@@ -5591,6 +5614,41 @@ if (MODE.kind === "register") {
       }
 
       if (await serveConnectorArtifact(req, res, url)) {
+        return;
+      }
+
+      if (url.pathname === "/draft-client.mjs" || url.pathname.startsWith("/skills/tmax-drafts/")) {
+        if (["GET","HEAD"].includes(req.method)) { await serveStatic(req,res,url); return; }
+      }
+      if (url.pathname === DRAFT_UPLOAD_PATH) {
+        const owner = authenticateAgent(req);
+        if (!owner) { sendJson(res,401,{error:"Connector login required"}); return; }
+        if (!drafts || !hub) { sendJson(res,503,{error:"Draft storage unavailable"}); return; }
+        try {
+          const agentId = String(req.headers["x-agent-id"] || "");
+          if (!/^[a-zA-Z0-9_-]{1,128}$/.test(agentId)) throw Object.assign(new Error("Invalid machine identity"),{status:400});
+          const machineId = `m:${Buffer.from(owner.userId).toString("base64url")}:${Buffer.from(agentId).toString("base64url")}`;
+          if (req.method === "POST") {
+            const metadata = JSON.parse(Buffer.from(String(req.headers["x-draft-metadata"] || ""),"base64url").toString("utf8"));
+            const bytes = await readRequestBuffer(req,MAX_DRAFT_BYTES);
+            const result = await drafts.publish({machineId,ownerId:owner.userId,metadata,bytes});
+            sendJson(res,200,{...result,url:`${requestOrigin(req)}/drafts?id=${result.id}`});
+          } else if (req.method === "GET" && url.searchParams.get("context") === "1") {
+            const inventory=hub.commandCenterInventory(owner,machineId);
+            const paneId=url.searchParams.get("paneId");
+            const sessions=(inventory?.agents || []).filter(a=>!paneId || a.paneId===paneId).map(a=>({kind:a.kind,sessionId:a.agentSessionId,paneId:a.paneId,mux:a.mux,cwd:a.cwd,title:a.agentSessionTitle || a.windowName}));
+            sendJson(res,200,{machineId,sessions});
+          } else if (req.method === "GET" && url.searchParams.get("context") === "1") {
+            const inventory = hub.commandCenterInventory(owner, machineId);
+            const paneId = url.searchParams.get("paneId");
+            const sessions = (inventory?.agents || []).filter(a => !paneId || a.paneId === paneId).map(a => ({ kind: a.kind, sessionId: a.agentSessionId, paneId: a.paneId, mux: a.mux, cwd: a.cwd, title: a.agentSessionTitle || a.windowName }));
+            sendJson(res, 200, { machineId, sessions });
+          } else if (req.method === "GET") {
+            const result = await drafts.detail(owner,url.searchParams.get("id"));
+            if(result.draft.machineId !== machineId) throw Object.assign(new Error("Draft belongs to another machine"),{status:403});
+            sendJson(res,200,result);
+          } else sendJson(res,405,{error:"Method not allowed"});
+        } catch(error) { sendJson(res,error.status || 400,{error:error.message}); }
         return;
       }
 
@@ -5666,6 +5724,8 @@ if (MODE.kind === "register") {
       const viewer = REQUIRE_BROWSER_AUTH
         ? authenticatedUser
         : { userId, email: userId, hd: "" };
+
+      if (await handleDraftHttp(req,res,url,{drafts,viewer,readJsonBody,sendJson,sendPrompt:sendDraftPrompt,origin:requestOrigin(req)})) return;
 
       if (url.pathname === "/api/notification-settings") {
         res.setHeader("Cache-Control", "private, no-store");

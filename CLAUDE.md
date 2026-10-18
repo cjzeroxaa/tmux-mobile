@@ -223,3 +223,23 @@ authenticated viewer. "Pinned artifacts" in the More menu lists/manages them.
   driver fails to init (SDK missing / bad creds), the server logs it and **falls
   back to the local driver** rather than failing to boot. On Cloud Run, prefer a
   cloud driver so artifacts survive instance recycling.
+
+## Session Drafts (2026-10-18)
+
+The new review workflow is Drafts, not manual pins. A generator writes a
+self-contained HTML file and explicitly publishes it using
+`public/draft-client.mjs`. The private Host stores bytes in artifact storage and
+metadata/revisions/comments in the existing comments table under `tmax-drafts`
+and `tmax-draft#<id>` namespaces. The client uses the existing Connector login;
+this is independent of MCP and requires no Connector compatibility bump.
+
+`public/skills/tmax-drafts/` is the generation Skill, including a PR Lens
+generation guide, graph contract and example. Its publishing destination is
+T-Max only; do not inherit PR Lens's public publication steps. `/drafts` is the
+Host UI and is available from the top bar and individual session cards.
+Selected quotes retain their version and context. Missing/ambiguous quotes
+must not be silently reattached. Idle pages never poll.
+
+Run `node test/drafts.mjs` and `node test/drafts-http.mjs` for storage, concurrent
+writes, idempotent publishing, permissions, real CLI/API integration and history.
+The content iframe uses CSP sandboxing without same-origin capability.
