@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta
@@ -8,7 +8,7 @@
     />
     <meta name="robots" content="noindex,nofollow" />
     <meta name="referrer" content="no-referrer" />
-    <title>稿件 · AMUX</title>
+    <title>Drafts · AMUX</title>
     <link rel="icon" href="/icon-192.png" />
     <script>
       try {
@@ -27,69 +27,69 @@
   <body>
     <header class="topbar">
       <a href="/command-center">← Sessions</a
-      ><a href="/drafts" class="brand">AMUX <span>稿件</span></a
-      ><button id="refresh" type="button">刷新</button>
+      ><a href="/drafts" class="brand">AMUX <span>Drafts</span></a
+      ><button id="refresh" type="button">Refresh</button>
     </header>
     <main class="workspace">
       <aside class="library">
         <div class="library-heading">
           <span class="eyebrow">DRAFTS</span>
-          <h1>在这里，<br />把想法改清楚。</h1>
-          <p id="scope">完整内容、图解和反馈，留在同一页。</p>
+          <h1>Make room<br />for clarity.</h1>
+          <p id="scope">Explanations, diagrams and feedback, together.</p>
         </div>
-        <nav id="draftList" aria-label="稿件列表"></nav>
+        <nav id="draftList" aria-label="Draft library"></nav>
         <details id="createPanel" hidden>
-          <summary>新建稿件</summary>
+          <summary>New draft</summary>
           <form id="createForm">
-            <label for="request">让 Agent 做什么？</label
+            <label for="request">What should the Agent create?</label
             ><textarea
               id="request"
               required
               maxlength="4000"
-              placeholder="例如：解释这个 PR，画出修改前后的数据流。"
+              placeholder="For example: explain this PR and diagram the data flow before and after."
             ></textarea
-            ><label for="filename">稿件文件名</label
+            ><label for="filename">HTML filename</label
             ><input
               id="filename"
               value="review.html"
               pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}\.html"
               required
-            /><button type="submit">交给这个 Session</button
-            ><button id="copyCreate" type="button">复制生成指令</button>
+            /><button type="submit">Send to session</button
+            ><button id="copyCreate" type="button">Copy instructions</button>
           </form>
         </details>
         <a class="skill-link" href="/skills/tmax-drafts/SKILL.md"
-          >生成端 Skill ↗</a
+          >Generation Skill ↗</a
         >
       </aside>
-      <section class="document" aria-label="稿件内容">
+      <section class="document" aria-label="Draft content">
         <div class="document-toolbar">
           <div>
-            <h2 id="title">选择一份稿件</h2>
+            <h2 id="title">Select a draft</h2>
             <p id="updated"></p>
           </div>
           <div class="document-actions">
-            <label for="versions" class="sr-only">版本</label
-            ><select id="versions" aria-label="版本" hidden></select
-            ><a id="download" hidden>下载 HTML</a
-            ><button id="share" hidden>复制链接</button>
+            <label for="versions" class="sr-only">Version</label
+            ><select id="versions" aria-label="Version" hidden></select
+            ><a id="download" hidden>Download HTML</a
+            ><button id="share" hidden>Copy link</button>
           </div>
         </div>
-        <p id="status" role="status" aria-live="polite">正在读取…</p>
-        <a id="login" hidden>登录后查看</a>
+        <p id="status" role="status" aria-live="polite">Loading…</p>
+        <a id="login" hidden>Sign in to view</a>
         <div id="empty" hidden>
           <span class="paper-mark" aria-hidden="true">↗</span>
-          <h2>从一份完整的解释开始</h2>
+          <h2>Start with a complete explanation</h2>
           <p>
-            Agent 生成 HTML 后会发布到这里。<br />选中你想讨论的文字，就可以留下评论。
+            Your Agent publishes a complete HTML page here.<br />Select any text to leave a comment.
           </p>
           <p id="emptyHint">
-            从 Session 卡片的稿件按钮进入，可以直接让 Agent 开始。
+            Open Drafts from a session card to start creating.
           </p>
         </div>
         <iframe
           id="canvas"
-          title="稿件画布"
+          title="Draft canvas"
           sandbox="allow-scripts"
           referrerpolicy="no-referrer"
           hidden
@@ -98,23 +98,23 @@
       <aside id="feedback" class="feedback" hidden>
         <div class="feedback-heading">
           <span class="eyebrow">FEEDBACK</span>
-          <h2>一起改这一稿</h2>
-          <p>在画布里选中文字，留下具体意见。</p>
+          <h2>Refine this draft</h2>
+          <p>Select text in the draft and leave specific feedback.</p>
         </div>
         <form id="commentForm">
-          <blockquote id="selection">尚未选择文字</blockquote>
-          <label for="comment">你的意见</label
+          <blockquote id="selection">No text selected</blockquote>
+          <label for="comment">Your feedback</label
           ><textarea
             id="comment"
             maxlength="4000"
             required
-            placeholder="这里需要解释得更具体一些…"
+            placeholder="Explain this part in more detail…"
           ></textarea
-          ><button id="saveComment" type="submit" disabled>添加评论</button>
+          ><button id="saveComment" type="submit" disabled>Add comment</button>
         </form>
         <div class="review-actions">
-          <button id="revise" type="button">让 Agent 按评论修改</button
-          ><button id="copyFeedback" type="button">复制反馈</button>
+          <button id="revise" type="button">Ask Agent to revise</button
+          ><button id="copyFeedback" type="button">Copy feedback</button>
         </div>
         <p id="feedbackStatus" role="status"></p>
         <div id="comments"></div>

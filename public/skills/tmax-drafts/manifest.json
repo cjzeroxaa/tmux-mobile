@@ -1,0 +1,11 @@
+{
+  "name": "tmax-drafts",
+  "files": {
+    "assets/page.html": "a39e026704c5322fda2ac679c56955f5770f67d72a8e65df68640d23fb669498",
+    "references/pr-lens/example.graph.json": "fbc097b34641b5d2d527aac73bd00d52bdfa98a204fb102ca0005c476bbb6e91",
+    "references/pr-lens/graph-document.md": "dcd2bb17e092806f175d580d552419b5aec7c10a302ff954c1a3541ba7db0fda",
+    "references/pr-lens/LICENSE": "f95e90af396c71c9a94648bd58e4f5bb2dcab4f6ac3ab7d3d2ca3f4e4f4a1ae7",
+    "references/pr-lens.md": "82388da5c0d88b038151163b4852b73966fb394fa1493c412960c6e2e7680730",
+    "SKILL.md": "ed6a1d1e821e1802547913c7d8855ce26bc03a7620a032d638986df98a58e03d"
+  }
+}

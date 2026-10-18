@@ -74,6 +74,8 @@ try {
   assert.equal((await fetch(api + "/agent/drafts")).status, 401);
   assert.equal((await fetch(api + "/draft-client.mjs")).status, 200);
   assert.equal((await fetch(api + "/skills/tmax-drafts/SKILL.md")).status, 200);
+  assert.equal((await fetch(api + "/skills/install.mjs")).status, 200);
+  assert.equal((await fetch(api + "/skills/tmax-drafts/manifest.json")).status, 200);
   const config = path.join(temp, "agent.json");
   await writeFile(
     config,

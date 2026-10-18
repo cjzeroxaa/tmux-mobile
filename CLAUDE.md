@@ -243,3 +243,28 @@ must not be silently reattached. Idle pages never poll.
 Run `node test/drafts.mjs` and `node test/drafts-http.mjs` for storage, concurrent
 writes, idempotent publishing, permissions, real CLI/API integration and history.
 The content iframe uses CSP sandboxing without same-origin capability.
+
+### Install the generation Skill on machines
+
+The authoritative Skill is checked in under `public/skills/tmax-drafts/`.
+After changing it, run `npm run build:skills` and commit the manifest with the
+source. `npm run test:skills` checks it and tests the installer.
+
+Install or update for all three agents on a machine without restarting them:
+
+```sh
+curl -fsSL https://eng.xyznot.com/skills/install.mjs -o /tmp/tmax-install-skills.mjs
+node /tmp/tmax-install-skills.mjs
+node /tmp/tmax-install-skills.mjs --verify
+```
+
+The installer verifies every source hash before writing, then reads the installed
+files back. It installs to `~/.codex/skills`, `~/.claude/skills`, and
+`~/.pi/agent/skills`, honoring `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and
+`PI_CODING_AGENT_DIR`. `--source public/skills/tmax-drafts` installs from a checkout;
+`--api` chooses a different Host. Existing unrelated files are preserved.
+Codex can discover the Skill on its next turn; start a new Claude session if it
+has not refreshed its Skill list, and use `/reload` in an existing Pi session.
+Do not send these commands into a user's running coding-agent conversation.
+Use a dedicated shell session on each online machine, verify its receipt, then
+remove only that temporary session. Offline machines must be reported separately.

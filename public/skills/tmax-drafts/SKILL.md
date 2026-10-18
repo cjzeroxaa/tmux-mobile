@@ -18,7 +18,7 @@ Publish only to the user's T-Max Host, normally `https://eng.xyznot.com` (`https
 3. Write one self-contained HTML file. Put the full explanation, diagrams and useful interactions in this page. Do not leave the essential explanation only in chat. Embed CSS, JavaScript, images and SVG; no CDN scripts, remote fonts, fetch calls, or sibling asset files. Include a meaningful `<title>`, `<body>` and closing `</html>`.
 4. Preserve selectable DOM text: headings, explanations, diagram captions, labels and any conclusions should be readable as text. Provide an ordinary text explanation beside canvas/WebGL graphics. Do not disable text selection or cover the reading surface with a drag handler. Use a small “drag to pan” control when a diagram needs panning.
 5. Use the [page starter](assets/page.html) when useful. Keep the existing Instant paper/forest style and automatic light/dark appearance. The Host supplies selected-text comments; do not build a competing comment UI in the generated file.
-6. Save the file, then publish explicitly with the client. There is no Pin step or background directory scan. Open the returned private link and verify the page actually renders and its interactions work. Give the user that same stable link.
+6. Use a short English filename such as `pr-review.html`; keep URL paths and link labels in English. The document itself may use the user’s language. Save the file, then publish explicitly with the client. There is no Pin step or background directory scan. Open the returned private link and verify the page actually renders and its interactions work. Give the user that same stable link.
 
 ## Client
 

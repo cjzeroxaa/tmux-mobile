@@ -33,7 +33,7 @@ async function request(path, options = {}) {
       `/auth/google/login?returnTo=${encodeURIComponent(location.pathname + location.search)}`;
   }
   const body = await r.json();
-  if (!r.ok) throw new Error(body.error || "请求失败");
+  if (!r.ok) throw new Error(body.error || "Request failed");
   return body;
 }
 function query(extra = {}) {
@@ -63,19 +63,19 @@ function renderComments() {
     );
     const quote = node("blockquote", c.anchor.quote);
     quote.tabIndex = 0;
-    quote.title = "定位原文";
+    quote.title = "Find quoted text";
     quote.onclick = () => postFrame({ type: "focus", id: c.id });
     quote.onkeydown = (e) => {
       if (e.key === "Enter") quote.click();
     };
     item.append(
       quote,
-      node("span", "正在定位…", "anchor-status"),
+      node("span", "Locating…", "anchor-status"),
       node("p", c.text),
     );
     const resolve = node(
       "button",
-      c.status === "resolved" ? "重新打开" : "标为已处理",
+      c.status === "resolved" ? "Reopen" : "Resolve",
     );
     resolve.type = "button";
     resolve.onclick = () =>
@@ -93,7 +93,7 @@ function renderComments() {
     $("comments").append(item);
   }
   if (!detail.comments.length)
-    $("comments").append(node("p", "还没有评论。选中画布里的文字即可开始。"));
+    $("comments").append(node("p", "No comments yet. Select text in the draft to begin."));
   $("revise").disabled = !detail.comments.some((c) => c.status === "open");
   $("copyFeedback").disabled = $("revise").disabled;
   sendComments();
@@ -108,7 +108,7 @@ async function load({ preserveFrame = false } = {}) {
   controller = new AbortController();
   const signal = controller.signal;
   $("refresh").disabled = true;
-  $("status").textContent = "正在读取…";
+  $("status").textContent = "Loading…";
   try {
     const [list, selected] = await Promise.all([
       request(`/api/drafts?${query()}`, { signal }),
@@ -131,8 +131,8 @@ async function load({ preserveFrame = false } = {}) {
       $("status").textContent = list.drafts.length
         ? ""
         : context.sessionId
-          ? "这个 Session 还没有稿件。"
-          : "还没有稿件。";
+          ? "No drafts for this session yet."
+          : "No drafts yet.";
       return;
     }
     detail = selected;
@@ -142,7 +142,7 @@ async function load({ preserveFrame = false } = {}) {
       detail.draft.version !== version &&
       $("comment").value
     ) {
-      $("status").textContent = "已有新版本。当前评论写完后，点击刷新查看。";
+      $("status").textContent = "A new version is available. Finish your comment, then refresh.";
       renderComments();
       return;
     }
@@ -168,14 +168,14 @@ async function load({ preserveFrame = false } = {}) {
     if (changed || !preserveFrame) {
       frameReady = false;
       anchor = null;
-      $("selection").textContent = "尚未选择文字";
+      $("selection").textContent = "No text selected";
       $("saveComment").disabled = true;
       $("canvas").src = `/api/drafts/content?id=${id}&version=${version}`;
     }
     renderComments();
     $("status").textContent =
       version !== detail.draft.version
-        ? "正在查看历史版本。评论会记录这个版本。"
+        ? "Viewing an earlier version. Comments will refer to this version."
         : "";
   } catch (e) {
     if (current === generation && !signal.aborted)
@@ -224,10 +224,10 @@ window.addEventListener("message", (event) => {
       if (item)
         item.querySelector(".anchor-status").textContent =
           state.status === "found"
-            ? "点击引文定位"
+            ? "Click to find quoted text"
             : state.status === "ambiguous"
-              ? "原文重复，无法唯一定位"
-              : "原文已改动，保留原始引文";
+              ? "Quote appears more than once"
+              : "Text has changed; original quote retained";
     }
 });
 $("commentForm").onsubmit = (e) => {
@@ -243,7 +243,7 @@ $("commentForm").onsubmit = (e) => {
         body: JSON.stringify({ version, anchor: savedAnchor, text }),
       });
       if ($("comment").value === text) $("comment").value = "";
-      $("feedbackStatus").textContent = "评论已保存。";
+      $("feedbackStatus").textContent = "Comment saved.";
       await reloadDetail();
     } finally {
       $("saveComment").disabled = !anchor;
@@ -265,8 +265,8 @@ async function prompt(send, create = false) {
   });
   if (!send) await navigator.clipboard.writeText(data.prompt);
   const text = send
-    ? "已交给 Agent。生成或修改完成后，点击刷新查看。"
-    : "指令已复制。";
+    ? "Sent to Agent. Refresh when the draft is ready."
+    : "Instructions copied.";
   $("status").textContent = text;
   $("feedbackStatus").textContent = text;
 }
@@ -280,11 +280,11 @@ $("copyCreate").onclick = () => action(() => prompt(false, true));
 $("share").onclick = () =>
   action(async () => {
     await navigator.clipboard.writeText(`${location.origin}/drafts?id=${id}`);
-    $("status").textContent = "链接已复制；需要对应 Session 的访问权限。";
+    $("status").textContent = "Link copied. Access requires permission to this session.";
   });
 $("versions").onchange = () => {
   if ($("comment").value) {
-    $("status").textContent = "请先保存当前评论，再切换版本。";
+    $("status").textContent = "Save your comment before switching versions.";
     $("versions").value = version;
     return;
   }
@@ -304,8 +304,8 @@ document.addEventListener("visibilitychange", () => {
 });
 if (context.machineId && context.sessionId) {
   $("createPanel").hidden = false;
-  $("scope").textContent = `这个 ${context.kind} Session 的稿件`;
-  $("emptyHint").textContent = "打开左侧“新建稿件”，告诉 Agent 你想看什么。";
+  $("scope").textContent = `Drafts for this ${context.kind} session`;
+  $("emptyHint").textContent = "Open New draft on the left and tell the Agent what to create.";
 }
 syncInputWakeLock();
 load();
