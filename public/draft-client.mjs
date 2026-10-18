@@ -67,6 +67,7 @@ try {
         kind,
         sessionId,
         filename,
+        sourcePath: file,
         expectedVersion: option("version")
           ? Number(option("version"))
           : receipt?.version || 0,
