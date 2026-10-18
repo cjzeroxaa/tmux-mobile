@@ -54,7 +54,9 @@ try {
       filename = path.basename(file);
     if (
       receipt &&
-      (receipt.api !== api ||
+      ((receipt.api === "https://eng.xyznot.com"
+        ? "https://eng.impo.ai"
+        : receipt.api) !== identityOrigin ||
         receipt.kind !== kind ||
         receipt.sessionId !== sessionId)
     )
