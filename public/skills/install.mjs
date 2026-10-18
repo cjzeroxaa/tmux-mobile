@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Install the repository-owned T-Max Skill for Codex, Claude Code and Pi.
-import { readFile, writeFile, mkdir, lstat, rename, rm, mkdtemp, cp } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, lstat, rename, rm, mkdtemp, cp, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
@@ -77,7 +77,7 @@ export async function installSkills({ source, api = 'https://eng.xyznot.com', ve
   }
   return { skill: manifest.name, sha256: hash(JSON.stringify(manifest.files)), installations: results };
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(await realpath(process.argv[1])).href) {
   try {
     const options = {};
     const args = process.argv.slice(2);

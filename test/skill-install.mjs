@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, rm, cp, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm, cp, mkdir, symlink } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +9,12 @@ import { installSkills } from '../public/skills/install.mjs';
 const root = await mkdtemp(path.join(os.tmpdir(), 'tmax-skills-test-'));
 const source = fileURLToPath(new URL('../public/skills/tmax-drafts', import.meta.url));
 try {
+  const linkedEntry = path.join(root, 'linked-install.mjs');
+  await symlink(fileURLToPath(new URL('../public/skills/install.mjs', import.meta.url)), linkedEntry);
+  const cli = await promisify(execFile)(process.execPath, [linkedEntry, '--source', source], {
+    env: { ...process.env, CODEX_HOME: path.join(root, 'cli-codex'), CLAUDE_CONFIG_DIR: path.join(root, 'cli-claude'), PI_CODING_AGENT_DIR: path.join(root, 'cli-pi') },
+  });
+  assert.equal(JSON.parse(cli.stdout).installations.length, 3, 'CLI must run through a symlink, including macOS /tmp');
   const options = { source, home: root, env: { CODEX_HOME: path.join(root,'custom-codex'), CLAUDE_CONFIG_DIR: '~/custom-claude', PI_CODING_AGENT_DIR: '~/custom-pi' } };
   const first = await installSkills(options);
   assert.equal(first.installations.length, 3);
