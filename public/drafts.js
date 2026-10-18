@@ -37,7 +37,7 @@ async function request(path, options = {}) {
   return body;
 }
 function query(extra = {}) {
-  return new URLSearchParams({ ...context, ...extra });
+  return new URLSearchParams({ ...context, ...(params.get("embedded") === "1" ? { embedded: "1" } : {}), ...extra });
 }
 function postFrame(value) {
   if (frameReady)

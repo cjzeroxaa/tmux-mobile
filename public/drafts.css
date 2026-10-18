@@ -381,3 +381,26 @@ blockquote {
     padding: 32px 22px;
   }
 }
+
+/* Native App supplies navigation; its list opens a focused Draft reader. */
+.is-embedded .topbar {
+  display: none;
+}
+.is-embedded .workspace,
+.is-embedded .workspace:has(.feedback[hidden]) {
+  display: block;
+  min-height: 100dvh;
+}
+.is-embedded.has-draft .library,
+.is-embedded:not(.has-draft) .document {
+  display: none;
+}
+.is-embedded .library {
+  min-height: 100dvh;
+  border-right: 0;
+}
+.is-embedded .feedback {
+  max-height: none;
+  border-left: 0;
+  border-top: 1px solid var(--paper-line, #d4c7ab);
+}

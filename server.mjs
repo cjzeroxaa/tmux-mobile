@@ -4175,6 +4175,7 @@ function safeBrowserHandoffPath(value) {
   const allowedPaths = new Set([
     "/conversation",
     "/reports",
+    "/drafts",
     "/pin",
     "/api/pin",
     "/api/file-view",

@@ -11,6 +11,11 @@
     <title>Drafts · AMUX</title>
     <link rel="icon" href="/icon-192.png" />
     <script>
+      const embeddedParams = new URLSearchParams(location.search);
+      if (embeddedParams.get("embedded") === "1") {
+        document.documentElement.classList.add("is-embedded");
+        if (embeddedParams.get("id")) document.documentElement.classList.add("has-draft");
+      }
       try {
         const t = JSON.parse(
           localStorage.getItem("tmux-mobile-theme") || "{}",

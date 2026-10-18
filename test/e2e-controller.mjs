@@ -534,6 +534,17 @@ try {
     body: { returnTo: "/not-a-viewer" },
     status: 400,
   });
+  const draftsHandoff = await requestJson(baseUrl, "/auth/browser-handoff", {
+    method: "POST", bearer: terminalLogin.sessionToken,
+    body: { returnTo: "/drafts?embedded=1" }, status: 201,
+  });
+  const draftsRedirect = await fetch(`${baseUrl}${draftsHandoff.handoffUrl}`, { redirect: "manual" });
+  assert.equal(draftsRedirect.headers.get("location"), "/drafts?embedded=1");
+  const draftsCookie = draftsRedirect.headers.get("set-cookie").split(";", 1)[0];
+  const draftsPage = await fetch(`${baseUrl}/drafts?embedded=1`, { headers: { cookie: draftsCookie } });
+  assert.equal(draftsPage.status, 200);
+  assert.match(await draftsPage.text(), /Draft library/);
+
   const reportsHandoff = await requestJson(baseUrl, "/auth/browser-handoff", {
     method: "POST", bearer: terminalLogin.sessionToken,
     body: { returnTo: "/reports?kind=daily" }, status: 201,

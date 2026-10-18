@@ -268,3 +268,29 @@ has not refreshed its Skill list, and use `/reload` in an existing Pi session.
 Do not send these commands into a user's running coding-agent conversation.
 Use a dedicated shell session on each online machine, verify its receipt, then
 remove only that temporary session. Offline machines must be reported separately.
+
+### Standing instruction: Skill changes require fleet publication (2026-10-18)
+
+The owner explicitly requires every future change to `tmax-drafts` to be
+published to **all T-Max machines and all three coding agents: Codex, Claude
+Code and Pi**. A local install, Git push, or Web release alone is not completion.
+This fleet installation is authorized as part of each Skill change; do not ask
+for the same approval again.
+
+1. Keep the Skill and its bundled references in this repository. Rebuild its
+   manifest, run `npm run test:skills`, commit and push the source.
+2. Publish the matching hosted Skill files and installer. Preserve both domains.
+3. Read the complete machine inventory using super-admin access. Run the installer
+   on each online machine, including machines owned by the owner's other account.
+   Use `scripts/install-fleet-skills.py --cookie-file <0600-cookie-header-file>
+   --receipts <private-directory>`. `--local-installer` copies the checked-in
+   installer through each Connector when needed; it still verifies its hash.
+4. Require matching source hashes in the read-back receipts for Codex, Claude
+   Code and Pi on every target. Preserve active sessions; use temporary shell
+   sessions and clean them up. Do not restart Connectors just to install a Skill.
+5. List offline, failed or unreachable machines explicitly. Retry transient
+   failures and never claim the entire fleet is updated without receipts.
+   Existing Pi sessions may need `/reload`; do not inject it into active work.
+
+`AGENTS.md` links to this file, so this instruction applies to every coding agent
+working in the repository.

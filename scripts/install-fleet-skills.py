@@ -22,6 +22,7 @@ p.add_argument('--cookie-file', required=True)
 p.add_argument('--api', default='https://eng.xyznot.com')
 p.add_argument('--receipts', required=True)
 p.add_argument('--machine', help='Optional exact hostname to install first')
+p.add_argument('--local-installer', action='store_true', help='Copy the checked-out installer through the Connector instead of downloading it')
 a = p.parse_args()
 cookie_path = Path(a.cookie_file)
 if cookie_path.stat().st_mode & 0o077:
@@ -69,11 +70,16 @@ for machine in machines:
         prefix = '/tmp/tmax-skills-' + nonce
         script, receipt, log = prefix + '.mjs', prefix + '.json', prefix + '.log'
         node = shlex.quote(machine.get('nodePath') or 'node')
+        download = 'curl -fsSL ' + shlex.quote(a.api.rstrip('/') + '/skills/install.mjs') + ' -o ' + shlex.quote(script)
+        if a.local_installer:
+            payload = base64.b64encode((repository / 'public/skills/install.mjs').read_bytes()).decode()
+            writer = "require('fs').writeFileSync(process.argv[1],Buffer.from(process.argv[2],'base64'))"
+            download = node + ' -e ' + shlex.quote(writer) + ' ' + shlex.quote(script) + ' ' + shlex.quote(payload)
         check = "const f=require('fs'),c=require('crypto');if(c.createHash('sha256').update(f.readFileSync(process.argv[1])).digest('hex')!==process.argv[2])process.exit(1)"
         shell = '\n'.join([
             'set -eu',
             'umask 077',
-            'curl -fsSL ' + shlex.quote(a.api.rstrip('/') + '/skills/install.mjs') + ' -o ' + shlex.quote(script),
+            download,
             node + ' -e ' + shlex.quote(check) + ' ' + shlex.quote(script) + ' ' + installer_hash,
             node + ' ' + shlex.quote(script) + ' --api ' + shlex.quote(a.api) + ' > ' + shlex.quote(log) + ' 2>&1',
             node + ' ' + shlex.quote(script) + ' --api ' + shlex.quote(a.api) + ' --verify > ' + shlex.quote(receipt) + ' 2>> ' + shlex.quote(log),
