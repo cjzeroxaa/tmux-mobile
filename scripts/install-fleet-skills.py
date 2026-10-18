@@ -47,7 +47,8 @@ def call(route, data=None, machine=None, method=None):
 machines = call('/api/command-center')['machines']
 if a.machine:
     machines = [m for m in machines if m['hostname'] == a.machine]
-    if not machines: raise SystemExit('Machine not found')
+if not machines:
+    raise SystemExit('No matching machines are visible; retry after Connectors reconnect')
 results = []
 for machine in machines:
     row = {k: machine.get(k) for k in ['id', 'hostname', 'ownerEmail', 'online']}
