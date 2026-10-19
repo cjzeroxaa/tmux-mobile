@@ -86,7 +86,7 @@
           <span class="paper-mark" aria-hidden="true">↗</span>
           <h2>Start with a complete explanation</h2>
           <p>
-            Your Agent publishes a complete HTML page here.<br />Select any text to leave a comment.
+            Your Agent publishes a complete HTML page here.<br />Leave overall feedback or select text to comment on a specific part.
           </p>
           <p id="emptyHint">
             Open Drafts from a session card to start creating.
@@ -104,16 +104,17 @@
         <div class="feedback-heading">
           <span class="eyebrow">FEEDBACK</span>
           <h2>Refine this draft</h2>
-          <p>Select text in the draft and leave specific feedback.</p>
+          <p>Leave overall feedback, or select text to comment on a specific part.</p>
         </div>
         <form id="commentForm">
-          <blockquote id="selection">No text selected</blockquote>
+          <blockquote id="selection">Overall comment · Whole draft</blockquote>
+          <button id="clearSelection" type="button" hidden>Comment on whole draft</button>
           <label for="comment">Your feedback</label
           ><textarea
             id="comment"
             maxlength="4000"
             required
-            placeholder="Explain this part in more detail…"
+            placeholder="What would you like to change?"
           ></textarea
           ><button id="saveComment" type="submit" disabled>Add comment</button>
         </form>

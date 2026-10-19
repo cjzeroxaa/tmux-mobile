@@ -67,6 +67,30 @@ const comment = await drafts.comment(owner, first.id, {
   anchor: { quote: "selected sentence", prefix: "A ", suffix: "." },
 });
 assert.equal(comment.version, 1);
+assert.equal(comment.scope, "selection");
+const overall = await drafts.comment(owner, first.id, {
+  version: 1,
+  text: "  Make the whole explanation shorter  ",
+});
+assert.equal(overall.scope, "document");
+assert.equal(overall.anchor, null);
+assert.equal(overall.text, "Make the whole explanation shorter");
+for (const invalid of [
+  { text: " " },
+  { text: "x".repeat(4001) },
+  { text: "feedback", anchor: {} },
+  { text: "feedback", anchor: { quote: " " } },
+  { text: "feedback", anchor: { quote: "x".repeat(12001) } },
+]) {
+  await assert.rejects(
+    () => drafts.comment(owner, first.id, { version: 1, ...invalid }),
+    (e) => e.status === 400,
+  );
+}
+await assert.rejects(
+  () => drafts.comment(stranger, first.id, { version: 1, text: "Overall" }),
+  (e) => e.status === 404,
+);
 const writes = await Promise.allSettled([
   publish("New version A", 1),
   publish("New version B", 1),
@@ -79,8 +103,12 @@ assert.equal(
 const detail = await drafts.detail(owner, first.id);
 assert.equal(detail.draft.version, 2);
 assert.equal(detail.versions.length, 2);
-assert.equal(detail.comments.length, 1);
+assert.equal(detail.comments.length, 2);
 assert.equal(detail.comments[0].anchor.quote, "selected sentence");
+assert.equal(detail.comments.find((c) => c.id === overall.id).version, 1);
+await drafts.resolve(owner, first.id, overall.id, "resolved");
+assert.equal((await drafts.detail(owner, first.id)).comments.find((c) => c.id === overall.id).status, "resolved");
+await drafts.resolve(owner, first.id, overall.id, "open");
 assert.match(
   (await drafts.read(owner, first.id, 1)).html,
   /A selected sentence/,
@@ -126,6 +154,10 @@ assert.match(
   /PR Lens/,
 );
 assert.match(draftFeedbackPrompt(detail.draft, [comment]), /Version 1/);
+const mixedFeedback = draftFeedbackPrompt(detail.draft, [comment, overall]);
+assert.match(mixedFeedback, /Selected text: "selected sentence"/);
+assert.match(mixedFeedback, /Overall comment \(whole draft\)/);
+assert.match(mixedFeedback, /Make the whole explanation shorter/);
 assert.equal(
   locateDraftQuote("first same second same", { quote: "same" }).status,
   "ambiguous",

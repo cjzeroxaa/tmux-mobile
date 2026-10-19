@@ -49,6 +49,11 @@ function postFrame(value) {
 function sendComments() {
   postFrame({ type: "comments", comments: detail?.comments || [] });
 }
+function syncCommentForm() {
+  $("selection").textContent = anchor?.quote || "Overall comment · Whole draft";
+  $("clearSelection").hidden = !anchor;
+  $("saveComment").disabled = busy || !version || !$("comment").value.trim();
+}
 function renderComments() {
   $("comments").replaceChildren();
   for (const c of detail.comments) {
@@ -61,18 +66,19 @@ function renderComments() {
     item.append(
       node("small", `v${c.version} · ${c.authorEmail} · ${date(c.createdAt)}`),
     );
-    const quote = node("blockquote", c.anchor.quote);
-    quote.tabIndex = 0;
-    quote.title = "Find quoted text";
-    quote.onclick = () => postFrame({ type: "focus", id: c.id });
-    quote.onkeydown = (e) => {
-      if (e.key === "Enter") quote.click();
-    };
-    item.append(
-      quote,
-      node("span", "Locating…", "anchor-status"),
-      node("p", c.text),
-    );
+    if (c.anchor?.quote) {
+      const quote = node("blockquote", c.anchor.quote);
+      quote.tabIndex = 0;
+      quote.title = "Find quoted text";
+      quote.onclick = () => postFrame({ type: "focus", id: c.id });
+      quote.onkeydown = (e) => {
+        if (e.key === "Enter") quote.click();
+      };
+      item.append(quote, node("span", "Locating…", "anchor-status"));
+    } else {
+      item.append(node("small", "Overall comment · Whole draft"));
+    }
+    item.append(node("p", c.text));
     const resolve = node(
       "button",
       c.status === "resolved" ? "Reopen" : "Resolve",
@@ -93,7 +99,7 @@ function renderComments() {
     $("comments").append(item);
   }
   if (!detail.comments.length)
-    $("comments").append(node("p", "No comments yet. Select text in the draft to begin."));
+    $("comments").append(node("p", "No comments yet. Leave overall feedback or select text to begin."));
   $("revise").disabled = !detail.comments.some((c) => c.status === "open");
   $("copyFeedback").disabled = $("revise").disabled;
   sendComments();
@@ -168,10 +174,9 @@ async function load({ preserveFrame = false } = {}) {
     if (changed || !preserveFrame) {
       frameReady = false;
       anchor = null;
-      $("selection").textContent = "No text selected";
-      $("saveComment").disabled = true;
       $("canvas").src = `/api/drafts/content?id=${id}&version=${version}`;
     }
+    syncCommentForm();
     renderComments();
     $("status").textContent =
       version !== detail.draft.version
@@ -187,6 +192,7 @@ async function load({ preserveFrame = false } = {}) {
 async function action(fn) {
   if (busy) return;
   busy = true;
+  syncCommentForm();
   try {
     await fn();
   } catch (e) {
@@ -194,6 +200,7 @@ async function action(fn) {
     $("feedbackStatus").textContent = e.message;
   } finally {
     busy = false;
+    syncCommentForm();
   }
 }
 window.addEventListener("message", (event) => {
@@ -210,19 +217,20 @@ window.addEventListener("message", (event) => {
   if (
     msg.type === "selection" &&
     typeof msg.anchor?.quote === "string" &&
+    msg.anchor.quote.trim() &&
     msg.anchor.quote.length <= 12000
   ) {
     anchor = msg.anchor;
-    $("selection").textContent = anchor.quote;
-    $("saveComment").disabled = false;
+    syncCommentForm();
   }
   if (msg.type === "anchors" && Array.isArray(msg.states))
     for (const state of msg.states) {
       const item = [...$("comments").children].find(
         (x) => x.dataset.commentId === state.id,
       );
-      if (item)
-        item.querySelector(".anchor-status").textContent =
+      const status = item?.querySelector(".anchor-status");
+      if (status)
+        status.textContent =
           state.status === "found"
             ? "Click to find quoted text"
             : state.status === "ambiguous"
@@ -233,7 +241,7 @@ window.addEventListener("message", (event) => {
 $("commentForm").onsubmit = (e) => {
   e.preventDefault();
   action(async () => {
-    if (!anchor) return;
+    if (!version || !$("comment").value.trim()) return;
     const savedAnchor = anchor,
       text = $("comment").value;
     $("saveComment").disabled = true;
@@ -242,13 +250,25 @@ $("commentForm").onsubmit = (e) => {
         method: "POST",
         body: JSON.stringify({ version, anchor: savedAnchor, text }),
       });
-      if ($("comment").value === text) $("comment").value = "";
+      if ($("comment").value === text) {
+        $("comment").value = "";
+        if (anchor === savedAnchor) {
+          anchor = null;
+          postFrame({ type: "clear-selection" });
+        }
+      }
       $("feedbackStatus").textContent = "Comment saved.";
       await reloadDetail();
     } finally {
-      $("saveComment").disabled = !anchor;
+      syncCommentForm();
     }
   });
+};
+$("comment").addEventListener("input", syncCommentForm);
+$("clearSelection").onclick = () => {
+  anchor = null;
+  postFrame({ type: "clear-selection" });
+  syncCommentForm();
 };
 async function prompt(send, create = false) {
   const body = create

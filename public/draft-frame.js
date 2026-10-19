@@ -41,6 +41,7 @@
     const ranges = [],
       states = [];
     for (const c of comments) {
+      if (!c.anchor?.quote) continue;
       const found = locate(c.anchor);
       states.push({ id: c.id, status: found.status });
       if (found.range) ranges.push(found.range);
@@ -80,13 +81,14 @@
   });
   window.addEventListener("message", (event) => {
     if (event.source !== parent || event.data?.source !== "tmax-host") return;
+    if (event.data.type === "clear-selection") getSelection()?.removeAllRanges();
     if (event.data.type === "comments") {
       comments = event.data.comments || [];
       annotate();
     }
     if (event.data.type === "focus") {
       const c = comments.find((c) => c.id === event.data.id),
-        found = c && locate(c.anchor);
+        found = c?.anchor?.quote && locate(c.anchor);
       if (found?.range) {
         found.range.startContainer.parentElement.scrollIntoView({
           block: "center",

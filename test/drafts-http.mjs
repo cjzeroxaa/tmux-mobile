@@ -141,13 +141,24 @@ try {
     }),
   });
   assert.equal(saved.status, 201);
+  const overall = await call(`/api/drafts/comments?id=${first.id}`, {
+    method: "POST",
+    body: JSON.stringify({ version: 1, text: "Simplify the whole draft", anchor: null }),
+  });
+  assert.equal(overall.status, 201);
+  assert.equal(overall.body.comment.scope, "document");
+  assert.equal(overall.body.comment.anchor, null);
   const feedback = await client("comments", "--id", first.id);
   assert.equal(feedback.comments[0].text, "Please explain this");
+  assert.equal(feedback.comments[1].text, "Simplify the whole draft");
+  assert.equal(feedback.comments[1].anchor, null);
   const prompt = await call(`/api/drafts/prompt?id=${first.id}`, {
     method: "POST",
     body: JSON.stringify({ send: false }),
   });
   assert.match(prompt.body.prompt, /Please explain this/);
+  assert.match(prompt.body.prompt, /Overall comment \(whole draft\)/);
+  assert.match(prompt.body.prompt, /Simplify the whole draft/);
   assert.ok(prompt.body.prompt.includes(file));
   assert.ok(prompt.body.prompt.includes(`--file '${file}'`));
   const sent = await call(`/api/drafts/prompt?id=${first.id}`, {
