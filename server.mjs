@@ -184,6 +184,8 @@ const MAX_BODY_BYTES = Math.max(
   MAX_TEXT_BYTES + 64 * 1024,
 );
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+// Single-use capabilities, available only while the authenticated upload is active.
+const fileUploadTransfers = new Map();
 const MAX_ANNOTATION_BYTES = 64 * 1024;
 const MAX_CAPTURE_LINES = 5000;
 const RMUX_WEB_SHARE_TTL_SECONDS = Number(process.env.RMUX_WEB_SHARE_TTL_SECONDS || 24 * 60 * 60);
@@ -4807,8 +4809,17 @@ async function handleApi(req, res, url) {
     }
     const name = url.searchParams.get("name") || "upload";
     let result;
+    let transferToken;
     try {
-      result = await backend.writeTempFile(name, bytes.toString("base64"));
+      if (typeof backend.writeTempFileHttp === "function" && backend.supportsOp(OP.WRITEFILE_HTTP)) {
+        transferToken = randomBytes(32).toString("base64url");
+        fileUploadTransfers.set(transferToken, bytes);
+        // Allow time for the file transfer, not the normal 15-second control RPC.
+        const timeoutMs = Math.min(2 ** 31 - 1, 60_000 + Math.ceil(bytes.length / (64 * 1024)) * 1000);
+        result = await backend.writeTempFileHttp(name, transferToken, timeoutMs);
+      } else {
+        result = await backend.writeTempFile(name, bytes.toString("base64"));
+      }
     } catch (error) {
       if (/unknown op/i.test(error.message) || error instanceof TypeError) {
         sendJson(res, 501, {
@@ -4818,6 +4829,8 @@ async function handleApi(req, res, url) {
       }
       sendJson(res, 500, { error: error.message || "Could not save the file" });
       return;
+    } finally {
+      if (transferToken) fileUploadTransfers.delete(transferToken);
     }
     sendJson(res, 200, { path: result.path, name: result.name });
     return;
@@ -5600,6 +5613,17 @@ if (MODE.kind === "register") {
     let url;
     try {
       url = new URL(req.url || "/", `http://${req.headers.host || HOST}`);
+
+      if (req.method === "GET" && url.pathname === "/agent/file-upload") {
+        if (!authenticateAgent(req)) { sendJson(res, 401, { error: "Connector login required" }); return; }
+        const token = req.headers["x-upload-token"];
+        const bytes = fileUploadTransfers.get(token);
+        if (!bytes) { sendJson(res, 404, { error: "Upload is no longer available" }); return; }
+        fileUploadTransfers.delete(token);
+        res.writeHead(200, { "content-type": "application/octet-stream", "content-length": bytes.length, "cache-control": "no-store" });
+        res.end(bytes);
+        return;
+      }
 
       // MCP has its own super-user API key. Browser cookies and agent tokens
       // never authorize this endpoint, and the key cannot access other APIs.

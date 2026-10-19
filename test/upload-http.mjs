@@ -45,27 +45,53 @@ async function waitFor(check) {
   throw new Error(`Controller/Connector did not become ready: ${output}`);
 }
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
+const originalFetch = globalThis.fetch;
+let transferToken, downloadStarted = false, tmuxCalls = 0;
+globalThis.fetch = (url, options) => {
+  if (String(url).endsWith("/agent/file-upload") && options?.signal) transferToken = options.headers["x-upload-token"];
+  return originalFetch(url, options);
+};
 try {
   await waitFor(async () => (await fetch(`${api}/api/health`)).ok);
   const { runAgent } = await import("../lib/agent.mjs");
   const { localBackend } = await import("../lib/backend.mjs");
-  agent = runAgent(api, { ...localBackend, tmux: async () => "tmux test" }, {
+  agent = runAgent(api, { ...localBackend,
+    tmux: async args => { tmuxCalls++; return args[0] === "-V" ? "tmux test" : ""; },
+    writeTempFile: async (name, stream) => {
+      assert.equal(typeof stream, "object", "file bytes must use HTTP, not base64 control frames");
+      downloadStarted = true;
+      if (name === "slow.mov") await new Promise(resolve => setTimeout(resolve, 18_000));
+      return localBackend.writeTempFile(name, stream);
+    },
+  }, {
     inventoryProvider: async () => ({ agents: [], sessions: [] }),
   });
   const machine = await waitFor(async () => {
     const response = await fetch(`${api}/api/machines`, { headers: { cookie } });
     return (await response.json()).find(item => item.hostname === "upload-test" || item.machine === "upload-test");
   });
-  const upload = body => fetch(`${api}/api/upload?paneId=%253&name=clip.mov`, {
+  const upload = (body, name = "clip.mov") => fetch(`${api}/api/upload?paneId=%253&name=${name}`, {
     method: "POST", headers: { cookie, "x-machine-id": machine.id, "content-type": "video/quicktime" }, body,
   });
   assert.equal((await fetch(`${api}/api/upload?paneId=%253`, { method: "POST", body: "x" })).status, 401);
   assert.equal((await upload(Buffer.alloc(0))).status, 400);
-  // 32 MiB crosses the old HTTP cap; 80 MiB crosses the 100 MiB base64 WS cap.
+  assert.equal((await fetch(`${api}/agent/file-upload`)).status, 401);
+  assert.equal((await fetch(`${api}/agent/file-upload`, { headers: { authorization: `Bearer ${token("agent")}`, "x-upload-token": "unknown" } })).status, 404);
+  // Cross both former caps. Delay one download beyond the old 15-second RPC
+  // timeout while checking that ordinary control RPCs still complete.
   for (const size of [32, 80]) {
     const bytes = Buffer.alloc(size * 1024 * 1024, 0xa5);
     bytes[bytes.length - 1] = 0x7f;
-    const response = await upload(bytes);
+    downloadStarted = false;
+    const pending = upload(bytes, size === 32 ? "slow.mov" : "clip.mov");
+    await waitFor(() => downloadStarted);
+    const callsBefore = tmuxCalls;
+    const control = await fetch(`${api}/api/sessions`, { headers: { cookie, "x-machine-id": machine.id } });
+    assert.equal(control.status, 200, await control.text());
+    assert.ok(tmuxCalls > callsBefore, "control RPC responds while file download is pending");
+    const replay = await fetch(`${api}/agent/file-upload`, { headers: { authorization: `Bearer ${token("agent")}`, "x-upload-token": transferToken } });
+    assert.equal(replay.status, 404, "download capability cannot be reused");
+    const response = await pending;
     const result = await response.json();
     assert.equal(response.status, 200, JSON.stringify(result));
     assert.equal(path.dirname(result.path), process.env.TMUX_MOBILE_UPLOAD_DIR);
@@ -73,6 +99,7 @@ try {
     console.log(`${size} MiB HTTP → Controller → Connector → file: exact SHA-256`);
   }
 } finally {
+  globalThis.fetch = originalFetch;
   agent?.stop();
   if (child.exitCode === null && child.signalCode === null) {
     const exited = once(child, "exit");

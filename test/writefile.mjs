@@ -3,7 +3,7 @@
 // returns the absolute path. Uses TMUX_MOBILE_UPLOAD_DIR to keep it isolated.
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -42,6 +42,14 @@ assert.ok(res.name.startsWith("upload"), `4 fallback name: ${res.name}`);
 const bin = Buffer.from([0, 1, 2, 255, 254, 10, 13]);
 res = await localBackend.writeTempFile("blob.bin", bin.toString("base64"));
 assert.deepEqual(await readFile(res.path), bin, "5 binary bytes exact");
+
+// Streamed attachment writes must remove partial files if the download fails.
+async function* brokenDownload() {
+  yield Buffer.from("partial");
+  throw new Error("download interrupted");
+}
+await assert.rejects(localBackend.writeTempFile("broken.mov", brokenDownload()), /download interrupted/);
+assert.ok(!(await readdir(dir)).includes("broken.mov"));
 
 await rm(dir, { recursive: true, force: true });
 console.log("writefile unit tests passed");
