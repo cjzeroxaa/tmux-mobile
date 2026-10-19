@@ -265,6 +265,33 @@ blockquote {
   gap: 8px;
   margin-top: 24px;
 }
+.selection-preview {
+  position: relative;
+  margin-top: 18px;
+}
+.selection-preview blockquote {
+  margin: 0;
+}
+.selection-preview:has(#clearSelection:not([hidden])) blockquote {
+  padding-right: 52px;
+  min-height: 44px;
+}
+#clearSelection {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+#clearSelection:hover {
+  background: var(--paper-soft);
+}
 #feedbackStatus {
   font-size: 12px;
 }

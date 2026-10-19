@@ -269,6 +269,7 @@ $("clearSelection").onclick = () => {
   anchor = null;
   postFrame({ type: "clear-selection" });
   syncCommentForm();
+  $("comment").focus();
 };
 async function prompt(send, create = false) {
   const body = create

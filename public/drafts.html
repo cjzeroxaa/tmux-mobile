@@ -107,8 +107,12 @@
           <p>Leave overall feedback, or select text to comment on a specific part.</p>
         </div>
         <form id="commentForm">
-          <blockquote id="selection">Overall comment · Whole draft</blockquote>
-          <button id="clearSelection" type="button" hidden>Comment on whole draft</button>
+          <div class="selection-preview">
+            <blockquote id="selection" aria-live="polite">Overall comment · Whole draft</blockquote>
+            <button id="clearSelection" type="button" aria-label="Clear selected quote" title="Clear selected quote" hidden>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+            </button>
+          </div>
           <label for="comment">Your feedback</label
           ><textarea
             id="comment"
