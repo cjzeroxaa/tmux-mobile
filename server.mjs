@@ -4520,6 +4520,57 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/terminal-share") {
+    const body = await readJsonBody(req);
+    const backend = currentBackend();
+    if (currentWindowRuntime().kind !== "tmux") {
+      sendJson(res, 400, { error: "Use RMUX sharing for this terminal" });
+      return;
+    }
+    if (typeof backend.terminalShare !== "function" || (backend.supportsOp && !backend.supportsOp(OP.TERMINAL_SHARE))) {
+      sendJson(res, 501, { error: "Update this machine's Connector to enable terminal sharing" });
+      return;
+    }
+    const target = await resolveSharePaneId({ paneId: body.paneId, windowId: body.windowId });
+    const action = body.action || "status";
+    if (!["status", "start", "stop"].includes(action)) {
+      sendJson(res, 400, { error: "Invalid sharing action" });
+      return;
+    }
+    if (action !== "start") {
+      sendJson(res, 200, await backend.terminalShare({ action, target }));
+      return;
+    }
+    const existing = await backend.terminalShare({ action: "status", target });
+    if (existing.viewerUrl && existing.allowControl === (body.allowControl === true)) {
+      sendJson(res, 200, existing);
+      return;
+    }
+    if (!process.env.SESSION_SECRET) {
+      sendJson(res, 503, { error: "Terminal sharing is not configured" });
+      return;
+    }
+    const createKey = createHmac("sha256", process.env.SESSION_SECRET).update("tmax-terminal-share-v1").digest("hex");
+    const response = await fetch("https://share.xyznot.com/api/session", {
+      method: "POST",
+      headers: { authorization: `Bearer ${createKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ allowControl: body.allowControl === true }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) {
+      sendJson(res, 502, { error: "Could not create terminal share" });
+      return;
+    }
+    const config = await response.json();
+    try {
+      sendJson(res, 200, await backend.terminalShare({ action: "start", target, config }));
+    } catch (error) {
+      await fetch(config.stopUrl, { method: "POST", signal: AbortSignal.timeout(5000) }).catch(() => {});
+      throw error;
+    }
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/rmux-web-share") {
     const body = await readJsonBody(req);
     sendJson(

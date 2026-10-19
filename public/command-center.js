@@ -1,3 +1,4 @@
+import { showTerminalShareDialog } from "./terminal-share.js";
 import { syncInputWakeLock } from "./screen-awake.mjs";
 import { conversationUrl } from "./conversation-link.mjs";
 import { createFullResponseLoader } from "./full-response.mjs";
@@ -3580,6 +3581,15 @@ async function shareRmuxAgent(agent) {
   }
 }
 
+async function shareTerminalAgent(agent) {
+  if (agentMux(agent) === "rmux") return shareRmuxAgent(agent);
+  if (!agent?.paneId) return;
+  return showTerminalShareDialog(body => api("/api/terminal-share", {
+    method: "POST", machineId: agentMachineKey(agent), mux: "tmux",
+    body: JSON.stringify({ ...body, paneId: agent.paneId }),
+  }), copyTextToClipboard);
+}
+
 function cardActionButton({ className = "", title, dataAttrs, disabled = false, busy = false, icon }) {
   const classes = `cc-card-action ${className}${busy ? " is-busy" : ""}`.trim();
   return `<button class="${classes}" type="button" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"${busy ? ' aria-busy="true"' : ""}${disabled ? " disabled" : ""} ${dataAttrs}>${icon}</button>`;
@@ -3790,14 +3800,14 @@ function renderCard(agent) {
         busy: renamingThis,
         icon: ICONS.rename,
       })}
-      ${agentMux(agent) === "rmux" ? cardActionButton({
+      ${cardActionButton({
         className: "cc-rmux-share-button",
-        title: sharingThis ? "Sharing RMUX terminal" : "Share RMUX terminal",
+        title: sharingThis ? "Sharing terminal" : "Share terminal",
         dataAttrs: `data-rmux-share-key="${escapeHtml(shareKey)}"`,
         disabled: sharingThis || !agent.paneId,
         busy: sharingThis,
         icon: ICONS.share,
-      }) : ""}
+      })}
       ${cardActionButton({
         className: `cc-read-button${readingThis ? " is-reading" : ""}`,
         title: readingThis ? "Stop reading" : "Read aloud (I)",
@@ -4318,7 +4328,7 @@ els.list.addEventListener("click", (event) => {
     const agent = state.agents.find(
       (item) => shareKeyForAgent(item) === shareButton.dataset.rmuxShareKey,
     );
-    if (agent) shareRmuxAgent(agent);
+    if (agent) shareTerminalAgent(agent);
     return;
   }
   const renameButton = target.closest("[data-rename-window-key]");

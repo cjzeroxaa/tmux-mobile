@@ -3279,3 +3279,21 @@ html:not([data-theme="kami"]) .app-body {
     border-radius: 20px;
   }
 }
+
+.cc-share-dialog {
+  position: fixed;
+  width: min(480px, calc(100vw - 32px));
+  padding: 24px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  line-height: 1.5;
+}
+.cc-share-dialog::backdrop { background: #002b3680; }
+.cc-share-dialog h2 { margin: 0 36px 16px 0; font-size: 20px; }
+.cc-share-dialog .cc-share-close { position: absolute; right: 12px; top: 12px; width: 40px; height: 40px; }
+.cc-share-dialog [data-share-url] { width: 100%; min-height: 44px; margin: 8px 0; }
+.cc-share-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.cc-share-actions button, .cc-share-actions a { min-height: 44px; padding: 8px 12px; }
+.cc-share-dialog [hidden] { display: none !important; }

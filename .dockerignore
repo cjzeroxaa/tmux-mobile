@@ -9,3 +9,4 @@ dist
 tmp
 *.log
 .DS_Store
+services/terminal-share

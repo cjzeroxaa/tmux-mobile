@@ -1,0 +1,5 @@
+node_modules/
+.wrangler/
+public/app.js
+public/xterm.css
+.dev.vars

@@ -1,0 +1,19 @@
+{
+  "name": "tmax-terminal-share",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/*.mjs",
+    "deploy": "npm run build && node deploy.mjs"
+  },
+  "dependencies": {
+    "@xterm/xterm": "6.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1",
+    "wrangler": "4.114.0",
+    "typescript": "7.0.2",
+    "@cloudflare/workers-types": "5.20260726.1"
+  }
+}

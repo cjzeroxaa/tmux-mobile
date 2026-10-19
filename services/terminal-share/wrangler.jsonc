@@ -1,0 +1,11 @@
+{
+  "name": "tmax-terminal-share",
+  "main": "src/worker.ts",
+  "account_id": "34431cd51da281ed3590ab6ce5141d09",
+  "compatibility_date": "2026-10-19",
+  "assets": { "binding": "ASSETS", "directory": "public", "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },
+  "routes": [{ "pattern": "share.xyznot.com", "custom_domain": true }],
+  "durable_objects": { "bindings": [{ "name": "TTY_SESSION", "class_name": "TTYSession" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TTYSession"] }],
+  "observability": { "enabled": false }
+}

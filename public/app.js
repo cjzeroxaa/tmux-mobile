@@ -1,4 +1,5 @@
 import { setScreenAwake, syncInputWakeLock } from "./screen-awake.mjs";
+import { showTerminalShareDialog } from "./terminal-share.js";
 import { createReadScope, createRefreshLoop } from "./view-work.mjs";
 import { createRefreshWindow, watchTerminalActivity } from "./refresh-window.mjs";
 import { escapeHtml, filePathFromLocalHref, linkifyEscaped } from "./linkify.js";
@@ -1180,13 +1181,22 @@ function rmuxShareWindowButton(win) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "window-share-button";
-  button.title = "Share RMUX terminal";
-  button.setAttribute("aria-label", `Share RMUX terminal ${win.index}: ${win.name}`);
+  button.title = "Share terminal";
+  button.setAttribute("aria-label", `Share terminal ${win.index}: ${win.name}`);
   button.innerHTML = RMUX_SHARE_ICON;
   button.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    shareRmuxWindow(win, button);
+    if (state.mux === "rmux") {
+      shareRmuxWindow(win, button);
+    } else {
+      const machineId = state.machineId;
+      showTerminalShareDialog(body => viewReads.json("/api/terminal-share", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-machine-id": machineId || "", "x-mux": "tmux" },
+        body: JSON.stringify({ ...body, windowId: win.id }),
+      }), copyTextToClipboard);
+    }
   });
   return button;
 }
@@ -1322,7 +1332,7 @@ function renderWindows() {
         badge: live ? "live" : "",
         badgeGreen: live,
         onClick: () => selectWindow(win.id),
-        className: state.mux === "rmux" ? "item window-item-main" : "",
+        className: "item window-item-main",
         cwd: cwdLabel,
         branch,
         worktree,
@@ -1332,13 +1342,11 @@ function renderWindows() {
         waitingForInput,
         waitingConfidence,
       });
-      if (state.mux === "rmux") {
+      {
         const row = document.createElement("div");
         row.className = "window-item-row";
         row.append(windowButton, rmuxShareWindowButton(win));
         els.mobileWindows.append(row);
-      } else {
-        els.mobileWindows.append(windowButton);
       }
       els.mobileWindows.append(windowAnnotationRow(win));
     }
