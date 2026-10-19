@@ -269,7 +269,33 @@ Do not send these commands into a user's running coding-agent conversation.
 Use a dedicated shell session on each online machine, verify its receipt, then
 remove only that temporary session. Offline machines must be reported separately.
 
-### Standing instruction: Skill changes require fleet publication (2026-10-18)
+### Standing instruction: complete fleet synchronization inventory (2026-10-18)
+
+Two separate items must stay synchronized. Never omit the global instruction
+files when reporting fleet configuration:
+
+| Item | Authoritative source | Required entries on every machine |
+| --- | --- | --- |
+| `tmax-drafts` Skill and bundled references/assets | `public/skills/tmax-drafts/` in this repository | Codex, Claude Code and Pi Skill directories |
+| Shared global Agent instructions | `~/.config/agent-instructions/AGENTS.md` on the machine where the owner requests the edit | `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`, `~/.pi/agent/AGENTS.md` must be symlinks to each machine's copy of the canonical file |
+
+Honor `CODEX_HOME`, `CLAUDE_CONFIG_DIR` and `PI_CODING_AGENT_DIR`. A change to the
+global instructions requires copying the updated canonical document to all
+registered machines, backing up existing files, preserving or repairing the
+three links, and reading back their content hashes and resolved targets. These
+global files are separate from repository-local `AGENTS.md` / `CLAUDE.md`; do
+not overwrite repository instructions with global instructions. Do not publish
+private global instructions as unauthenticated Web assets.
+
+For an all-machine sync, explicitly check and report both inventory items.
+When only one changes, synchronize that item and report the other's status;
+do not reinstall unchanged files unnecessarily. File and Skill synchronization
+is authorized as part of either change. Use complete super-admin inventory,
+temporary shell sessions, verified receipts and backups. Preserve active Agent
+sessions and name offline or failed machines. Do not restart Connectors for
+these file-only changes. New Agent sessions reliably load updated instructions.
+
+### Skill publication procedure
 
 The owner explicitly requires every future change to `tmax-drafts` to be
 published to **all T-Max machines and all three coding agents: Codex, Claude
