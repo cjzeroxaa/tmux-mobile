@@ -439,6 +439,8 @@ const state = {
   cardSearchIndex: 0,
   interactAgent: null,
   interactSending: false,
+  interactUploading: false,
+  interactGeneration: 0,
   deleteAgent: null,
   deleteBusy: false,
   deletingWindows: new Set(),
@@ -956,13 +958,18 @@ function interactAppendText(text) {
 async function uploadInteractFiles(fileList) {
   const files = Array.from(fileList || []);
   if (!files.length) return;
+  if (state.interactUploading || state.interactSending) return;
   const agent = state.interactAgent;
   if (!agent?.paneId) {
     setInteractStatus("No target");
     return;
   }
 
+  const generation = state.interactGeneration;
+  const isCurrent = () => generation === state.interactGeneration;
+  state.interactUploading = true;
   if (els.interactAttachButton) els.interactAttachButton.disabled = true;
+  setInteractVoiceStatus(state.interactVoice.status, "");
   setInteractStatus(files.length === 1 ? "Uploading..." : `Uploading ${files.length} files...`);
   try {
     for (const file of files) {
@@ -977,13 +984,22 @@ async function uploadInteractFiles(fileList) {
         headers: { "content-type": file.type || "application/octet-stream" },
         body: file,
       });
-      if (data.path) interactAppendText(data.path);
+      if (data.path) {
+        if (isCurrent()) interactAppendText(data.path);
+        else {
+          // The dialog may have closed or moved to another session while uploading.
+          const draft = loadInteractDraft(agent);
+          saveInteractDraft(agent, draft + (draft && !/\s$/.test(draft) ? " " : "") + data.path);
+        }
+      }
     }
-    setInteractStatus(files.length === 1 ? "File uploaded" : `${files.length} files uploaded`);
+    if (isCurrent()) setInteractStatus(files.length === 1 ? "File uploaded" : `${files.length} files uploaded`);
   } catch (error) {
-    setInteractStatus(error.message || "Upload failed");
+    if (isCurrent()) setInteractStatus(error.message || "Upload failed");
   } finally {
+    state.interactUploading = false;
     if (els.interactAttachButton) els.interactAttachButton.disabled = false;
+    setInteractVoiceStatus(state.interactVoice.status, "");
   }
 }
 
@@ -1154,11 +1170,12 @@ function interactAgentLabel(agent) {
 
 function openInteract(agent) {
   if (state.interactSending) return;
+  state.interactGeneration += 1;
   state.interactAgent = agent;
   state.interactSending = false;
   resetInteractVoice();
   els.interactTarget.textContent = interactAgentLabel(agent);
-  els.interactSend.disabled = false;
+  els.interactSend.disabled = state.interactUploading;
   setInteractStatus("");
   setInteractKeysOpen(false);
   renderInteractSnippets();
@@ -1170,6 +1187,8 @@ function openInteract(agent) {
 
 function closeInteract() {
   if (state.interactSending || state.interactVoice.status === "transcribing") return;
+  state.interactGeneration += 1;
+  resetInteractDrop();
   resetInteractVoice();
   setInteractKeysOpen(false);
   state.interactAgent = null;
@@ -1180,7 +1199,7 @@ function closeInteract() {
 }
 
 async function sendInteractText({ keepFocus = true } = {}) {
-  if (state.interactSending) return;
+  if (state.interactSending || state.interactUploading) return;
   const agent = state.interactAgent;
   const text = interactGetText();
   if (!text.trim()) {
@@ -1335,7 +1354,7 @@ function setInteractVoiceStatus(status, text) {
   els.interactSubmitVoice.disabled = !listening;
   els.interactCancelVoice.disabled = !listening;
   if (els.interactSend) {
-    els.interactSend.disabled = state.interactSending || status !== "idle";
+    els.interactSend.disabled = state.interactSending || state.interactUploading || status !== "idle";
   }
 }
 
@@ -4340,6 +4359,42 @@ if (els.interactAttachButton && els.interactFileInput) {
     await uploadInteractFiles(files);
   });
 }
+let interactDragDepth = 0;
+function resetInteractDrop() {
+  interactDragDepth = 0;
+  els.interactInputArea?.classList.remove("is-file-dragging");
+}
+const isFileDrag = (event) => Array.from(event.dataTransfer?.types || []).includes("Files");
+els.interactInputArea?.addEventListener("dragenter", (event) => {
+  if (!isFileDrag(event)) return;
+  event.preventDefault();
+  interactDragDepth += 1;
+  if (!state.interactUploading && !state.interactSending)
+    els.interactInputArea.classList.add("is-file-dragging");
+});
+els.interactInputArea?.addEventListener("dragover", (event) => {
+  if (!isFileDrag(event)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = state.interactUploading || state.interactSending ? "none" : "copy";
+});
+els.interactInputArea?.addEventListener("dragleave", (event) => {
+  if (!isFileDrag(event)) return;
+  interactDragDepth = Math.max(0, interactDragDepth - 1);
+  if (!interactDragDepth) resetInteractDrop();
+});
+els.interactInputArea?.addEventListener("drop", (event) => {
+  if (!isFileDrag(event)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  resetInteractDrop();
+  const items = Array.from(event.dataTransfer.items || []);
+  if (items.some((item) => item.webkitGetAsEntry?.()?.isDirectory)) {
+    setInteractStatus("Drop files, not folders");
+    return;
+  }
+  void uploadInteractFiles(event.dataTransfer.files);
+});
+window.addEventListener("dragend", resetInteractDrop);
 els.interactKeys?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   const keyButton = target?.closest("[data-interact-key]");

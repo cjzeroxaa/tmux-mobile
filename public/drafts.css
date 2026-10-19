@@ -432,3 +432,65 @@ blockquote {
   border-left: 0;
   border-top: 1px solid var(--paper-line, #d4c7ab);
 }
+
+/* Stacked feedback is a compact, separately scrollable area below the reader. */
+@media (max-width: 1150px) {
+  .feedback {
+    max-height: clamp(180px, 24dvh, 320px);
+    padding: 12px 16px;
+  }
+  .feedback-heading .eyebrow,
+  .feedback-heading p {
+    display: none;
+  }
+  .feedback h2 {
+    font-size: 18px;
+    margin: 0;
+  }
+  .selection-preview {
+    margin-top: 8px;
+  }
+  .selection-preview blockquote {
+    max-height: 56px;
+  }
+  #commentForm {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  #commentForm .selection-preview {
+    grid-column: 1 / -1;
+  }
+  #commentForm label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  #comment {
+    min-height: 64px;
+  }
+  #saveComment {
+    margin: 0;
+    max-width: 96px;
+    min-height: 44px;
+    font-size: 13px;
+  }
+  .review-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .comment {
+    padding: 12px 0;
+  }
+  #canvas {
+    height: 78dvh;
+    flex: none;
+  }
+}
+.is-embedded .feedback {
+  max-height: clamp(180px, 24dvh, 320px);
+  padding: 12px 16px;
+}
