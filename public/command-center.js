@@ -3795,7 +3795,6 @@ function renderCard(agent) {
         href: conversationUrl(agent),
         title: "Conversation · user messages and final replies",
         icon: ICONS.conversation,
-        label: "Conversation",
       }) : ""}
       ${cardActionLink({
         href: buildAgentAppUrl(agent),
