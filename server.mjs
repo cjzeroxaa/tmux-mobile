@@ -184,7 +184,6 @@ const MAX_BODY_BYTES = Math.max(
   MAX_TEXT_BYTES + 64 * 1024,
 );
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const MAX_ANNOTATION_BYTES = 64 * 1024;
 const MAX_CAPTURE_LINES = 5000;
 const RMUX_WEB_SHARE_TTL_SECONDS = Number(process.env.RMUX_WEB_SHARE_TTL_SECONDS || 24 * 60 * 60);
@@ -3422,7 +3421,7 @@ function transcriptUploadStatus(error) {
   return 500;
 }
 
-async function readRequestBuffer(req, maxBytes) {
+async function readRequestBuffer(req, maxBytes = Infinity) {
   const chunks = [];
   let bytes = 0;
 
@@ -4801,7 +4800,7 @@ async function handleApi(req, res, url) {
       });
       return;
     }
-    const bytes = await readRequestBuffer(req, MAX_UPLOAD_BYTES);
+    const bytes = await readRequestBuffer(req);
     if (bytes.length === 0) {
       sendJson(res, 400, { error: "No file received" });
       return;
