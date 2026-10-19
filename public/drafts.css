@@ -48,7 +48,7 @@ a:hover {
   text-decoration: underline;
 }
 :focus-visible {
-  outline: 2px solid #e0914d;
+  outline: 2px solid var(--solarized-blue, #268bd2);
   outline-offset: 3px;
 }
 [hidden] {
@@ -120,7 +120,7 @@ h2 {
 }
 .draft-link[aria-current="true"] {
   background: var(--paper-surface, #fcf8ee);
-  box-shadow: inset 3px 0 #e0914d;
+  box-shadow: inset 3px 0 var(--paper-orange, #cb4b16);
 }
 .draft-link small {
   display: block;

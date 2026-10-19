@@ -1,37 +1,38 @@
-/* Instant's paper / forest / orange language, shared by every AMUX page.
+/* Solarized palette (ethanschoonover.com/solarized), shared by every AMUX page.
  * Keep the existing `kami` storage value for light mode compatibility. */
 :root, html[data-theme="kami"] {
   color-scheme: light;
-  --paper-bg: #f4eee3; --paper-surface: #fcf8ee; --paper-rail: #eae6d8;
-  --paper-soft: #e8e4d6; --paper-ink: #293d2e; --paper-muted: #6e6e59;
-  --paper-line: #d4c7ab; --paper-accent: #264d3d; --paper-orange: #e0914d;
-  --paper-selection: #dfe6d2; --paper-on-accent: #fcf8ee;
-  --paper-glass: #fcf8eedb; --paper-shadow: 0 2px 0 #d4c7ab55;
+  --solarized-blue: #268bd2; --solarized-yellow: #b58900; --solarized-red: #dc322f;
+  --paper-bg: #fdf6e3; --paper-surface: #fdf6e3; --paper-rail: #eee8d5;
+  --paper-soft: #eee8d5; --paper-ink: #586e75; --paper-muted: #586e75;
+  --paper-line: #93a1a1; --paper-accent: #073642; --paper-orange: #cb4b16;
+  --paper-selection: #eee8d5; --paper-on-accent: #fdf6e3;
+  --paper-glass: #fdf6e3db; --paper-shadow: 0 2px 0 #93a1a155;
   --paper-serif: Georgia, "Iowan Old Style", "Noto Serif SC", serif;
   --paper-sans: "Avenir Next", "Lato", "PingFang SC", system-ui, sans-serif;
 }
 html[data-theme="dark"], html[data-theme=""] {
   color-scheme: dark;
-  --paper-bg: #17231d; --paper-surface: #203128; --paper-rail: #1b2922;
-  --paper-soft: #2c3e32; --paper-ink: #f0eadc; --paper-muted: #b7baa5;
-  --paper-line: #485541; --paper-accent: #cad9b8; --paper-orange: #f0b575;
-  --paper-selection: #354c3a; --paper-on-accent: #203128;
-  --paper-glass: #203128ed; --paper-shadow: 0 2px 0 #101a1655;
+  --paper-bg: #002b36; --paper-surface: #002b36; --paper-rail: #073642;
+  --paper-soft: #073642; --paper-ink: #93a1a1; --paper-muted: #839496;
+  --paper-line: #586e75; --paper-accent: #93a1a1; --paper-orange: #cb4b16;
+  --paper-selection: #073642; --paper-on-accent: #002b36;
+  --paper-glass: #002b36ed; --paper-shadow: 0 2px 0 #002b3655;
 }
 @media (prefers-color-scheme: dark) {
   html:not([data-theme]) {
     color-scheme: dark;
-    --paper-bg: #17231d; --paper-surface: #203128; --paper-rail: #1b2922;
-    --paper-soft: #2c3e32; --paper-ink: #f0eadc; --paper-muted: #b7baa5;
-    --paper-line: #485541; --paper-accent: #cad9b8; --paper-orange: #f0b575;
-    --paper-selection: #354c3a; --paper-on-accent: #203128;
-    --paper-glass: #203128ed; --paper-shadow: 0 2px 0 #101a1655;
+    --paper-bg: #002b36; --paper-surface: #002b36; --paper-rail: #073642;
+    --paper-soft: #073642; --paper-ink: #93a1a1; --paper-muted: #839496;
+    --paper-line: #586e75; --paper-accent: #93a1a1; --paper-orange: #cb4b16;
+    --paper-selection: #073642; --paper-on-accent: #002b36;
+    --paper-glass: #002b36ed; --paper-shadow: 0 2px 0 #002b3655;
   }
 }
 html:root, html:root body, html:root .app-body, html:root .command-center-body {
   --bg: var(--paper-bg); --surface: var(--paper-surface); --surface-soft: var(--paper-soft);
   --ink: var(--paper-ink); --muted: var(--paper-muted); --line: var(--paper-line);
-  --accent: var(--paper-accent); --accent-dark: var(--paper-accent); --accent-blue: var(--paper-accent);
+  --accent: var(--paper-accent); --accent-dark: var(--paper-accent); --accent-blue: var(--solarized-blue); --danger: var(--solarized-red);
   --code-bg: var(--paper-soft); --code-ink: var(--paper-ink); --shadow: var(--paper-shadow);
   --paper: var(--paper-bg); --rail: var(--paper-rail); --hover: var(--paper-soft); --prompt: var(--paper-soft);
   --app-sidebar: var(--paper-rail); --app-canvas: var(--paper-bg); --app-hover: var(--paper-soft);
@@ -44,7 +45,7 @@ html:root, html:root body, html:root .app-body, html:root .command-center-body {
   background-color: var(--paper-bg); color: var(--paper-ink); font-family: var(--paper-sans);
 }
 ::selection { background: var(--paper-selection); color: var(--paper-ink); }
-html:root :focus-visible { outline: 2px solid var(--paper-accent); outline-offset: 3px; }
+html:root :focus-visible { outline: 2px solid var(--solarized-blue); outline-offset: 3px; }
 html:root h1, html:root .cc-title, html:root .brand, html:root .report-head h2,
 html:root .empty h2, html:root .machine h3, html:root .sheet-header h2 {
   font-family: var(--paper-serif); font-weight: 400; letter-spacing: -.025em; text-transform: none;
@@ -71,7 +72,7 @@ html:root .command-center-body .cc-card-action { border-radius: 999px; }
 html:root .command-center-body .cc-more-panel, html:root .app-body .more-actions-menu,
 html:root .target-panel, html:root .sheet-panel, html:root .cc-card-search-panel {
   background: var(--paper-surface); border-color: var(--paper-line); border-radius: 20px;
-  box-shadow: 0 12px 36px #101a1622;
+  box-shadow: 0 12px 36px #002b3622;
 }
 html:root .command-center-body .cc-topbar { padding-top: 14px; padding-bottom: 14px; }
 html:root .app-body .input-area { background: var(--paper-glass); border-color: var(--paper-line); box-shadow: var(--paper-shadow); }
@@ -79,7 +80,7 @@ html:root .app-body .input-area .lexical-editor { background: transparent; color
 html:root .app-body .directory-button, html:root .app-body .item.active,
 html:root .app-body .activity-status.active { background: var(--paper-selection); color: var(--paper-accent); }
 html:root .app-body .send-button, html:root .app-body .voice-button {
-  background: var(--paper-orange); color: #293d2e; border-color: transparent;
+  background: var(--solarized-yellow); color: #002b36; border-color: transparent;
 }
 html:root .toolbar, html:root .topbar { background: var(--paper-glass); backdrop-filter: blur(14px); border-color: var(--paper-line); }
 html:root .brand { font-size: 21px; }
