@@ -23,7 +23,7 @@ agent binaries, analytics, or tunnel service is used.
   are covered by HMAC; the fragment keeps the viewer credential out of page URLs
   sent by normal navigation. WebSocket/API calls carry it in their query string;
   Worker request logging is disabled.
-- Shares last at most 24 hours. Unexpected host disconnection has a
+- Shares default to 24 hours, with 5-day and 7-day options (maximum 7 days). Unexpected host disconnection has a
   three-minute reconnect grace.
 - Stop sharing revokes the link and detaches only the sharing client. Connector
   restart also ends its shares. Original tmux sessions/processes stay alive.
@@ -32,6 +32,9 @@ agent binaries, analytics, or tunnel service is used.
   and filters output to the one authorized pane. No polling or `pipe-pane`.
 - Hidden browser tabs disconnect. Returning reconnects with a fresh screen.
   Terminal dimensions follow the original machine; a small screen can scroll.
+- On phones, take control then tap **Keyboard**, or tap the terminal. The toolbar
+  sends Esc, Tab, Ctrl-C, arrows and Enter as terminal bytes, preserving focus.
+  Changing the expiry requires stopping the existing share and creating a new link.
 - RMUX retains its existing share implementation.
 
 ## Checks
@@ -78,7 +81,7 @@ creates the namespace/migration; attach the custom domain using the account
 Workers Domains API when the token cannot list Zone Workers Routes.
 
 Deploy the Controller using `scripts/push-image.sh`, then update Connectors to
-compatibility **28**, one machine at a time, following the root runbook. Check
+compatibility **29**, one machine at a time, following the root runbook. Check
 both Controller domains, the Worker health endpoint, and a real share. Roll back
 the Controller with its saved ECR tag and the Worker with a prior immutable
 version. Existing nonsharing Connector operations remain compatible.

@@ -4,7 +4,8 @@ export async function showTerminalShareDialog(call, copyText) {
   dialog.id = "terminal-share-dialog";
   dialog.className = "cc-share-dialog";
   dialog.innerHTML = `<form method="dialog"><h2>Share terminal</h2><button class="cc-share-close" aria-label="Close">×</button></form>
-    <p>Anyone with the link can view this terminal. The link expires after 24 hours, or you can stop sharing earlier.</p>
+    <p>Anyone with the link can view this terminal. Choose when the link expires, or stop sharing earlier.</p>
+    <label class="cc-share-duration">Expires after <select data-share-duration><option value="86400">24 hours</option><option value="432000">5 days</option><option value="604800">7 days</option></select></label>
     <label><input type="checkbox" data-share-control> Allow viewers to type and run commands</label>
     <p data-share-status role="status">Loading…</p>
     <input data-share-url aria-label="Share link" readonly hidden>
@@ -13,6 +14,7 @@ export async function showTerminalShareDialog(call, copyText) {
   dialog.addEventListener("close", () => dialog.remove(), { once: true });
   dialog.showModal();
   const status = dialog.querySelector("[data-share-status]");
+  const duration = dialog.querySelector("[data-share-duration]");
   const checkbox = dialog.querySelector("[data-share-control]");
   const url = dialog.querySelector("[data-share-url]");
   const create = dialog.querySelector("[data-share-create]");
@@ -20,11 +22,13 @@ export async function showTerminalShareDialog(call, copyText) {
   const open = dialog.querySelector("[data-share-open]");
   const stop = dialog.querySelector("[data-share-stop]");
   let busy = false;
-  const request = action => call({ action, allowControl: checkbox.checked });
+  const request = action => call({ action, allowControl: checkbox.checked, ttlSeconds: Number(duration.value) });
   const render = data => {
     const active = Boolean(data.viewerUrl);
     checkbox.checked = Boolean(data.allowControl);
     checkbox.disabled = active;
+    duration.disabled = active;
+    if (active) duration.value = String(data.ttlSeconds || 86400);
     create.hidden = active;
     url.hidden = copy.hidden = open.hidden = stop.hidden = !active;
     url.value = data.viewerUrl || "";

@@ -4541,8 +4541,13 @@ async function handleApi(req, res, url) {
       sendJson(res, 200, await backend.terminalShare({ action, target }));
       return;
     }
+    const ttlSeconds = body.ttlSeconds ?? 86400;
+    if (![86400, 432000, 604800].includes(ttlSeconds)) {
+      sendJson(res, 400, { error: "Choose 24 hours, 5 days or 7 days" });
+      return;
+    }
     const existing = await backend.terminalShare({ action: "status", target });
-    if (existing.viewerUrl && existing.allowControl === (body.allowControl === true)) {
+    if (existing.viewerUrl && existing.allowControl === (body.allowControl === true) && (existing.ttlSeconds || 86400) === ttlSeconds) {
       sendJson(res, 200, existing);
       return;
     }
@@ -4554,7 +4559,7 @@ async function handleApi(req, res, url) {
     const response = await fetch("https://share.xyznot.com/api/session", {
       method: "POST",
       headers: { authorization: `Bearer ${createKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ allowControl: body.allowControl === true }),
+      body: JSON.stringify({ allowControl: body.allowControl === true, ttlSeconds }),
       signal: AbortSignal.timeout(10000),
     });
     if (!response.ok) {

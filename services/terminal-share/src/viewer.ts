@@ -2,11 +2,15 @@ import { Terminal } from '@xterm/xterm';
 const status = document.querySelector<HTMLElement>('#status')!;
 const note = document.querySelector<HTMLElement>('#note')!;
 const control = document.querySelector<HTMLButtonElement>('#control')!;
+const keyboard = document.querySelector<HTMLButtonElement>('#keyboard')!;
+const keys = document.querySelector<HTMLElement>('#keys')!;
 const reconnect = document.querySelector<HTMLButtonElement>('#reconnect')!;
 const dark = matchMedia('(prefers-color-scheme: dark)');
 const theme = () => ({ background: dark.matches ? '#002b36' : '#fdf6e3', foreground: dark.matches ? '#93a1a1' : '#586e75', cursor: '#268bd2' });
-const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 2000, convertEol: false, theme: theme(), fontSize: 14 });
+const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 2000, convertEol: false, disableStdin: true, theme: theme(), fontSize: 14 });
 terminal.open(document.querySelector<HTMLElement>('#terminal')!);
+terminal.textarea!.setAttribute('inputmode', 'text');
+terminal.textarea!.setAttribute('enterkeyhint', 'enter');
 dark.addEventListener('change', () => { terminal.options.theme = theme(); });
 const sessionId = location.pathname.match(/^\/s\/([0-9a-f-]{36})$/)?.[1];
 const capability = location.hash.slice(1);
@@ -27,7 +31,7 @@ function stop() {
   const old = socket;
   socket = null;
   old?.close();
-  canWrite = false;
+  setWritable(false);
   control.disabled = true;
 }
 function send(type: string) {
@@ -73,8 +77,7 @@ async function connect() {
       if (frame.type === 'session.status') {
         attempts = 0;
         const s = frame.payload;
-        canWrite = Boolean(s.canWrite);
-        terminal.options.disableStdin = !canWrite;
+        setWritable(Boolean(s.canWrite));
         if (s.viewerToken) {
           viewerToken = s.viewerToken;
           try { sessionStorage.setItem(`tmax.share.${sessionId}`, viewerToken); } catch {}
@@ -85,7 +88,7 @@ async function connect() {
         control.hidden = !s.allowControl || ended;
         control.disabled = !s.hostConnected || Boolean(s.controllerViewerId && !canWrite) || Boolean(s.pendingControlRequest);
         control.textContent = canWrite ? 'Release control' : 'Take control';
-        note.textContent = s.allowControl ? 'The owner enabled control for this link. Only one viewer can type at a time.' : 'View-only link. Keyboard input is disabled.';
+        note.textContent = s.allowControl ? 'The owner enabled control for this link. Take control, then tap Keyboard to type. Only one viewer can type at a time.' : 'View-only link. Keyboard input is disabled.';
         if (ended) stop();
       }
     };
@@ -94,14 +97,14 @@ async function connect() {
   } catch { if (current === generation) schedule(); }
 }
 function schedule() {
-  canWrite = false;
+  setWritable(false);
   control.disabled = true;
   if (document.hidden || ended) return;
   status.textContent = 'Disconnected';
   reconnect.hidden = false;
   if (++attempts <= 8) retry = setTimeout(() => void connect(), Math.min(1000 * 2 ** attempts, 15000));
 }
-terminal.onData(value => {
+function sendInput(value: string) {
   if (!canWrite || socket?.readyState !== WebSocket.OPEN) return;
   const data = new TextEncoder().encode(value);
   for (let i = 0; i < data.length; i += 32768) {
@@ -109,8 +112,50 @@ terminal.onData(value => {
     const frame = new Uint8Array(part.length + 1);
     frame[0] = 2; frame.set(part, 1); socket.send(frame);
   }
+}
+terminal.onData(sendInput);
+function setWritable(value: boolean) {
+  canWrite = value;
+  terminal.options.disableStdin = !value;
+  keyboard.hidden = keys.hidden = !value;
+  if (!value) terminal.blur();
+}
+function focusKeyboard() {
+  if (!canWrite) return;
+  // iOS needs focus inside the tap, after the textarea is writable. Refocus
+  // also handles a textarea previously focused while control was pending.
+  terminal.blur();
+  terminal.focus();
+}
+keyboard.onclick = focusKeyboard;
+let touch: { x: number; y: number } | null = null;
+const viewport = document.querySelector<HTMLElement>('#viewport')!;
+viewport.addEventListener('pointerdown', event => {
+  touch = event.pointerType === 'touch' ? { x: event.clientX, y: event.clientY } : null;
 });
-control.onclick = () => { send(canWrite ? 'control.release' : 'control.request'); terminal.focus(); };
+viewport.addEventListener('pointercancel', () => { touch = null; });
+viewport.addEventListener('pointerup', event => {
+  const start = touch; touch = null;
+  if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) < 10 && !getSelection()?.toString()) focusKeyboard();
+});
+const specialKeys: Record<string, string> = { esc: '\x1b', tab: '\t', interrupt: '\x03', up: '\x1b[A', down: '\x1b[B', left: '\x1b[D', right: '\x1b[C', enter: '\r' };
+keys.addEventListener('pointerdown', event => {
+  // Keep the software keyboard open while tapping a special key.
+  if ((event.target as Element).closest('button')) event.preventDefault();
+});
+keys.addEventListener('click', event => {
+  const key = (event.target as Element).closest<HTMLButtonElement>('button')?.dataset.key;
+  if (key && specialKeys[key]) {
+    const value = specialKeys[key];
+    sendInput(terminal.modes.applicationCursorKeysMode && ["up", "down", "left", "right"].includes(key) ? value.replace("[", "O") : value);
+  }
+});
+function fitKeyboardViewport() {
+  document.body.style.height = `${window.visualViewport?.height ?? window.innerHeight}px`;
+}
+window.visualViewport?.addEventListener('resize', fitKeyboardViewport);
+fitKeyboardViewport();
+control.onclick = () => { send(canWrite ? 'control.release' : 'control.request'); };
 reconnect.onclick = () => { attempts = 0; void connect(); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) { stop(); status.textContent = 'Paused'; } else { attempts = 0; void connect(); } });
 window.addEventListener('pagehide', stop);

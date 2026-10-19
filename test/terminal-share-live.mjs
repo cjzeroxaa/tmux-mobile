@@ -29,13 +29,17 @@ function viewer(config){
 let pane,active,ws;
 const results=[];
 try{
- pane=tmux('new-session','-d','-s','tmax-share-canary','-x','100','-y','30','-P','-F','#{pane_id}','cat');
+ const rawReader = dir+'/raw.py';
+ writeFileSync(rawReader, 'import os,tty\ntty.setraw(0)\nwhile True:\n data=os.read(0,32768)\n os.write(1,b"BYTES:"+data.hex().encode()+b"\\r\\n"+data+b"\\r\\n")\n');
+ pane=tmux('new-session','-d','-s','tmax-share-canary','-x','100','-y','30','-P','-F','#{pane_id}',`python3 -u ${rawReader}`);
  const other=tmux('new-window','-t','tmax-share-canary','-P','-F','#{pane_id}','cat');
  const selected=tmux('display-message','-p','-t','tmax-share-canary','#{window_id}');
  for(const allowControl of [false,true]){
   assert.equal((await fetch('https://share.xyznot.com/api/session',{method:'POST'})).status,401);
-  const response=await fetch('https://share.xyznot.com/api/session',{method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},body:JSON.stringify({allowControl})});
+  const response=await fetch('https://share.xyznot.com/api/session',{method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},body:JSON.stringify({allowControl,ttlSeconds:allowControl?604800:432000})});
   assert.equal(response.status,200);const config=await response.json();active=config;
+  assert.equal(config.ttlSeconds,allowControl?604800:432000);
+  assert(config.expiresAt>Date.now()+config.ttlSeconds*1000-10000);
   const token=new URL(config.viewerUrl).hash.slice(1);
   assert.equal((await fetch(`https://share.xyznot.com/api/session/${config.sessionId}/status`)).status,403);
   assert.equal((await fetch(`https://share.xyznot.com/api/session/${config.sessionId}/host?token=${token}`)).status,403);
@@ -55,6 +59,11 @@ try{
   const input='BROWSER_INPUT_'+Date.now();ws.send(Buffer.concat([Buffer.from([2]),Buffer.from(input+'\r')]));
   if(allowControl)await until(()=>Buffer.concat(v.output).toString().includes(input),'browser input echoed');
   else{await delay(300);assert(!tmux('capture-pane','-p','-t',pane).includes(input));}
+  if(allowControl){
+   const keys=Buffer.from([27,9,3,27,91,65,13]);
+   ws.send(Buffer.concat([Buffer.from([2]),keys]));
+   await until(()=>Buffer.concat(v.output).toString().includes('BYTES:'+keys.toString('hex')),'ESC Tab Ctrl-C arrow Enter reach raw terminal unchanged');
+  }
   ws.close(); await until(()=>tmux('list-clients')==='','unsubscribe after viewer closes');
   v=viewer(config);ws=v.ws;await until(()=>v.frames.some(f=>f.type==='terminal.snapshot'),'reconnect snapshot');
   assert(v.frames.find(f=>f.type==='terminal.snapshot').payload.data.includes(marker));

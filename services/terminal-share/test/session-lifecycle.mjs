@@ -182,3 +182,29 @@ test('owner-enabled control grants one viewer, releases on disconnect, and canno
   const response = await session.fetch(new Request('https://session.internal/connect/host'));
   assert.equal(response.status, 410);
 });
+
+for (const days of [1, 5, 7]) test(`${days}-day expiry survives hibernation and ends exactly at its deadline`, async () => {
+  const { session, store } = await fixture();
+  session.record.state = 'idle';
+  const expiresAt = Date.now() + days * 86400000;
+  const response = await session.fetch(new Request('https://session.internal/init', { method: 'POST', body: JSON.stringify({ allowControl: true, expiresAt }) }));
+  assert.equal(response.status, 200);
+  assert.equal(store.get('session').maxExpiresAt, expiresAt);
+  const restored = await fixture(store.get('session'));
+  assert.equal(restored.session.record.sessionExpiresAt, expiresAt);
+  const now = Date.now;
+  try {
+    Date.now = () => expiresAt - 1;
+    await restored.session.alarm();
+    assert.notEqual(restored.session.record.state, 'closed');
+    Date.now = () => expiresAt;
+    await restored.session.alarm();
+    assert.equal(restored.session.record.state, 'closed');
+  } finally { Date.now = now; }
+});
+test('DO refuses expired and over-limit shares', async () => {
+  for (const expiresAt of [Date.now() - 1, Date.now() + 8 * 86400000]) {
+    const { session } = await fixture(); session.record.state = 'idle';
+    assert.equal((await session.fetch(new Request('https://session.internal/init', { method: 'POST', body: JSON.stringify({ expiresAt }) }))).status, 400);
+  }
+});

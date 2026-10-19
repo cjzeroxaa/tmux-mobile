@@ -55,7 +55,7 @@ type Env = Record<string, unknown>;
 
 const DEFAULT_CONTROL_LEASE_SECONDS = 30 * 60;
 const SESSION_IDLE_TTL_MS = 24 * 60 * 60 * 1000;
-const SESSION_MAX_TTL_MS = 24 * 60 * 60 * 1000;
+const SESSION_MAX_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SESSION_RENEW_THRESHOLD_MS = 30 * 60 * 1000;
 const HOST_DISCONNECT_GRACE_MS = 3 * 60 * 1000;
 const PENDING_REQUEST_TIMEOUT_MS = 30 * 1000;
@@ -71,7 +71,7 @@ function createInitialSessionRecord(state: SessionState = "idle"): SessionRecord
     pendingRequestExpiresAt: null,
     viewerIdentities: {},
     createdAt,
-    maxExpiresAt: createdAt + SESSION_MAX_TTL_MS,
+    maxExpiresAt: createdAt + SESSION_IDLE_TTL_MS,
     sessionExpiresAt: Math.min(createdAt + SESSION_IDLE_TTL_MS, createdAt + SESSION_MAX_TTL_MS),
     hostDisconnectDeadline: null,
     endReason: null,
@@ -106,8 +106,14 @@ export class TTYSession extends DurableObject {
       if (this.record.state !== "idle" && this.record.state !== "closed") {
         return new Response("session id already exists", { status: 409 });
       }
+      const options = await request.json() as { allowControl?: boolean; expiresAt?: number };
+      const expiresAt = options.expiresAt ?? Date.now() + SESSION_IDLE_TTL_MS;
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now() || expiresAt > Date.now() + SESSION_MAX_TTL_MS) {
+        return new Response("Invalid expiry", { status: 400 });
+      }
       this.record = createInitialSessionRecord("ready");
-      this.record.allowControl = Boolean((await request.json() as { allowControl?: boolean }).allowControl);
+      this.record.allowControl = options.allowControl === true;
+      this.record.maxExpiresAt = this.record.sessionExpiresAt = expiresAt;
       await this.persistRecord();
       await this.scheduleNextAlarm();
       return Response.json(this.snapshot());

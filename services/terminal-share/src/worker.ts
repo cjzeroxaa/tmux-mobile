@@ -10,16 +10,18 @@ export default {
     if (!env.CREATE_KEY) return new Response('Sharing is not configured', { status: 503 });
     if (url.pathname === '/api/session' && request.method === 'POST') {
       if (request.headers.get('authorization') !== `Bearer ${env.CREATE_KEY}`) return new Response('Unauthorized', { status: 401 });
-      let options: { allowControl?: boolean };
+      let options: { allowControl?: boolean; ttlSeconds?: number };
       try { options = JSON.parse(await request.text()); } catch { return new Response('Invalid JSON', { status: 400 }); }
+      const ttlSeconds = options?.ttlSeconds ?? 86400;
+      if (!options || ![86400, 432000, 604800].includes(ttlSeconds)) return new Response("Choose 24 hours, 5 days or 7 days", { status: 400 });
       const sessionId = crypto.randomUUID();
-      const exp = Date.now() + 24 * 60 * 60 * 1000;
+      const exp = Date.now() + ttlSeconds * 1000;
       const stub = env.TTY_SESSION.get(env.TTY_SESSION.idFromName(sessionId));
-      const response = await stub.fetch('https://session.internal/init', { method: 'POST', body: JSON.stringify({ allowControl: options.allowControl === true }) });
+      const response = await stub.fetch('https://session.internal/init', { method: 'POST', body: JSON.stringify({ allowControl: options.allowControl === true, expiresAt: exp }) });
       if (!response.ok) return new Response('Could not create share', { status: 502 });
       const hostToken = await signCapability(env.CREATE_KEY, { sessionId, role: 'host', exp });
       const viewerToken = await signCapability(env.CREATE_KEY, { sessionId, role: 'viewer', exp });
-      return Response.json({ sessionId, expiresAt: exp, allowControl: options.allowControl === true,
+      return Response.json({ sessionId, expiresAt: exp, ttlSeconds, allowControl: options.allowControl === true,
         viewerUrl: `${url.origin}/s/${sessionId}#${viewerToken}`,
         hostWebSocketUrl: `${url.origin.replace('https:', 'wss:').replace('http:', 'ws:')}/api/session/${sessionId}/host?token=${hostToken}`,
         stopUrl: `${url.origin}/api/session/${sessionId}/end?token=${hostToken}`,

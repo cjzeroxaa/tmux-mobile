@@ -3297,3 +3297,5 @@ html:not([data-theme="kami"]) .app-body {
 .cc-share-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
 .cc-share-actions button, .cc-share-actions a { min-height: 44px; padding: 8px 12px; }
 .cc-share-dialog [hidden] { display: none !important; }
+
+.cc-share-duration{display:flex;align-items:center;gap:12px;margin:16px 0}.cc-share-duration select{font:inherit;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px}

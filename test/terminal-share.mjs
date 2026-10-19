@@ -8,6 +8,10 @@ import { localBackend } from '../lib/backend.mjs';
 
 assert.deepEqual(decodeTmuxOutput('hi\\012\\033[31m\\134'), Buffer.from('hi\n\x1b[31m\\'));
 assert.throws(() => validateShareConfig({ expiresAt: Date.now() + 10000, hostWebSocketUrl: 'wss://attacker.invalid', stopUrl: 'https://attacker.invalid', viewerUrl: 'https://attacker.invalid' }), /Invalid terminal share service/);
+const sessionId = '11111111-1111-4111-8111-111111111111';
+const config = { sessionId, hostWebSocketUrl: `wss://share.xyznot.com/api/session/${sessionId}/host?token=test`, stopUrl: `https://share.xyznot.com/api/session/${sessionId}/end?token=test`, viewerUrl: `https://share.xyznot.com/s/${sessionId}#test` };
+for (const days of [1, 5, 7]) assert.doesNotThrow(() => validateShareConfig({ ...config, expiresAt: Date.now() + days * 86400000 }));
+assert.throws(() => validateShareConfig({ ...config, expiresAt: Date.now() + 8 * 86400000 }), /Invalid share expiry/);
 const dir = mkdtempSync(path.join(os.tmpdir(), 'tmax-share-test-'));
 const socket = `tmax-share-test-${process.pid}`;
 const tmux = (...args) => execFileSync('tmux', ['-L', socket, ...args], { encoding: 'utf8' }).trim();
