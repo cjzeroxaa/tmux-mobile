@@ -44,6 +44,8 @@ npx tsc --noEmit --target es2022 --module esnext --moduleResolution bundler \
   --lib es2022,dom --types @cloudflare/workers-types --skipLibCheck src/worker.ts src/viewer.ts
 # From the repository root, requires local tmux:
 npm run test:terminal-share
+# Manual live integration with the actual local Backend, using a private key file:
+TMAX_SHARE_CREATE_KEY_FILE=/private/path/key node test/terminal-share-live.mjs
 ```
 
 `test/terminal-share.mjs` creates and destroys its own isolated tmux server.
@@ -76,7 +78,7 @@ creates the namespace/migration; attach the custom domain using the account
 Workers Domains API when the token cannot list Zone Workers Routes.
 
 Deploy the Controller using `scripts/push-image.sh`, then update Connectors to
-compatibility **27**, one machine at a time, following the root runbook. Check
+compatibility **28**, one machine at a time, following the root runbook. Check
 both Controller domains, the Worker health endpoint, and a real share. Roll back
 the Controller with its saved ECR tag and the Worker with a prior immutable
 version. Existing nonsharing Connector operations remain compatible.

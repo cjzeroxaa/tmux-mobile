@@ -18,9 +18,11 @@ let ended = false;
 let attempts = 0;
 let pendingBytes = 0;
 let viewerToken = '';
+let request: AbortController | null = null;
 try { viewerToken = sessionStorage.getItem(`tmax.share.${sessionId}`) || ''; } catch {}
 function stop() {
   generation++;
+  request?.abort(); request = null;
   clearTimeout(retry);
   const old = socket;
   socket = null;
@@ -39,8 +41,9 @@ async function connect() {
   status.textContent = 'Connecting…';
   reconnect.hidden = true;
   const query = new URLSearchParams({ token: capability, viewerToken });
+  request = new AbortController();
   try {
-    const check = await fetch(`/api/session/${sessionId}/status?${query}`, { cache: 'no-store' });
+    const check = await fetch(`/api/session/${sessionId}/status?${query}`, { cache: 'no-store', signal: request.signal });
     if (current !== generation) return;
     if (check.status === 403 || check.status === 410) { ended = true; status.textContent = 'Share expired or stopped'; return; }
     if (!check.ok) throw Error('Share unavailable');

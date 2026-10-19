@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { TmuxShareStream, decodeTmuxOutput, validateShareConfig } from '../lib/terminal-share.mjs';
+import { localBackend } from '../lib/backend.mjs';
 
 assert.deepEqual(decodeTmuxOutput('hi\\012\\033[31m\\134'), Buffer.from('hi\n\x1b[31m\\'));
 assert.throws(() => validateShareConfig({ expiresAt: Date.now() + 10000, hostWebSocketUrl: 'wss://attacker.invalid', stopUrl: 'https://attacker.invalid', viewerUrl: 'https://attacker.invalid' }), /Invalid terminal share service/);
@@ -16,8 +17,11 @@ try {
   const other = tmux('new-window', '-t', 'share-test', '-P', '-F', '#{pane_id}', 'cat');
   const command = path.join(dir, 'tmux');
   writeFileSync(command, `#!/bin/sh\nexec tmux -L ${socket} "$@"\n`, { mode: 0o700 });
+  process.env.TMUX_MOBILE_TMUX_COMMAND = command;
+  const sessionTarget = (await localBackend.tmux(['display-message', '-p', '-t', pane, '#{session_id}'], { mux: 'tmux' })).trim();
+  assert.match(sessionTarget, /^\$\d+$/);
   const output = [];
-  stream = new TmuxShareStream({ command, target: pane, onOutput: bytes => output.push(bytes) });
+  stream = new TmuxShareStream({ command, target: pane, sessionTarget, onOutput: bytes => output.push(bytes) });
   await stream.ready;
   const beforeSize = tmux('display-message', '-p', '-t', pane, '#{pane_width},#{pane_height}');
   tmux('send-keys', '-t', pane, 'hello 中文', 'Enter');
