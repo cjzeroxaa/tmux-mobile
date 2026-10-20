@@ -5,6 +5,7 @@ Requires an existing super-admin Cookie header in a mode-0600 file. Never sends
 commands to existing coding-agent sessions. Writes one verified receipt per host.
 """
 import argparse
+import re
 import base64
 import hashlib
 import json
@@ -37,6 +38,11 @@ manifest = json.loads((repository / 'public/skills' / a.skill / 'manifest.json')
 expected = hashlib.sha256(json.dumps(manifest['files'], separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
 
 def call(route, data=None, machine=None, method=None):
+    if route == '/api/send' and data and data.get('enter'):
+        result = call(route, {**data, 'enter': False}, machine, method)
+        time.sleep(1)
+        call('/api/key', {'paneId': data['paneId'], 'key': 'Enter'}, machine)
+        return result
     headers = {'Cookie': cookie, 'Content-Type': 'application/json'}
     if machine:
         headers['x-machine-id'] = machine['id']
@@ -68,6 +74,25 @@ for machine in machines:
         if len(panes) != 1 or panes[0]['command'] not in ['bash', 'zsh', 'sh', 'fish', 'dash']:
             raise RuntimeError('Temporary pane is not a plain shell')
         pane = panes[0]['id']
+        # Inspect shell startup, decline optional oh-my-zsh updates, then probe.
+        time.sleep(2)
+        screen = call('/api/capture?' + urllib.parse.urlencode({'paneId': pane, 'lines': 20}), machine=machine).get('text', '')
+        if 'Would you like to update?' in screen:
+            call('/api/send', {'paneId': pane, 'text': 'n', 'enter': True}, machine)
+            time.sleep(2)
+        marker = 'TMAX_READY_' + nonce[:12]
+        ready = False
+        for attempt in range(3):
+            call('/api/send', {'paneId': pane, 'text': "printf '\\n%s\\n' " + shlex.quote(marker), 'enter': True}, machine)
+            for check in range(4):
+                time.sleep(1)
+                screen = call('/api/capture?' + urllib.parse.urlencode({'paneId': pane, 'lines': 30}), machine=machine).get('text', '')
+                clean = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', screen)
+                if marker in [line.strip() for line in clean.splitlines()]:
+                    ready = True
+                    break
+            if ready: break
+        if not ready: raise RuntimeError('Temporary shell did not become ready: '+screen[-1000:])
         prefix = '/tmp/tmax-skills-' + nonce
         script, receipt, log = prefix + '.mjs', prefix + '.json', prefix + '.log'
         node = shlex.quote(machine.get('nodePath') or 'node')
