@@ -1,4 +1,4 @@
-export const RECENT_ACTIVITY_WINDOW_MS = 8 * 60 * 60 * 1_000;
+export const RECENT_ACTIVITY_WINDOW_MS = 14 * 60 * 60 * 1_000;
 
 export function isRecentActivity(value, nowMs = Date.now()) {
   const activityMs = Date.parse(value || "");

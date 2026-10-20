@@ -7,15 +7,18 @@ import {
 
 const NOW = Date.parse("2026-09-06T12:00:00.000Z");
 
+assert.equal(RECENT_ACTIVITY_WINDOW_MS, 14 * 60 * 60 * 1_000);
+assert.equal(isRecentActivity(new Date(NOW - 10 * 60 * 60 * 1_000).toISOString(), NOW), true);
+
 assert.equal(
   isRecentActivity(new Date(NOW - RECENT_ACTIVITY_WINDOW_MS).toISOString(), NOW),
   true,
-  "activity at the eight-hour boundary is recent",
+  "activity at the fourteen-hour boundary is recent",
 );
 assert.equal(
   isRecentActivity(new Date(NOW - RECENT_ACTIVITY_WINDOW_MS - 1).toISOString(), NOW),
   false,
-  "activity older than eight hours is stale",
+  "activity older than fourteen hours is stale",
 );
 assert.equal(isRecentActivity(new Date(NOW + 1).toISOString(), NOW), false);
 assert.equal(isRecentActivity("not-a-date", NOW), false);
