@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mock } from "node:test";
 import {
   appendFile,
   mkdtemp,
@@ -101,6 +102,34 @@ try {
       "",
     ].join("\n"),
   );
+
+  // A second Claude stopped at workspace trust has no PID session record.
+  // Its cwd is shared with an active conversation, which must never be borrowed.
+  const homeMock = mock.method(os, "homedir", () => tmp);
+  try {
+    const waitingPane = {
+      rootPid: 303, cwd, foregroundCommand: "claude",
+      processes: [{ pid: 303, ppid: 1, command: "claude" }],
+      openFiles: new Map(),
+    };
+    assert.equal(await localBackend.agentTranscript(waitingPane), null,
+      "unregistered Claude must not borrow the newest transcript in its cwd");
+    assert.equal(await localBackend.agentLastResponse(waitingPane), null,
+      "Read must not speak another session's response");
+    const exact = await localBackend.agentTranscript({
+      ...waitingPane, rootPid: 101,
+      processes: [{ pid: 101, ppid: 1, command: "claude" }],
+    });
+    assert.equal(exact.sessionId, first, "registered Claude retains its own transcript");
+    assert.equal(exact.turns.at(-1).text, "first response");
+    const openFile = await localBackend.agentTranscript({
+      ...waitingPane,
+      openFiles: new Map([[303, [path.join(projectDir, `${second}.jsonl`)]]]),
+    });
+    assert.equal(openFile.sessionId, second, "process-owned open file remains a valid fallback");
+  } finally {
+    homeMock.mock.restore();
+  }
 
   const fakeRemoteBackend = {
     async processTree(rootPid) {

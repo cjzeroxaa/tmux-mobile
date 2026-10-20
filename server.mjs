@@ -2592,9 +2592,8 @@ async function safeAgentLastResponse(pane) {
   } catch {}
   if (typeof backend.agentLastResponse !== "function") return null;
   try {
-    // Pass cwd so Claude Code's filesystem fallback can find the right
-    // transcript — its CLI doesn't keep the JSONL file open so lsof alone
-    // returns nothing.
+    // Validate the PID session registry against this pane's working directory.
+    // A shared cwd alone must never select another Claude's transcript.
     const result = await backend.agentLastResponse({
       rootPid: pane.pid,
       cwd: pane.cwd || "",
