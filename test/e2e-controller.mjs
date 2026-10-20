@@ -545,6 +545,19 @@ try {
   assert.equal(draftsPage.status, 200);
   assert.match(await draftsPage.text(), /Draft library/);
 
+  const terminalHandoff = await requestJson(baseUrl, "/auth/browser-handoff", {
+    method: "POST", bearer: terminalLogin.sessionToken,
+    body: { returnTo: "/temporary-terminals?machineId=test-machine" }, status: 201,
+  });
+  const terminalRedirect = await fetch(`${baseUrl}${terminalHandoff.handoffUrl}`, { redirect: "manual" });
+  assert.equal(terminalRedirect.headers.get("location"), "/temporary-terminals?machineId=test-machine");
+  const terminalCookie = terminalRedirect.headers.get("set-cookie").split(";", 1)[0];
+  const terminalPage = await fetch(`${baseUrl}/temporary-terminals`, { headers: { cookie: terminalCookie } });
+  assert.equal(terminalPage.status, 200);
+  assert.match(await terminalPage.text(), /New 10-minute terminal/);
+  const consumedHandoff = await fetch(`${baseUrl}${terminalHandoff.handoffUrl}`, { redirect: "manual" });
+  assert.notEqual(consumedHandoff.status, 302, "handoff ticket is single-use");
+
   const reportsHandoff = await requestJson(baseUrl, "/auth/browser-handoff", {
     method: "POST", bearer: terminalLogin.sessionToken,
     body: { returnTo: "/reports?kind=daily" }, status: 201,
