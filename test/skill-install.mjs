@@ -38,6 +38,13 @@ try {
   assert.ok((await installSkills({ ...configOptions, verify: true })).installations.every(x => x.status === 'verified'));
   assert.ok((await installSkills({ ...startOptions, verify: true })).installations.every(x => x.status === 'verified'), 'config skill preserves the startup skill');
   assert.ok((await installSkills({ ...options, verify: true })).installations.every(x => x.status === 'verified'), 'config skill preserves drafts');
+  const assignOptions = { ...options, source: fileURLToPath(new URL('../public/skills/tmax-assign-task', import.meta.url)), skill: 'tmax-assign-task' };
+  const assigned = await installSkills(assignOptions);
+  assert.ok(assigned.installations.every(x => x.status === 'installed' && x.files === 1));
+  assert.ok((await installSkills({ ...assignOptions, verify: true })).installations.every(x => x.status === 'verified'));
+  for (const previous of [options, startOptions, configOptions]) {
+    assert.ok((await installSkills({ ...previous, verify: true })).installations.every(x => x.status === 'verified'), 'assignment skill preserves every existing skill');
+  }
   const entry = first.installations[0].directory;
   await writeFile(path.join(entry, 'personal-note.txt'), 'keep');
   const again = await installSkills(options);
