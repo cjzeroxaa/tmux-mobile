@@ -50,6 +50,7 @@ type SocketAttachment =
       viewerId: string;
       viewerToken: string;
       snapshotRequestId: string;
+      lines?: number;
     };
 type Env = Record<string, unknown>;
 
@@ -186,6 +187,7 @@ export class TTYSession extends DurableObject {
         viewerId: viewerIdentity.id,
         viewerToken: viewerIdentity.token,
         snapshotRequestId: crypto.randomUUID(),
+        lines: this.historyLines(new URL(request.url).searchParams.get('lines')),
       });
       this.ctx.acceptWebSocket(server, [role]);
       const viewer = {
@@ -214,7 +216,7 @@ export class TTYSession extends DurableObject {
       if (attachment.role === "viewer") {
         this.sendHost(JSON.stringify({
           type: "terminal.snapshot.request",
-          payload: { requestId: attachment.snapshotRequestId },
+          payload: { requestId: attachment.snapshotRequestId, lines: attachment.lines ?? 500 },
         }));
       }
     }
@@ -372,13 +374,23 @@ export class TTYSession extends DurableObject {
     if (role === "host" && socket !== this.host) return;
     if (role === "viewer" && !this.viewers.has(socket)) return;
 
-    if ((typeof data === "string" ? new TextEncoder().encode(data).length : (data as ArrayBuffer).byteLength) > 1024 * 1024) {
+    if ((typeof data === "string" ? new TextEncoder().encode(data).length : (data as ArrayBuffer).byteLength) > (role === 'host' ? 16 : 1) * 1024 * 1024) {
       socket.close(1009, "message too large");
       return;
     }
     if (role === "host") {
       if (typeof data === "string") {
         const frame = parseEnvelope(data);
+        if (frame?.type === 'terminal.refresh') {
+          for (const viewer of this.viewers.values()) {
+            const attachment = viewer.socket.deserializeAttachment() as SocketAttachment;
+            if (attachment.role !== 'viewer') continue;
+            attachment.snapshotRequestId = crypto.randomUUID();
+            viewer.socket.serializeAttachment(attachment);
+            this.sendHost(JSON.stringify({ type: 'terminal.snapshot.request', payload: { requestId: attachment.snapshotRequestId, lines: attachment.lines ?? 500 } }));
+          }
+          return;
+        }
         if (frame?.type === "session.end") {
           this.endSharing("host ended");
           await this.persistRecord();
@@ -398,6 +410,13 @@ export class TTYSession extends DurableObject {
               this.sendViewer(viewer, data);
               break;
             }
+          }
+          return;
+        }
+        if (frame?.type === "upload.result") {
+          const payload = frame.payload as { viewerId?: string };
+          for (const viewer of this.viewers.values()) {
+            if (viewer.id === payload.viewerId && this.canWrite(viewer.socket)) this.sendViewer(viewer, data);
           }
           return;
         }
@@ -469,6 +488,26 @@ export class TTYSession extends DurableObject {
     }
 
     const frame = parseEnvelope(data);
+    if (frame?.type && ['upload.start', 'upload.chunk', 'upload.end', 'upload.cancel'].includes(frame.type)) {
+      const payload = frame.payload as Record<string, unknown> | null;
+      if (!payload || typeof payload.requestId !== 'string' || payload.requestId.length > 100) return;
+      if (!this.canWrite(socket)) {
+        this.sendSocket(socket, JSON.stringify({ type: 'upload.result', payload: { requestId: payload.requestId, error: 'Take control before uploading' } }));
+        return;
+      }
+      const viewer = this.viewers.get(socket)!;
+      this.sendHost(JSON.stringify({ type: frame.type, payload: { ...payload, viewerId: viewer.id } }));
+      return;
+    }
+    if (frame?.type === 'terminal.snapshot.request') {
+      const attachment = socket.deserializeAttachment() as SocketAttachment;
+      if (attachment.role !== 'viewer') return;
+      attachment.snapshotRequestId = crypto.randomUUID();
+      attachment.lines = this.historyLines((frame.payload as { lines?: unknown })?.lines);
+      socket.serializeAttachment(attachment);
+      this.sendHost(JSON.stringify({ type: frame.type, payload: { requestId: attachment.snapshotRequestId, lines: attachment.lines } }));
+      return;
+    }
     if (frame?.type === "control.release") {
       if (this.canWrite(socket)) {
         await this.handleControlRevoke();
@@ -653,6 +692,11 @@ export class TTYSession extends DurableObject {
     const viewerId = token ? this.record.viewerIdentities[token] : null;
     const viewer = token && viewerId ? { id: viewerId, token } : null;
     return this.snapshotForViewer(viewer, viewer ? "viewer" : null);
+  }
+
+  private historyLines(value: unknown): number {
+    const lines = Number(value);
+    return [100, 500, 1000, 2000, 5000].includes(lines) ? lines : 500;
   }
 
   private snapshotForViewer(

@@ -40,6 +40,16 @@ try {
   const count = output.length;
   await new Promise(r => setTimeout(r, 200));
   assert.equal(output.length, count, 'idle terminal produces no output traffic');
+  const history = Array.from({ length: 700 }, (_, i) => `SCROLLBACK_${String(i).padStart(4, '0')}`).join('\n');
+  writeFileSync(path.join(dir, 'history.txt'), history + '\n');
+  tmux('load-buffer', '-b', 'history-test', path.join(dir, 'history.txt'));
+  tmux('paste-buffer', '-d', '-b', 'history-test', '-t', pane);
+  for (let i = 0; i < 100 && !tmux('capture-pane', '-p', '-t', pane).includes('SCROLLBACK_0699'); i++) await new Promise(r => setTimeout(r, 20));
+  const short = await stream.snapshot(100);
+  const long = await stream.snapshot(2000);
+  assert.doesNotMatch(short.data, /SCROLLBACK_0000/);
+  assert.match(long.data, /SCROLLBACK_0000/);
+  assert.match(short.data, /SCROLLBACK_0699/);
   stream.close();
   assert.equal(tmux('display-message', '-p', '-t', pane, '#{pane_id}'), pane, 'closing share keeps the original pane alive');
   assert.equal(tmux('display-message', '-p', '-t', pane, '#{pane_width},#{pane_height}'), beforeSize);

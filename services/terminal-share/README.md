@@ -16,8 +16,9 @@ agent binaries, analytics, or tunnel service is used.
 ## Behavior
 
 - Share buttons appear on session cards and in the terminal window list.
-- Links are view-only by default. The owner can explicitly allow input when
-  creating a link. One viewer can hold control at a time; disconnect releases it.
+- The Web creation dialog enables control by default; uncheck it for a view-only
+  link. Existing links retain their permissions. One viewer can hold control at
+  a time; disconnect releases it.
 - A separate signed host capability cannot be derived from a viewer link. Link
   creation requires the Controller's service key. Roles, session IDs and expiry
   are covered by HMAC; the fragment keeps the viewer credential out of page URLs
@@ -32,6 +33,13 @@ agent binaries, analytics, or tunnel service is used.
   and filters output to the one authorized pane. No polling or `pipe-pane`.
 - Hidden browser tabs disconnect. Returning reconnects with a fresh screen.
   Terminal dimensions follow the original machine; a small screen can scroll.
+- Initial snapshots include 500 lines of tmux scrollback; viewers can choose
+  100, 500, 1,000, 2,000 or 5,000. This is the machine's retained terminal buffer,
+  not the archived Agent transcript. Subsequent output is pushed without polling.
+- A viewer holding control can pick/drop/paste files. Files stream in acknowledged
+  64 KiB chunks into the existing Connector temp-file writer, with no total-size
+  cap. Losing control or disconnecting cancels partial uploads. Completed paths
+  appear in an editable field; Insert path pastes without submitting Enter.
 - On phones, take control then tap **Keyboard**, or tap the terminal. The toolbar
   sends Esc, Tab, Ctrl-C, arrows and Enter as terminal bytes, preserving focus.
   Changing the expiry requires stopping the existing share and creating a new link.
@@ -47,6 +55,7 @@ npx tsc --noEmit --target es2022 --module esnext --moduleResolution bundler \
   --lib es2022,dom --types @cloudflare/workers-types --skipLibCheck src/worker.ts src/viewer.ts
 # From the repository root, requires local tmux:
 npm run test:terminal-share
+node test/terminal-share-upload.mjs
 # Manual live integration with the actual local Backend, using a private key file:
 TMAX_SHARE_CREATE_KEY_FILE=/private/path/key node test/terminal-share-live.mjs
 ```
@@ -81,7 +90,7 @@ creates the namespace/migration; attach the custom domain using the account
 Workers Domains API when the token cannot list Zone Workers Routes.
 
 Deploy the Controller using `scripts/push-image.sh`, then update Connectors to
-compatibility **29**, one machine at a time, following the root runbook. Check
+compatibility **31**, one machine at a time, following the root runbook. Check
 both Controller domains, the Worker health endpoint, and a real share. Roll back
 the Controller with its saved ECR tag and the Worker with a prior immutable
 version. Existing nonsharing Connector operations remain compatible.

@@ -40,6 +40,7 @@ export default {
     const target = action === 'status' || action === 'end' ? action : `connect/${action}`;
     const query = new URLSearchParams();
     if (url.searchParams.has('viewerToken')) query.set('viewerToken', url.searchParams.get('viewerToken')!);
+    if (url.searchParams.has('lines')) query.set('lines', url.searchParams.get('lines')!);
     return stub.fetch(new Request(`https://session.internal/${target}?${query}`, request));
   },
 };

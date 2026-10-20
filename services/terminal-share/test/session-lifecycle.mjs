@@ -16,6 +16,7 @@ function socket(attachment) {
   return {
     readyState: WebSocket.OPEN, messages: [], closed: null,
     deserializeAttachment: () => attachment,
+    serializeAttachment(value) { attachment = value; },
     send(data) { this.messages.push(data); },
     close(code, reason) { this.closed = { code, reason }; },
   };
@@ -107,6 +108,38 @@ test('snapshot routing survives hibernation and rejects replaced connection repl
   assert.equal(viewer.messages.length, 0);
   await session.webSocketMessage(host, frame('terminal.snapshot', { requestId: 'connection-1', data: 'prompt $ ' }));
   assert.equal(JSON.parse(viewer.messages[0]).payload.data, 'prompt $ ');
+});
+
+test('history selection gets a fresh request id and rejects the old snapshot', async () => {
+  const { session, host, viewer } = await fixture();
+  await session.webSocketMessage(viewer, frame('terminal.snapshot.request', { lines: 2000 }));
+  const request = JSON.parse(host.messages.at(-1));
+  assert.equal(request.payload.lines, 2000);
+  assert.notEqual(request.payload.requestId, 'connection-1');
+  await session.webSocketMessage(host, frame('terminal.snapshot', { requestId: 'connection-1', data: 'stale' }));
+  assert.equal(viewer.messages.length, 0);
+  await session.webSocketMessage(host, frame('terminal.snapshot', { requestId: request.payload.requestId, data: 'history' }));
+  assert.equal(JSON.parse(viewer.messages.at(-1)).payload.data, 'history');
+});
+
+test('uploads require current control, bind sender identity, and stop after revocation', async () => {
+  const { session, host, viewer } = await fixture();
+  const upload = frame('upload.start', { requestId: 'r1', id: 'file', size: 3, viewerId: 'spoofed' });
+  host.messages.length = 0;
+  await session.webSocketMessage(viewer, upload);
+  assert.equal(host.messages.length, 0);
+  assert.match(JSON.parse(viewer.messages.at(-1)).payload.error, /Take control/);
+  session.record.allowControl = true;
+  session.record.currentControllerId = 'viewer-1';
+  session.record.controlLeaseExpiresAt = Date.now() + 60000;
+  await session.webSocketMessage(viewer, upload);
+  assert.equal(JSON.parse(host.messages.at(-1)).payload.viewerId, 'viewer-1');
+  await session.webSocketMessage(host, frame('upload.result', { requestId: 'r1', viewerId: 'viewer-1', path: '/tmp/file' }));
+  assert.equal(JSON.parse(viewer.messages.at(-1)).payload.path, '/tmp/file');
+  await session.webSocketMessage(viewer, frame('control.release'));
+  host.messages.length = 0;
+  await session.webSocketMessage(viewer, frame('upload.chunk', { requestId: 'r2', id: 'file', data: 'YQ==', offset: 0 }));
+  assert.equal(host.messages.length, 0);
 });
 
 

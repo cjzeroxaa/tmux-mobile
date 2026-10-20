@@ -5,9 +5,18 @@ const control = document.querySelector<HTMLButtonElement>('#control')!;
 const keyboard = document.querySelector<HTMLButtonElement>('#keyboard')!;
 const keys = document.querySelector<HTMLElement>('#keys')!;
 const reconnect = document.querySelector<HTMLButtonElement>('#reconnect')!;
+const lines = document.querySelector('#lines')! as unknown as HTMLSelectElement;
+const uploadButton = document.querySelector<HTMLButtonElement>('#upload')!;
+const fileInput = document.querySelector<HTMLInputElement>('#files')!;
+const uploadStatus = document.querySelector<HTMLElement>('#upload-status')!;
+const attachment = document.querySelector<HTMLElement>('#attachment')!;
+const filePaths = document.querySelector<HTMLTextAreaElement>('#file-paths')!;
+const insertPaths = document.querySelector<HTMLButtonElement>('#insert-paths')!;
+let uploading = false;
+const uploads = new Map<string, { resolve: (value: any) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 const dark = matchMedia('(prefers-color-scheme: dark)');
 const theme = () => ({ background: dark.matches ? '#002b36' : '#fdf6e3', foreground: dark.matches ? '#93a1a1' : '#586e75', cursor: '#268bd2' });
-const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 2000, convertEol: false, disableStdin: true, theme: theme(), fontSize: 14 });
+const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 5000, convertEol: false, disableStdin: true, theme: theme(), fontSize: 14 });
 terminal.open(document.querySelector<HTMLElement>('#terminal')!);
 terminal.textarea!.setAttribute('inputmode', 'text');
 terminal.textarea!.setAttribute('enterkeyhint', 'enter');
@@ -34,8 +43,8 @@ function stop() {
   setWritable(false);
   control.disabled = true;
 }
-function send(type: string) {
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, payload: {} }));
+function send(type: string, payload: unknown = {}) {
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, payload }));
 }
 async function connect() {
   stop();
@@ -44,7 +53,7 @@ async function connect() {
   const current = generation;
   status.textContent = 'Connecting…';
   reconnect.hidden = true;
-  const query = new URLSearchParams({ token: capability, viewerToken });
+  const query = new URLSearchParams({ token: capability, viewerToken, lines: lines.value });
   request = new AbortController();
   try {
     const check = await fetch(`/api/session/${sessionId}/status?${query}`, { cache: 'no-store', signal: request.signal });
@@ -69,6 +78,14 @@ async function connect() {
       }
       let frame;
       try { frame = JSON.parse(event.data); } catch { return; }
+      if (frame.type === 'upload.result') {
+        const pending = uploads.get(frame.payload.requestId);
+        if (pending) {
+          clearTimeout(pending.timer); uploads.delete(frame.payload.requestId);
+          if (frame.payload.error) pending.reject(Error(frame.payload.error));
+          else pending.resolve(frame.payload);
+        }
+      }
       if (frame.type === 'terminal.snapshot') {
         const { size, data } = frame.payload;
         terminal.resize(size.cols, size.rows);
@@ -118,6 +135,15 @@ function setWritable(value: boolean) {
   canWrite = value;
   terminal.options.disableStdin = !value;
   keyboard.hidden = keys.hidden = !value;
+  uploadButton.hidden = !value;
+  uploadButton.disabled = !value || uploading;
+  insertPaths.disabled = !value;
+  if (!value) {
+    for (const pending of uploads.values()) {
+      clearTimeout(pending.timer); pending.reject(Error('Control lost; upload stopped'));
+    }
+    uploads.clear();
+  }
   if (!value) terminal.blur();
 }
 function focusKeyboard() {
@@ -138,7 +164,7 @@ viewport.addEventListener('pointerup', event => {
   const start = touch; touch = null;
   if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) < 10 && !getSelection()?.toString()) focusKeyboard();
 });
-const specialKeys: Record<string, string> = { esc: '\x1b', tab: '\t', interrupt: '\x03', up: '\x1b[A', down: '\x1b[B', left: '\x1b[D', right: '\x1b[C', enter: '\r' };
+const specialKeys: Record<string, string> = { esc: '\x1b', tab: '\t', interrupt: '\x03', eof: '\x04', clear: '\x0c', suspend: '\x1a', home: '\x1b[H', end: '\x1b[F', pageup: '\x1b[5~', pagedown: '\x1b[6~', up: '\x1b[A', down: '\x1b[B', left: '\x1b[D', right: '\x1b[C', enter: '\r' };
 keys.addEventListener('pointerdown', event => {
   // Keep the software keyboard open while tapping a special key.
   if ((event.target as Element).closest('button')) event.preventDefault();
@@ -147,7 +173,7 @@ keys.addEventListener('click', event => {
   const key = (event.target as Element).closest<HTMLButtonElement>('button')?.dataset.key;
   if (key && specialKeys[key]) {
     const value = specialKeys[key];
-    sendInput(terminal.modes.applicationCursorKeysMode && ["up", "down", "left", "right"].includes(key) ? value.replace("[", "O") : value);
+    sendInput(terminal.modes.applicationCursorKeysMode && ["up", "down", "left", "right", "home", "end"].includes(key) ? value.replace("[", "O") : value);
   }
 });
 function fitKeyboardViewport() {
@@ -156,6 +182,61 @@ function fitKeyboardViewport() {
 window.visualViewport?.addEventListener('resize', fitKeyboardViewport);
 fitKeyboardViewport();
 control.onclick = () => { send(canWrite ? 'control.release' : 'control.request'); };
+lines.onchange = () => send('terminal.snapshot.request', { lines: Number(lines.value) });
+function uploadRequest(type: string, payload: Record<string, unknown>): Promise<any> {
+  if (!canWrite || socket?.readyState !== WebSocket.OPEN) return Promise.reject(Error('Take control before uploading'));
+  const requestId = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { uploads.delete(requestId); reject(Error('Upload timed out. Check the Connector is updated.')); }, 60_000);
+    uploads.set(requestId, { resolve, reject, timer });
+    send(type, { ...payload, requestId });
+  });
+}
+async function uploadFiles(files: File[]) {
+  if (!files.length || uploading) return;
+  if (!canWrite) { uploadStatus.textContent = 'Take control before uploading'; return; }
+  uploading = true; uploadButton.disabled = true;
+  let id = '';
+  try {
+    for (const file of files) {
+      id = crypto.randomUUID();
+      uploadStatus.textContent = `Uploading ${file.name}…`;
+      await uploadRequest('upload.start', { id, name: file.name, size: file.size });
+      for (let offset = 0; offset < file.size; offset += 65536) {
+        const bytes = new Uint8Array(await file.slice(offset, offset + 65536).arrayBuffer());
+        const data = btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(''));
+        await uploadRequest('upload.chunk', { id, offset, data });
+        uploadStatus.textContent = `Uploading ${file.name} · ${Math.round(Math.min(offset + bytes.length, file.size) / file.size * 100)}%`;
+      }
+      const saved = await uploadRequest('upload.end', { id });
+      filePaths.value += (filePaths.value ? ' ' : '') + "'" + saved.path.replaceAll("'", "'\\''") + "'";
+      attachment.hidden = false;
+    }
+    uploadStatus.textContent = 'Uploaded. Insert the path when ready; Enter is not sent.';
+  } catch (error) {
+    uploadStatus.textContent = (error as Error).message;
+    if (canWrite) send('upload.cancel', { id, requestId: crypto.randomUUID() });
+  } finally { uploading = false; uploadButton.disabled = !canWrite; }
+}
+uploadButton.onclick = () => fileInput.click();
+fileInput.onchange = () => { const files = Array.from(fileInput.files || []); fileInput.value = ''; void uploadFiles(files); };
+insertPaths.onclick = () => {
+  if (!canWrite || !filePaths.value) return;
+  terminal.paste(filePaths.value);
+  filePaths.value = ''; attachment.hidden = true;
+  focusKeyboard();
+};
+document.querySelector<HTMLButtonElement>('#clear-paths')!.onclick = () => { filePaths.value = ''; attachment.hidden = true; };
+viewport.addEventListener('dragover', event => { if (event.dataTransfer?.types.includes('Files')) event.preventDefault(); });
+viewport.addEventListener('drop', event => {
+  if (!event.dataTransfer?.files.length) return;
+  event.preventDefault(); void uploadFiles(Array.from(event.dataTransfer.files));
+});
+document.addEventListener('paste', event => {
+  if (!event.clipboardData?.files.length) return;
+  event.preventDefault(); event.stopImmediatePropagation();
+  void uploadFiles(Array.from(event.clipboardData.files));
+}, true);
 reconnect.onclick = () => { attempts = 0; void connect(); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) { stop(); status.textContent = 'Paused'; } else { attempts = 0; void connect(); } });
 window.addEventListener('pagehide', stop);

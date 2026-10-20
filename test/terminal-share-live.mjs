@@ -16,6 +16,7 @@ const run=promisify(execFile);
 const command=dir+'/tmux';writeFileSync(command,`#!/bin/sh\nexec tmux -L ${socket} "$@"\n`,{mode:0o700});
 process.env.TMUX_MOBILE_TMUX_COMMAND=command;
 const backend=localBackend;
+process.env.TMUX_MOBILE_UPLOAD_DIR = dir + '/uploads';
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 async function until(fn,label){for(let i=0;i<100;i++){if(fn())return;await delay(100);}throw Error('Timed out: '+label);}
 function viewer(config){
@@ -60,9 +61,28 @@ try{
   if(allowControl)await until(()=>Buffer.concat(v.output).toString().includes(input),'browser input echoed');
   else{await delay(300);assert(!tmux('capture-pane','-p','-t',pane).includes(input));}
   if(allowControl){
-   const keys=Buffer.from([27,9,3,27,91,65,13]);
+   const keys=Buffer.from('\x1b\t\x03\x1b[A\r\x04\x0c\x1a\x1b[H\x1b[F\x1b[5~\x1b[6~');
    ws.send(Buffer.concat([Buffer.from([2]),keys]));
    await until(()=>Buffer.concat(v.output).toString().includes('BYTES:'+keys.toString('hex')),'ESC Tab Ctrl-C arrow Enter reach raw terminal unchanged');
+  }
+  const request = async (type, payload) => {
+   const requestId=crypto.randomUUID();
+   ws.send(JSON.stringify({type,payload:{...payload,requestId}}));
+   await until(()=>v.frames.some(f=>f.type==='upload.result'&&f.payload.requestId===requestId),type);
+   return v.frames.find(f=>f.type==='upload.result'&&f.payload.requestId===requestId).payload;
+  };
+  const content=Buffer.alloc(150000,0x5a);
+  const start=await request('upload.start',{id:'live-file',name:'../../live-file.bin',size:content.length});
+  if(!allowControl) assert.match(start.error,/Take control/);
+  else {
+   assert(!start.error);
+   for(let offset=0;offset<content.length;offset+=65536) {
+    const chunk=await request('upload.chunk',{id:'live-file',offset,data:content.subarray(offset,offset+65536).toString('base64')});
+    assert(!chunk.error);
+   }
+   const saved=await request('upload.end',{id:'live-file'});
+   assert.equal(saved.path,dir+'/uploads/live-file.bin');
+   assert.deepEqual(readFileSync(saved.path),content);
   }
   ws.close(); await until(()=>tmux('list-clients')==='','unsubscribe after viewer closes');
   v=viewer(config);ws=v.ws;await until(()=>v.frames.some(f=>f.type==='terminal.snapshot'),'reconnect snapshot');

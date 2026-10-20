@@ -6,7 +6,7 @@ export async function showTerminalShareDialog(call, copyText) {
   dialog.innerHTML = `<form method="dialog"><h2>Share terminal</h2><button class="cc-share-close" aria-label="Close">×</button></form>
     <p>Anyone with the link can view this terminal. Choose when the link expires, or stop sharing earlier.</p>
     <label class="cc-share-duration">Expires after <select data-share-duration><option value="86400">24 hours</option><option value="432000">5 days</option><option value="604800">7 days</option></select></label>
-    <label><input type="checkbox" data-share-control> Allow viewers to type and run commands</label>
+    <label><input type="checkbox" data-share-control checked> Allow viewers to type and run commands</label>
     <p data-share-status role="status">Loading…</p>
     <input data-share-url aria-label="Share link" readonly hidden>
     <div class="cc-share-actions"><button type="button" data-share-create disabled>Create link</button><button type="button" data-share-copy hidden>Copy link</button><a data-share-open target="_blank" rel="noopener noreferrer" hidden>Open</a><button type="button" data-share-stop hidden>Stop sharing</button></div>`;
@@ -25,7 +25,7 @@ export async function showTerminalShareDialog(call, copyText) {
   const request = action => call({ action, allowControl: checkbox.checked, ttlSeconds: Number(duration.value) });
   const render = data => {
     const active = Boolean(data.viewerUrl);
-    checkbox.checked = Boolean(data.allowControl);
+    checkbox.checked = active ? Boolean(data.allowControl) : true;
     checkbox.disabled = active;
     duration.disabled = active;
     if (active) duration.value = String(data.ttlSeconds || 86400);
@@ -33,7 +33,7 @@ export async function showTerminalShareDialog(call, copyText) {
     url.hidden = copy.hidden = open.hidden = stop.hidden = !active;
     url.value = data.viewerUrl || "";
     open.href = data.viewerUrl || "#";
-    status.textContent = active ? `Sharing ${data.allowControl ? "with control" : "view only"}. Expires ${new Date(data.expiresAt).toLocaleString()}.` : "Ready to create a view-only link.";
+    status.textContent = active ? `Sharing ${data.allowControl ? "with control" : "view only"}. Expires ${new Date(data.expiresAt).toLocaleString()}.` : "Ready to share. Viewers can request control; uncheck to make the link view-only.";
   };
   const run = async action => {
     if (busy) return;
@@ -50,4 +50,3 @@ export async function showTerminalShareDialog(call, copyText) {
   };
   await run("status");
 }
-
