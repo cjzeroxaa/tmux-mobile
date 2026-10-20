@@ -1,5 +1,6 @@
 import { Terminal } from '@xterm/xterm';
 import { createViewportFollow } from './viewport';
+import { installHistoryFill } from './history-fill';
 import { installMobileInput } from './mobile-input';
 const status = document.querySelector<HTMLElement>('#status')!;
 const note = document.querySelector<HTMLElement>('#note')!;
@@ -22,6 +23,7 @@ const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 5000, convertEol
 terminal.open(document.querySelector<HTMLElement>('#terminal')!);
 const viewport = document.querySelector<HTMLElement>('#viewport')!;
 const follow = createViewportFollow(viewport, terminal, callback => requestAnimationFrame(callback));
+const historyFill = installHistoryFill(viewport, terminal, follow.changed);
 viewport.addEventListener('scroll', follow.scrolled, { passive: true });
 terminal.onScroll(follow.innerScrolled);
 viewport.addEventListener('wheel', event => {
@@ -41,7 +43,7 @@ new ResizeObserver(follow.changed).observe(viewport);
 new ResizeObserver(follow.changed).observe(document.querySelector<HTMLElement>('#terminal')!);
 terminal.textarea!.setAttribute('inputmode', 'text');
 terminal.textarea!.setAttribute('enterkeyhint', 'enter');
-dark.addEventListener('change', () => { terminal.options.theme = theme(); });
+dark.addEventListener('change', () => { terminal.options.theme = theme(); historyFill.refresh(); });
 const sessionId = location.pathname.match(/^\/s\/([0-9a-f-]{36})$/)?.[1];
 const capability = location.hash.slice(1);
 let socket: WebSocket | null = null;
