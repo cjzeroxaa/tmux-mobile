@@ -5,8 +5,8 @@
 
 select,textarea{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px}select{min-height:40px;padding:4px}#attachment{display:flex;gap:8px;padding:8px 12px;align-items:center}#file-paths{flex:1;min-width:0;padding:8px;font-size:16px}#upload-status:not(:empty){padding:6px 12px;font-size:12px;overflow-wrap:anywhere}#keys{flex-wrap:nowrap;overflow-y:hidden}header label{white-space:nowrap}
 
-/* Keep a short remote terminal against the bottom. For a taller terminal,
-   auto margins collapse to zero and the outer viewport remains scrollable. */
+/* Anchor the remote screen at the top. Output following is handled by
+   viewport.ts; bottom alignment only turns spare space into a blank header. */
 #viewport{display:flex;flex-direction:column;overflow-anchor:none}
-#terminal{flex:0 0 auto;margin-top:auto}
+#terminal{flex:0 0 auto}
 header,footer,#attachment,#upload-status{flex-shrink:0}
