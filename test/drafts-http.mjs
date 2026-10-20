@@ -76,6 +76,14 @@ try {
   assert.equal((await fetch(api + "/skills/tmax-drafts/SKILL.md")).status, 200);
   assert.equal((await fetch(api + "/skills/install.mjs")).status, 200);
   assert.equal((await fetch(api + "/skills/tmax-drafts/manifest.json")).status, 200);
+  for (const file of ["SKILL.md", "manifest.json", "scripts/create-session.py"]) {
+    assert.equal((await fetch(api + "/skills/tmax-start-agent/" + file)).status, 200);
+  }
+  const skills = JSON.parse((await exec(process.execPath, ["public/skills/install.mjs", "--api", api], {
+    env: { ...process.env, CODEX_HOME: path.join(temp, 'codex'), CLAUDE_CONFIG_DIR: path.join(temp, 'claude'), PI_CODING_AGENT_DIR: path.join(temp, 'pi') },
+  })).stdout);
+  assert.deepEqual(skills.skills.map(x => x.skill), ['tmax-drafts', 'tmax-start-agent']);
+  assert.ok(skills.skills.every(x => x.installations.length === 3));
   const config = path.join(temp, "agent.json");
   await writeFile(
     config,

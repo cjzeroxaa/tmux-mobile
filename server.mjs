@@ -5697,7 +5697,7 @@ if (MODE.kind === "register") {
         return;
       }
 
-      if (url.pathname === "/draft-client.mjs" || url.pathname === "/skills/install.mjs" || url.pathname.startsWith("/skills/tmax-drafts/")) {
+      if (url.pathname === "/draft-client.mjs" || url.pathname === "/skills/install.mjs" || url.pathname.startsWith("/skills/tmax-drafts/") || url.pathname.startsWith("/skills/tmax-start-agent/")) {
         if (["GET","HEAD"].includes(req.method)) { await serveStatic(req,res,url); return; }
       }
       if (url.pathname === DRAFT_UPLOAD_PATH) {

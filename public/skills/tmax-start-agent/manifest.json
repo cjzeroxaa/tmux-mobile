@@ -1,0 +1,7 @@
+{
+  "name": "tmax-start-agent",
+  "files": {
+    "scripts/create-session.py": "48ac9cb2356b9666ee7b3ec1050300f74892f696266f37eb5529abd18ef49a6a",
+    "SKILL.md": "c9400a180a89f4e8fa515e655c56e8ba875ab9359cda9413d5f1810d82a920aa"
+  }
+}

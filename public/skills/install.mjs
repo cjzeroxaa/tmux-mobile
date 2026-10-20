@@ -1,13 +1,15 @@
 #!/usr/bin/env node
-// Install the repository-owned T-Max Skill for Codex, Claude Code and Pi.
+// Install the repository-owned T-Max Skills for Codex, Claude Code and Pi.
 import { readFile, writeFile, mkdir, lstat, rename, rm, mkdtemp, cp, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 const hash = value => createHash('sha256').update(value).digest('hex');
-export async function installSkills({ source, api = 'https://eng.xyznot.com', verify = false, env = process.env, home = os.homedir() } = {}) {
-  const base = new URL('/skills/tmax-drafts/', api);
+export const supportedSkills = ['tmax-drafts', 'tmax-start-agent'];
+export async function installSkills({ source, skill = 'tmax-drafts', api = 'https://eng.xyznot.com', verify = false, env = process.env, home = os.homedir() } = {}) {
+  if (!supportedSkills.includes(skill)) throw new Error('Unknown Skill: ' + skill);
+  const base = new URL(`/skills/${skill}/`, api);
   async function read(name) {
     if (source) return readFile(path.join(source, name));
     const response = await fetch(new URL(name, base), { signal: AbortSignal.timeout(30000), redirect: 'error' });
@@ -15,7 +17,7 @@ export async function installSkills({ source, api = 'https://eng.xyznot.com', ve
     return Buffer.from(await response.arrayBuffer());
   }
   const manifest = JSON.parse(await read('manifest.json'));
-  if (manifest.name !== 'tmax-drafts' || !manifest.files?.['SKILL.md']) throw new Error('Invalid Skill manifest');
+  if (manifest.name !== skill || !manifest.files?.['SKILL.md']) throw new Error('Invalid Skill manifest');
   const entries = Object.entries(manifest.files);
   if (entries.length > 100) throw new Error('Oversized Skill manifest');
   const contents = new Map();
@@ -45,9 +47,9 @@ export async function installSkills({ source, api = 'https://eng.xyznot.com', ve
     }
     if (!matches && verify) throw new Error(`Installed Skill differs: ${directory}`);
     if (!matches) {
-      if (existing && !/^name: tmax-drafts\s*$/m.test(await readFile(path.join(directory, 'SKILL.md'), 'utf8'))) throw new Error(`Refusing to overwrite unrelated Skill: ${directory}`);
+      if (existing && !new RegExp('^name: ' + skill + '\\s*$', 'm').test(await readFile(path.join(directory, 'SKILL.md'), 'utf8'))) throw new Error(`Refusing to overwrite unrelated Skill: ${directory}`);
       await mkdir(path.dirname(directory), { recursive: true });
-      const temporary = await mkdtemp(path.join(path.dirname(directory), '.tmax-drafts-'));
+      const temporary = await mkdtemp(path.join(path.dirname(directory), '.' + skill + '-'));
       const backup = temporary + '-previous';
       let moved = false;
       try {
@@ -84,9 +86,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(await realpath(process.
     while (args.length) {
       const key = args.shift();
       if (key === '--verify') options.verify = true;
-      else if ((key === '--source' || key === '--api') && args[0]) options[key.slice(2)] = args.shift();
-      else throw new Error('Usage: node install.mjs [--api https://eng.xyznot.com | --source DIRECTORY] [--verify]');
+      else if ((key === '--source' || key === '--api' || key === '--skill') && args[0]) options[key.slice(2)] = args.shift();
+      else throw new Error('Usage: node install.mjs [--api https://eng.xyznot.com | --source DIRECTORY] [--skill tmax-drafts|tmax-start-agent|all] [--verify]');
     }
-    console.log(JSON.stringify(await installSkills(options), null, 2));
+    if (options.skill === 'all' || (!options.skill && !options.source)) {
+      if (options.source) throw new Error('--source requires one explicit Skill, not all');
+      const skills = [];
+      for (const skill of supportedSkills) skills.push(await installSkills({ ...options, skill }));
+      console.log(JSON.stringify({ skills }, null, 2));
+    } else console.log(JSON.stringify(await installSkills(options), null, 2));
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

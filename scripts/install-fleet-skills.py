@@ -22,6 +22,7 @@ p.add_argument('--cookie-file', required=True)
 p.add_argument('--api', default='https://eng.xyznot.com')
 p.add_argument('--receipts', required=True)
 p.add_argument('--machine', help='Optional exact hostname to install first')
+p.add_argument('--skill', choices=['tmax-drafts', 'tmax-start-agent'], default='tmax-drafts')
 p.add_argument('--local-installer', action='store_true', help='Copy the checked-out installer through the Connector instead of downloading it')
 a = p.parse_args()
 cookie_path = Path(a.cookie_file)
@@ -32,7 +33,7 @@ out = Path(a.receipts)
 out.mkdir(parents=True, exist_ok=True)
 repository = Path(__file__).resolve().parent.parent
 installer_hash = hashlib.sha256((repository / 'public/skills/install.mjs').read_bytes()).hexdigest()
-manifest = json.loads((repository / 'public/skills/tmax-drafts/manifest.json').read_text())
+manifest = json.loads((repository / 'public/skills' / a.skill / 'manifest.json').read_text())
 expected = hashlib.sha256(json.dumps(manifest['files'], separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
 
 def call(route, data=None, machine=None, method=None):
@@ -81,8 +82,8 @@ for machine in machines:
             'umask 077',
             download,
             node + ' -e ' + shlex.quote(check) + ' ' + shlex.quote(script) + ' ' + installer_hash,
-            node + ' ' + shlex.quote(script) + ' --api ' + shlex.quote(a.api) + ' > ' + shlex.quote(log) + ' 2>&1',
-            node + ' ' + shlex.quote(script) + ' --api ' + shlex.quote(a.api) + ' --verify > ' + shlex.quote(receipt) + ' 2>> ' + shlex.quote(log),
+            node + ' ' + shlex.quote(script) + ' --skill ' + shlex.quote(a.skill) + ' --api ' + shlex.quote(a.api) + ' > ' + shlex.quote(log) + ' 2>&1',
+            node + ' ' + shlex.quote(script) + ' --skill ' + shlex.quote(a.skill) + ' --api ' + shlex.quote(a.api) + ' --verify > ' + shlex.quote(receipt) + ' 2>> ' + shlex.quote(log),
             'rm -f ' + shlex.quote(script),
         ])
         call('/api/send', {'paneId': pane, 'text': 'sh -c ' + shlex.quote(shell), 'enter': True}, machine)

@@ -244,10 +244,12 @@ Run `node test/drafts.mjs` and `node test/drafts-http.mjs` for storage, concurre
 writes, idempotent publishing, permissions, real CLI/API integration and history.
 The content iframe uses CSP sandboxing without same-origin capability.
 
-### Install the generation Skill on machines
+### Install the T-Max Skills on machines
 
-The authoritative Skill is checked in under `public/skills/tmax-drafts/`.
-After changing it, run `npm run build:skills` and commit the manifest with the
+The authoritative Skills are checked in under `public/skills/tmax-drafts/` and
+`public/skills/tmax-start-agent/`. The latter creates named Claude/Codex sessions,
+preserves shell aliases, handles folder trust and verifies readiness using tmux only.
+After changing either Skill, run `npm run build:skills` and commit the manifest with the
 source. `npm run test:skills` checks it and tests the installer.
 
 Install or update for all three agents on a machine without restarting them:
@@ -261,7 +263,8 @@ node /tmp/tmax-install-skills.mjs --verify
 The installer verifies every source hash before writing, then reads the installed
 files back. It installs to `~/.codex/skills`, `~/.claude/skills`, and
 `~/.pi/agent/skills`, honoring `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and
-`PI_CODING_AGENT_DIR`. `--source public/skills/tmax-drafts` installs from a checkout;
+`PI_CODING_AGENT_DIR`. `--skill tmax-start-agent --source public/skills/tmax-start-agent` installs one
+Skill from a checkout; without `--skill`, the hosted installer installs both.
 `--api` chooses a different Host. Existing unrelated files are preserved.
 Codex can discover the Skill on its next turn; start a new Claude session if it
 has not refreshed its Skill list, and use `/reload` in an existing Pi session.
@@ -271,12 +274,13 @@ remove only that temporary session. Offline machines must be reported separately
 
 ### Standing instruction: complete fleet synchronization inventory (2026-10-18)
 
-Two separate items must stay synchronized. Never omit the global instruction
+Two categories must stay synchronized: repository-owned Skills and global instructions. Never omit the global instruction
 files when reporting fleet configuration:
 
 | Item | Authoritative source | Required entries on every machine |
 | --- | --- | --- |
 | `tmax-drafts` Skill and bundled references/assets | `public/skills/tmax-drafts/` in this repository | Codex, Claude Code and Pi Skill directories |
+| `tmax-start-agent` Skill and its session helper | `public/skills/tmax-start-agent/` in this repository | Codex, Claude Code and Pi Skill directories |
 | Shared global Agent instructions | `~/.config/agent-instructions/AGENTS.md` on the machine where the owner requests the edit | `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`, `~/.pi/agent/AGENTS.md` must be symlinks to each machine's copy of the canonical file |
 
 Honor `CODEX_HOME`, `CLAUDE_CONFIG_DIR` and `PI_CODING_AGENT_DIR`. A change to the
@@ -297,7 +301,7 @@ these file-only changes. New Agent sessions reliably load updated instructions.
 
 ### Skill publication procedure
 
-The owner explicitly requires every future change to `tmax-drafts` to be
+The owner explicitly requires every future change to `tmax-drafts` or `tmax-start-agent` to be
 published to **all T-Max machines and all three coding agents: Codex, Claude
 Code and Pi**. A local install, Git push, or Web release alone is not completion.
 This fleet installation is authorized as part of each Skill change; do not ask
@@ -308,8 +312,9 @@ for the same approval again.
 2. Publish the matching hosted Skill files and installer. Preserve both domains.
 3. Read the complete machine inventory using super-admin access. Run the installer
    on each online machine, including machines owned by the owner's other account.
-   Use `scripts/install-fleet-skills.py --cookie-file <0600-cookie-header-file>
-   --receipts <private-directory>`. `--local-installer` copies the checked-in
+   Run `scripts/install-fleet-skills.py --cookie-file <0600-cookie-header-file>
+   --skill <skill-name> --receipts <private-directory>` for each Skill; unchanged
+   files are verified without replacing them. `--local-installer` copies the checked-in
    installer through each Connector when needed; it still verifies its hash.
 4. Require matching source hashes in the read-back receipts for Codex, Claude
    Code and Pi on every target. Preserve active sessions; use temporary shell

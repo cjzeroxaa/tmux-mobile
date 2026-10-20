@@ -20,6 +20,18 @@ try {
   assert.equal(first.installations.length, 3);
   assert.ok(first.installations.every(x => x.status === 'installed' && x.files === 6));
   assert.equal(first.installations[2].directory, path.join(root,'custom-pi/skills/tmax-drafts'));
+  const startSource = fileURLToPath(new URL('../public/skills/tmax-start-agent', import.meta.url));
+  const startOptions = { ...options, source: startSource, skill: 'tmax-start-agent' };
+  const started = await installSkills(startOptions);
+  assert.ok(started.installations.every(x => x.status === 'installed' && x.files === 2));
+  assert.ok((await installSkills({ ...startOptions, verify: true })).installations.every(x => x.status === 'verified'));
+  await writeFile(path.join(started.installations[0].directory, 'scripts/create-session.py'), 'old');
+  await assert.rejects(installSkills({ ...startOptions, verify: true }), /differs/);
+  await installSkills(startOptions);
+  assert.equal((await installSkills({ ...startOptions, verify: true })).sha256, started.sha256);
+  await assert.rejects(installSkills({ ...startOptions, skill: '../escape' }), /Unknown Skill/);
+  await assert.rejects(installSkills({ ...startOptions, source }), /Invalid Skill manifest/);
+  assert.ok((await installSkills({ ...options, verify: true })).installations.every(x => x.status === 'verified'), 'installing the second skill preserves the first');
   const entry = first.installations[0].directory;
   await writeFile(path.join(entry, 'personal-note.txt'), 'keep');
   const again = await installSkills(options);
