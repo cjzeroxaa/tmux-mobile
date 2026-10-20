@@ -5,6 +5,10 @@ import { installMobileInput } from './mobile-input';
 const status = document.querySelector<HTMLElement>('#status')!;
 const note = document.querySelector<HTMLElement>('#note')!;
 const control = document.querySelector<HTMLButtonElement>('#control')!;
+const controlNotice = document.querySelector<HTMLElement>('#control-notice')!;
+const noticeTitle = document.querySelector<HTMLElement>('#control-notice-title')!;
+const noticeDetail = document.querySelector<HTMLElement>('#control-notice-detail')!;
+const noticeControl = document.querySelector<HTMLButtonElement>('#notice-take-control')!;
 const keyboard = document.querySelector<HTMLButtonElement>('#keyboard')!;
 const keys = document.querySelector<HTMLElement>('#keys')!;
 const reconnect = document.querySelector<HTMLButtonElement>('#reconnect')!;
@@ -41,6 +45,7 @@ viewport.addEventListener('keydown', event => {
 });
 new ResizeObserver(follow.changed).observe(viewport);
 new ResizeObserver(follow.changed).observe(document.querySelector<HTMLElement>('#terminal')!);
+terminal.textarea!.readOnly = true;
 terminal.textarea!.setAttribute('inputmode', 'text');
 terminal.textarea!.setAttribute('enterkeyhint', 'enter');
 dark.addEventListener('change', () => { terminal.options.theme = theme(); historyFill.refresh(); });
@@ -65,6 +70,7 @@ function stop() {
   old?.close();
   setWritable(false);
   control.disabled = true;
+  updateControlNotice();
 }
 function send(type: string, payload: unknown = {}) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, payload }));
@@ -133,6 +139,7 @@ async function connect() {
         control.disabled = !s.hostConnected || Boolean(s.controllerViewerId && !canWrite) || Boolean(s.pendingControlRequest);
         control.textContent = canWrite ? 'Release control' : 'Take control';
         note.textContent = s.allowControl ? 'Ctrl + Shift + Enter: take or release control. On phones, take control then tap Keyboard. Only one viewer can type at a time.' : 'View-only link. Keyboard input is disabled.';
+        updateControlNotice();
         if (ended) stop();
       }
     };
@@ -146,6 +153,7 @@ function schedule() {
   if (document.hidden || ended) return;
   status.textContent = 'Disconnected';
   reconnect.hidden = false;
+  updateControlNotice();
   if (++attempts <= 8) retry = setTimeout(() => void connect(), Math.min(1000 * 2 ** attempts, 15000));
 }
 function sendInput(value: string) {
@@ -161,9 +169,21 @@ terminal.onData(sendInput);
 const mobileInput = navigator.maxTouchPoints > 0
   ? installMobileInput(terminal.textarea!, terminal.element!, sendInput, () => canWrite)
   : null;
+function updateControlNotice() {
+  controlNotice.hidden = canWrite;
+  document.body.dataset.control = canWrite ? 'active' : 'none';
+  noticeControl.hidden = control.hidden;
+  noticeControl.disabled = control.disabled;
+  noticeTitle.textContent = control.hidden && ended ? 'Sharing stopped — input is off' : 'No control — input is off';
+  noticeDetail.textContent = control.hidden ? 'This terminal is read-only. Typing and voice input will not be sent.' : 'Typing and voice input will not be sent. Take control first.';
+}
 function setWritable(value: boolean) {
   canWrite = value;
   terminal.options.disableStdin = !value;
+  // Prevent mobile keyboards/dictation from opening on a read-only terminal.
+  // Keep focus available for selection and local history keyboard shortcuts.
+  terminal.textarea!.readOnly = !value;
+  terminal.textarea!.setAttribute('aria-label', value ? 'Terminal input' : 'Read-only terminal — take control to type');
   keyboard.hidden = keys.hidden = !value;
   uploadButton.hidden = !value;
   uploadButton.disabled = !value || uploading;
@@ -176,6 +196,7 @@ function setWritable(value: boolean) {
     uploads.clear();
   }
   if (!value) terminal.blur();
+  updateControlNotice();
 }
 function focusKeyboard() {
   if (!canWrite) return;
@@ -216,9 +237,11 @@ fitKeyboardViewport();
 function toggleControl() {
   if (control.hidden || control.disabled || socket?.readyState !== WebSocket.OPEN) return;
   control.disabled = true;
+  updateControlNotice();
   send(canWrite ? 'control.release' : 'control.request');
 }
 control.onclick = toggleControl;
+noticeControl.onclick = toggleControl;
 control.title = 'Take or release control (Ctrl + Shift + Enter)';
 control.setAttribute('aria-keyshortcuts', 'Control+Shift+Enter');
 document.addEventListener('keydown', event => {
