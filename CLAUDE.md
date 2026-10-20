@@ -244,6 +244,17 @@ Run `node test/drafts.mjs` and `node test/drafts-http.mjs` for storage, concurre
 writes, idempotent publishing, permissions, real CLI/API integration and history.
 The content iframe uses CSP sandboxing without same-origin capability.
 
+### New-machine initialization is a complete configuration task
+
+For every new or reinstalled T-Max machine, follow
+[`docs/new-machine-setup.md`](docs/new-machine-setup.md). A connected Connector or
+installed agent CLI is not sufficient. Install all maintained T-Max Skills for
+Codex, Claude Code and Pi; install the owner-approved private global document;
+create all three instruction symlinks; verify source hashes, link targets and
+Connector health. Use `cj-setup` for baseline workstation preparation when
+available, then complete the T-Max checklist. Record missing authentication or
+offline machines explicitly instead of reporting setup complete.
+
 ### Install the T-Max Skills on machines
 
 The authoritative Skills are checked in under `public/skills/tmax-drafts/`,
