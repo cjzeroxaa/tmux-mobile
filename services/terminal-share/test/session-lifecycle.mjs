@@ -216,7 +216,7 @@ test('owner-enabled control grants one viewer, releases on disconnect, and canno
   assert.equal(response.status, 410);
 });
 
-for (const days of [1, 5, 7]) test(`${days}-day expiry survives hibernation and ends exactly at its deadline`, async () => {
+for (const days of [600 / 86400, 1, 5, 7]) test(`${days}-day expiry survives hibernation and ends exactly at its deadline`, async () => {
   const { session, store } = await fixture();
   session.record.state = 'idle';
   const expiresAt = Date.now() + days * 86400000;

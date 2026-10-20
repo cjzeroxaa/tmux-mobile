@@ -10,10 +10,13 @@ export default {
     if (!env.CREATE_KEY) return new Response('Sharing is not configured', { status: 503 });
     if (url.pathname === '/api/session' && request.method === 'POST') {
       if (request.headers.get('authorization') !== `Bearer ${env.CREATE_KEY}`) return new Response('Unauthorized', { status: 401 });
-      let options: { allowControl?: boolean; ttlSeconds?: number };
+      let options: { allowControl?: boolean; ttlSeconds?: number; temporary?: boolean };
       try { options = JSON.parse(await request.text()); } catch { return new Response('Invalid JSON', { status: 400 }); }
       const ttlSeconds = options?.ttlSeconds ?? 86400;
-      if (!options || ![86400, 432000, 604800].includes(ttlSeconds)) return new Response("Choose 24 hours, 5 days or 7 days", { status: 400 });
+      const validDuration = options?.temporary === true
+        ? Number.isInteger(ttlSeconds) && ttlSeconds >= 600 && ttlSeconds <= 604800
+        : [600, 86400, 432000, 604800].includes(ttlSeconds);
+      if (!options || !validDuration) return new Response("Choose 10 minutes, 24 hours, 5 days or 7 days", { status: 400 });
       const sessionId = crypto.randomUUID();
       const exp = Date.now() + ttlSeconds * 1000;
       const stub = env.TTY_SESSION.get(env.TTY_SESSION.idFromName(sessionId));

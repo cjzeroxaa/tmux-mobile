@@ -1,3 +1,4 @@
+import { temporaryTerminals } from "./lib/temporary-terminals.mjs";
 import { createDraftStore } from "./lib/draft-store.mjs";
 import { createDrafts, DRAFT_UPLOAD_PATH, MAX_DRAFT_BYTES } from "./lib/drafts.mjs";
 import { handleDraftHttp } from "./lib/draft-http.mjs";
@@ -4290,6 +4291,24 @@ async function submitPaneText(body) {
   };
 }
 
+async function startTerminalShare(backend, { target, allowControl, ttlSeconds, temporary = false }) {
+  if (!process.env.SESSION_SECRET) throw Object.assign(new Error("Terminal sharing is not configured"), { status: 503 });
+  const createKey = createHmac("sha256", process.env.SESSION_SECRET).update("tmax-terminal-share-v1").digest("hex");
+  const response = await fetch("https://share.xyznot.com/api/session", {
+    method: "POST",
+    headers: { authorization: `Bearer ${createKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ allowControl, ttlSeconds, temporary }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) throw Object.assign(new Error("Could not create terminal share"), { status: 502 });
+  const config = await response.json();
+  try { return await backend.terminalShare({ action: "start", target, config }); }
+  catch (error) {
+    await fetch(config.stopUrl, { method: "POST", signal: AbortSignal.timeout(5000) }).catch(() => {});
+    throw error;
+  }
+}
+
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
     sendJson(res, 200, {
@@ -4519,6 +4538,24 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (url.pathname === "/api/temporary-terminals" && ["GET", "POST"].includes(req.method)) {
+    const backend = currentBackend();
+    if (currentWindowRuntime().kind !== "tmux") {
+      sendJson(res, 400, { error: "Temporary terminals require tmux" }); return;
+    }
+    if (typeof backend.terminalShare !== "function" || (backend.supportsOp && !backend.supportsOp(OP.TERMINAL_SHARE))) {
+      sendJson(res, 501, { error: "Update this machine's Connector to enable terminal sharing" }); return;
+    }
+    const manager = temporaryTerminals(backend, options => startTerminalShare(backend, options));
+    res.setHeader("cache-control", "no-store");
+    if (req.method === "GET") sendJson(res, 200, { terminals: await manager.list() });
+    else {
+      const body = await readJsonBody(req);
+      sendJson(res, 200, await manager.run(body.action, body.id));
+    }
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/terminal-share") {
     const body = await readJsonBody(req);
     const backend = currentBackend();
@@ -4541,8 +4578,8 @@ async function handleApi(req, res, url) {
       return;
     }
     const ttlSeconds = body.ttlSeconds ?? 86400;
-    if (![86400, 432000, 604800].includes(ttlSeconds)) {
-      sendJson(res, 400, { error: "Choose 24 hours, 5 days or 7 days" });
+    if (![600, 86400, 432000, 604800].includes(ttlSeconds)) {
+      sendJson(res, 400, { error: "Choose 10 minutes, 24 hours, 5 days or 7 days" });
       return;
     }
     const existing = await backend.terminalShare({ action: "status", target });
@@ -4550,28 +4587,7 @@ async function handleApi(req, res, url) {
       sendJson(res, 200, existing);
       return;
     }
-    if (!process.env.SESSION_SECRET) {
-      sendJson(res, 503, { error: "Terminal sharing is not configured" });
-      return;
-    }
-    const createKey = createHmac("sha256", process.env.SESSION_SECRET).update("tmax-terminal-share-v1").digest("hex");
-    const response = await fetch("https://share.xyznot.com/api/session", {
-      method: "POST",
-      headers: { authorization: `Bearer ${createKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ allowControl: body.allowControl === true, ttlSeconds }),
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!response.ok) {
-      sendJson(res, 502, { error: "Could not create terminal share" });
-      return;
-    }
-    const config = await response.json();
-    try {
-      sendJson(res, 200, await backend.terminalShare({ action: "start", target, config }));
-    } catch (error) {
-      await fetch(config.stopUrl, { method: "POST", signal: AbortSignal.timeout(5000) }).catch(() => {});
-      throw error;
-    }
+    sendJson(res, 200, await startTerminalShare(backend, { target, allowControl: body.allowControl === true, ttlSeconds }));
     return;
   }
 
@@ -5266,6 +5282,7 @@ async function serveStatic(req, res, url) {
   ) {
     pathname = "/spa.html";
   }
+  if (pathname === "/temporary-terminals") pathname = "/temporary-terminals.html";
   if (pathname === "/drafts") pathname = "/drafts.html";
   if (pathname === "/reports") pathname = "/reports.html";
   if (pathname === "/conversation") pathname = "/conversation.html";

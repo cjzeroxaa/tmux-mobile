@@ -23,7 +23,7 @@ function fixture() {
   return { create, calls };
 }
 test('default/5/7-day shares bind the same deadline to DO and signed capabilities', async () => {
-  for (const ttlSeconds of [undefined, 432000, 604800]) {
+  for (const ttlSeconds of [600, undefined, 432000, 604800]) {
     const { create, calls } = fixture(); const before = Date.now();
     const response = await create({ ttlSeconds, allowControl: true });
     assert.equal(response.status, 200); const share = await response.json();
@@ -42,4 +42,19 @@ test('invalid durations never allocate a Durable Object', async () => {
     assert.equal((await create(body)).status, 400);
   }
   assert.equal(calls.length, 0);
+});
+
+test('temporary renewals allow bounded additive durations and bind expiry', async () => {
+  const { create, calls } = fixture();
+  for (const ttlSeconds of [600, 1199, 1800]) {
+    const response = await create({temporary: true, ttlSeconds, allowControl: true});
+    assert.equal(response.status, 200);
+    const share = await response.json();
+    assert.equal(share.ttlSeconds, ttlSeconds);
+    assert.equal(calls.at(-1).body.expiresAt, share.expiresAt);
+    assert(await verifyCapability('test-only', new URL(share.viewerUrl).hash.slice(1), share.sessionId, 'viewer'));
+  }
+  for (const ttlSeconds of [0, 599, 600.5, 604801, '600']) {
+    assert.equal((await create({temporary: true, ttlSeconds})).status, 400);
+  }
 });

@@ -4445,6 +4445,12 @@ els.interactBackdrop?.addEventListener("click", closeInteract);
 els.interactVoiceButton?.addEventListener("click", toggleInteractVoiceRecording);
 els.interactSubmitVoice?.addEventListener("click", submitInteractVoiceRecording);
 els.interactCancelVoice?.addEventListener("click", cancelInteractVoiceRecording);
+document.getElementById("ccTemporaryTerminal")?.addEventListener("click", event => {
+  const machine = contextStartAgentMachine();
+  const query = machine ? `?machineId=${encodeURIComponent(machineKey(machine))}` : "";
+  event.currentTarget.href = `/temporary-terminals${query}`;
+  if (els.moreMenu) els.moreMenu.open = false;
+});
 els.startAgentOpen?.addEventListener("click", () => openStartAgent());
 els.startAgentBackdrop?.addEventListener("click", closeStartAgent);
 els.startAgentClose?.addEventListener("click", closeStartAgent);

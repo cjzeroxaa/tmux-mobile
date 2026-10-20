@@ -5,7 +5,7 @@ export async function showTerminalShareDialog(call, copyText) {
   dialog.className = "cc-share-dialog";
   dialog.innerHTML = `<form method="dialog"><h2>Share terminal</h2><button class="cc-share-close" aria-label="Close">×</button></form>
     <p>Anyone with the link can view this terminal. Choose when the link expires, or stop sharing earlier.</p>
-    <label class="cc-share-duration">Expires after <select data-share-duration><option value="86400">24 hours</option><option value="432000">5 days</option><option value="604800">7 days</option></select></label>
+    <label class="cc-share-duration">Expires after <select data-share-duration><option value="600">10 minutes</option><option value="86400" selected>24 hours</option><option value="432000">5 days</option><option value="604800">7 days</option></select></label>
     <label><input type="checkbox" data-share-control checked> Allow viewers to type and run commands</label>
     <p data-share-status role="status">Loading…</p>
     <input data-share-url aria-label="Share link" readonly hidden>
@@ -28,7 +28,11 @@ export async function showTerminalShareDialog(call, copyText) {
     checkbox.checked = active ? Boolean(data.allowControl) : true;
     checkbox.disabled = active;
     duration.disabled = active;
-    if (active) duration.value = String(data.ttlSeconds || 86400);
+    if (active) {
+      const value = String(data.ttlSeconds || 86400);
+      if (![...duration.options].some(option => option.value === value)) duration.add(new Option(`${Math.ceil(Number(value) / 60)} minutes`, value));
+      duration.value = value;
+    } else if (!["600", "86400", "432000", "604800"].includes(duration.value)) duration.value = "86400";
     create.hidden = active;
     url.hidden = copy.hidden = open.hidden = stop.hidden = !active;
     url.value = data.viewerUrl || "";

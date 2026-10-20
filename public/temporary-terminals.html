@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
+  <script>try { const t=JSON.parse(localStorage.getItem('tmux-mobile-theme')||'{}').theme; if(t && t!=='auto') document.documentElement.dataset.theme=t==='kami'?'kami':'dark'; } catch {}</script>
+  <title>Temporary terminal · T-Max</title>
+  <link rel="icon" href="/icon-192.png"><link rel="stylesheet" href="/paper-theme.css?v=1">
+  <link rel="stylesheet" href="/temporary-terminals.css"><script type="module" src="/temporary-terminals.js"></script>
+</head>
+<body>
+  <header><a href="/command-center">← Sessions</a><h1>Temporary terminal</h1></header>
+  <main>
+    <section id="chooser">
+      <p>Open a shell for sign-in or other manual commands. Sharing expires after 10 minutes; your shell stays open.</p>
+      <div class="controls"><label for="machine">Machine</label><select id="machine" disabled></select><button id="create" disabled>New 10-minute terminal</button><button id="refresh" disabled>Refresh</button></div>
+      <ul id="terminals" aria-label="Existing temporary terminals"></ul>
+    </section>
+    <p id="status" role="status">Loading machines…</p>
+    <section id="workspace" hidden>
+      <div class="controls terminal-toolbar"><strong id="terminalName"></strong><span id="remaining"></span><button id="extend">+10 minutes</button><button id="reopen">Reopen</button><button id="stop">Stop sharing</button><button id="close">Close terminal</button><button id="back">Other terminals</button></div>
+      <iframe id="terminal" title="Temporary shell" referrerpolicy="no-referrer" allow="clipboard-read; clipboard-write" hidden></iframe>
+      <p id="paused" hidden>Sharing has ended. Reopen to continue in the same shell.</p>
+    </section>
+  </main>
+</body>
+</html>
