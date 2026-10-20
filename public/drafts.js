@@ -14,6 +14,7 @@ let id = params.get("id") || "",
   controller,
   frameReady = false;
 let busy = false;
+let feedbackOpen = false;
 const node = (tag, text, cls) => {
   const el = document.createElement(tag);
   if (text !== undefined) el.textContent = text;
@@ -53,6 +54,17 @@ function syncCommentForm() {
   $("selection").textContent = anchor?.quote || "Overall comment · Whole draft";
   $("clearSelection").hidden = !anchor;
   $("saveComment").disabled = busy || !version || !$("comment").value.trim();
+}
+function setFeedbackOpen(open, { reveal = false } = {}) {
+  feedbackOpen = !!open;
+  const panel = $("feedback"), toggle = $("toggleFeedback");
+  if (!feedbackOpen && panel.contains(document.activeElement)) toggle.focus();
+  panel.hidden = !feedbackOpen || !version;
+  toggle.setAttribute("aria-expanded", String(!panel.hidden));
+  if (reveal && !panel.hidden &&
+      (matchMedia("(max-width: 1150px)").matches || params.get("embedded") === "1")) {
+    panel.scrollIntoView({ block: "nearest" });
+  }
 }
 function renderComments() {
   $("comments").replaceChildren();
@@ -166,8 +178,9 @@ async function load({ preserveFrame = false } = {}) {
       }),
     );
     $("versions").value = String(version);
-    for (const k of ["versions", "download", "share", "feedback", "canvas"])
+    for (const k of ["versions", "download", "share", "toggleFeedback", "canvas"])
       $(k).hidden = false;
+    setFeedbackOpen(feedbackOpen);
     $("empty").hidden = true;
     $("download").href =
       `/api/drafts/content?id=${id}&version=${version}&download=1`;
@@ -222,6 +235,7 @@ window.addEventListener("message", (event) => {
   ) {
     anchor = msg.anchor;
     syncCommentForm();
+    if (!feedbackOpen) setFeedbackOpen(true, { reveal: true });
   }
   if (msg.type === "anchors" && Array.isArray(msg.states))
     for (const state of msg.states) {
@@ -265,6 +279,7 @@ $("commentForm").onsubmit = (e) => {
   });
 };
 $("comment").addEventListener("input", syncCommentForm);
+$("toggleFeedback").onclick = () => setFeedbackOpen(!feedbackOpen, { reveal: true });
 $("clearSelection").onclick = () => {
   anchor = null;
   postFrame({ type: "clear-selection" });
