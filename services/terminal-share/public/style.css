@@ -4,3 +4,9 @@
 #keys{display:flex;gap:6px;overflow-x:auto;flex-shrink:0;padding:8px 12px;border-top:1px solid var(--line)}#keys button{flex-shrink:0;min-width:44px;min-height:44px;touch-action:manipulation}#keyboard{border-color:var(--accent);color:var(--accent);min-height:44px}footer{padding-bottom:max(8px,env(safe-area-inset-bottom))}.xterm-helper-textarea{font-size:16px!important}@media(max-width:600px){header{gap:8px;padding:8px 12px}#status{font-size:12px}footer{font-size:11px}#viewport{padding:8px}}
 
 select,textarea{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px}select{min-height:40px;padding:4px}#attachment{display:flex;gap:8px;padding:8px 12px;align-items:center}#file-paths{flex:1;min-width:0;padding:8px;font-size:16px}#upload-status:not(:empty){padding:6px 12px;font-size:12px;overflow-wrap:anywhere}#keys{flex-wrap:nowrap;overflow-y:hidden}header label{white-space:nowrap}
+
+/* Keep a short remote terminal against the bottom. For a taller terminal,
+   auto margins collapse to zero and the outer viewport remains scrollable. */
+#viewport{display:flex;flex-direction:column;overflow-anchor:none}
+#terminal{flex:0 0 auto;margin-top:auto}
+header,footer,#attachment,#upload-status{flex-shrink:0}

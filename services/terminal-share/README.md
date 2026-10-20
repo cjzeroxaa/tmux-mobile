@@ -33,6 +33,9 @@ agent binaries, analytics, or tunnel service is used.
   and filters output to the one authorized pane. No polling or `pipe-pane`.
 - Hidden browser tabs disconnect. Returning reconnects with a fresh screen.
   Terminal dimensions follow the original machine; a small screen can scroll.
+- Short terminals align with the bottom of the viewer. Taller terminals follow
+  output in both the outer page viewport and xterm's scrollback. Scrolling up
+  pauses following until the viewer returns to the bottom.
 - Initial snapshots include 500 lines of tmux scrollback; viewers can choose
   100, 500, 1,000, 2,000 or 5,000. This is the machine's retained terminal buffer,
   not the archived Agent transcript. Subsequent output is pushed without polling.
@@ -42,6 +45,8 @@ agent binaries, analytics, or tunnel service is used.
   appear in an editable field; Insert path pastes without submitting Enter.
 - On phones, take control then tap **Keyboard**, or tap the terminal. The toolbar
   sends Esc, Tab, Ctrl-C, arrows and Enter as terminal bytes, preserving focus.
+  **Ctrl + Shift + Enter** takes or releases control without sending Enter into
+  the terminal. Read-only links and another viewer's control remain protected.
   Changing the expiry requires stopping the existing share and creating a new link.
 - RMUX retains its existing share implementation.
 

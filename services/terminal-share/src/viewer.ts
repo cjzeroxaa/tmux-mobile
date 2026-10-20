@@ -1,4 +1,5 @@
 import { Terminal } from '@xterm/xterm';
+import { createViewportFollow } from './viewport';
 const status = document.querySelector<HTMLElement>('#status')!;
 const note = document.querySelector<HTMLElement>('#note')!;
 const control = document.querySelector<HTMLButtonElement>('#control')!;
@@ -18,6 +19,25 @@ const dark = matchMedia('(prefers-color-scheme: dark)');
 const theme = () => ({ background: dark.matches ? '#002b36' : '#fdf6e3', foreground: dark.matches ? '#93a1a1' : '#586e75', cursor: '#268bd2' });
 const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 5000, convertEol: false, disableStdin: true, theme: theme(), fontSize: 14 });
 terminal.open(document.querySelector<HTMLElement>('#terminal')!);
+const viewport = document.querySelector<HTMLElement>('#viewport')!;
+const follow = createViewportFollow(viewport, terminal, callback => requestAnimationFrame(callback));
+viewport.addEventListener('scroll', follow.scrolled, { passive: true });
+terminal.onScroll(follow.innerScrolled);
+viewport.addEventListener('wheel', event => {
+  if (event.deltaY < 0) follow.pause();
+}, { passive: true });
+let scrollTouchY: number | null = null;
+viewport.addEventListener('touchstart', event => { scrollTouchY = event.touches[0]?.clientY ?? null; }, { passive: true });
+viewport.addEventListener('touchmove', event => {
+  const y = event.touches[0]?.clientY;
+  if (y !== undefined && scrollTouchY !== null && y > scrollTouchY + 2) follow.pause();
+  scrollTouchY = y ?? null;
+}, { passive: true });
+viewport.addEventListener('keydown', event => {
+  if (event.shiftKey && ['PageUp', 'ArrowUp', 'Home'].includes(event.key)) follow.pause();
+});
+new ResizeObserver(follow.changed).observe(viewport);
+new ResizeObserver(follow.changed).observe(document.querySelector<HTMLElement>('#terminal')!);
 terminal.textarea!.setAttribute('inputmode', 'text');
 terminal.textarea!.setAttribute('enterkeyhint', 'enter');
 dark.addEventListener('change', () => { terminal.options.theme = theme(); });
@@ -73,7 +93,10 @@ async function connect() {
         if (data[0] !== 1) return;
         pendingBytes += data.length;
         if (pendingBytes > 4 * 1024 * 1024) { stop(); pendingBytes = 0; void connect(); return; }
-        terminal.write(data.subarray(1), () => { pendingBytes = Math.max(0, pendingBytes - data.length); });
+        terminal.write(data.subarray(1), () => {
+          pendingBytes = Math.max(0, pendingBytes - data.length);
+          follow.changed();
+        });
         return;
       }
       let frame;
@@ -88,8 +111,9 @@ async function connect() {
       }
       if (frame.type === 'terminal.snapshot') {
         const { size, data } = frame.payload;
+        const complete = follow.snapshot();
         terminal.resize(size.cols, size.rows);
-        terminal.write(data);
+        terminal.write(data, complete);
       }
       if (frame.type === 'session.status') {
         attempts = 0;
@@ -105,7 +129,7 @@ async function connect() {
         control.hidden = !s.allowControl || ended;
         control.disabled = !s.hostConnected || Boolean(s.controllerViewerId && !canWrite) || Boolean(s.pendingControlRequest);
         control.textContent = canWrite ? 'Release control' : 'Take control';
-        note.textContent = s.allowControl ? 'The owner enabled control for this link. Take control, then tap Keyboard to type. Only one viewer can type at a time.' : 'View-only link. Keyboard input is disabled.';
+        note.textContent = s.allowControl ? 'Ctrl + Shift + Enter: take or release control. On phones, take control then tap Keyboard. Only one viewer can type at a time.' : 'View-only link. Keyboard input is disabled.';
         if (ended) stop();
       }
     };
@@ -155,7 +179,6 @@ function focusKeyboard() {
 }
 keyboard.onclick = focusKeyboard;
 let touch: { x: number; y: number } | null = null;
-const viewport = document.querySelector<HTMLElement>('#viewport')!;
 viewport.addEventListener('pointerdown', event => {
   touch = event.pointerType === 'touch' ? { x: event.clientX, y: event.clientY } : null;
 });
@@ -181,7 +204,21 @@ function fitKeyboardViewport() {
 }
 window.visualViewport?.addEventListener('resize', fitKeyboardViewport);
 fitKeyboardViewport();
-control.onclick = () => { send(canWrite ? 'control.release' : 'control.request'); };
+function toggleControl() {
+  if (control.hidden || control.disabled || socket?.readyState !== WebSocket.OPEN) return;
+  control.disabled = true;
+  send(canWrite ? 'control.release' : 'control.request');
+}
+control.onclick = toggleControl;
+control.title = 'Take or release control (Ctrl + Shift + Enter)';
+control.setAttribute('aria-keyshortcuts', 'Control+Shift+Enter');
+document.addEventListener('keydown', event => {
+  if (event.isComposing || !event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey || event.key !== 'Enter') return;
+  // Capture before xterm: the shortcut must never submit the terminal prompt.
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (!event.repeat) toggleControl();
+}, true);
 lines.onchange = () => send('terminal.snapshot.request', { lines: Number(lines.value) });
 function uploadRequest(type: string, payload: Record<string, unknown>): Promise<any> {
   if (!canWrite || socket?.readyState !== WebSocket.OPEN) return Promise.reject(Error('Take control before uploading'));
