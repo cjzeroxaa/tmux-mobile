@@ -1,5 +1,6 @@
 import { Terminal } from '@xterm/xterm';
 import { createViewportFollow } from './viewport';
+import { installMobileInput } from './mobile-input';
 const status = document.querySelector<HTMLElement>('#status')!;
 const note = document.querySelector<HTMLElement>('#note')!;
 const control = document.querySelector<HTMLButtonElement>('#control')!;
@@ -155,6 +156,9 @@ function sendInput(value: string) {
   }
 }
 terminal.onData(sendInput);
+const mobileInput = navigator.maxTouchPoints > 0
+  ? installMobileInput(terminal.textarea!, terminal.element!, sendInput, () => canWrite)
+  : null;
 function setWritable(value: boolean) {
   canWrite = value;
   terminal.options.disableStdin = !value;
@@ -163,6 +167,7 @@ function setWritable(value: boolean) {
   uploadButton.disabled = !value || uploading;
   insertPaths.disabled = !value;
   if (!value) {
+    mobileInput?.reset();
     for (const pending of uploads.values()) {
       clearTimeout(pending.timer); pending.reject(Error('Control lost; upload stopped'));
     }
@@ -172,6 +177,7 @@ function setWritable(value: boolean) {
 }
 function focusKeyboard() {
   if (!canWrite) return;
+  if (document.activeElement === terminal.textarea) return;
   // iOS needs focus inside the tap, after the textarea is writable. Refocus
   // also handles a textarea previously focused while control was pending.
   terminal.blur();
@@ -195,6 +201,7 @@ keys.addEventListener('pointerdown', event => {
 keys.addEventListener('click', event => {
   const key = (event.target as Element).closest<HTMLButtonElement>('button')?.dataset.key;
   if (key && specialKeys[key]) {
+    if (mobileInput && !mobileInput.beforeCommand()) return;
     const value = specialKeys[key];
     sendInput(terminal.modes.applicationCursorKeysMode && ["up", "down", "left", "right", "home", "end"].includes(key) ? value.replace("[", "O") : value);
   }
