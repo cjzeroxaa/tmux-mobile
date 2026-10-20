@@ -1,3 +1,4 @@
+import { confirmAction } from "./dialogs.js";
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 let busy = false, current = null, share = null, pendingCreateId = null, generation = 0;
@@ -67,7 +68,7 @@ async function refresh() {
 }
 async function act(action, id = current?.id) {
   if (busy) return;
-  if (action === 'close' && !confirm(`Close temporary terminal ${id.slice(0, 8)} on ${machineName()}? This ends its running commands.`)) return;
+  if (action === 'close' && !(await confirmAction({ title: "Close temporary terminal?", message: `${machineName()} · ${id.slice(0, 8)}\nThis ends its running commands.`, confirmLabel: "Close terminal", danger: true }))) return;
   setBusy(true); $('status').textContent = action === 'create' ? 'Starting shell…' : 'Updating terminal…';
   try {
     const result = await api('POST', { action, id });

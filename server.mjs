@@ -372,7 +372,8 @@ function pinOverlayHtml(managePin) {
     font-weight: 600; }
   .tm-pin-status { margin-top: 6px; min-height: 1em; opacity: .8; }
 </style>
-<script>
+<script type="module">
+import { confirmAction } from "/dialogs.js";
 (function () {
   var MANAGE = ${manageJson};
   var root = document.getElementById("tm-pin");
@@ -435,8 +436,8 @@ function pinOverlayHtml(managePin) {
         })
         .catch(function (e) { statusEl.textContent = "Copy failed: " + (e.message || e); });
     });
-    unpinEl.addEventListener("click", function () {
-      if (!window.confirm("Unpin this artifact? The share link will stop working.")) return;
+    unpinEl.addEventListener("click", async function () {
+      if (!(await confirmAction({ title: "Unpin artifact?", message: "The share link will stop working.", confirmLabel: "Unpin", danger: true }))) return;
       statusEl.textContent = "Unpinning…";
       fetch("/api/pins?id=" + encodeURIComponent(pinId), { method: "DELETE" })
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
@@ -479,9 +480,9 @@ function pinOverlayHtml(managePin) {
         })
         .catch(function (e) { statusEl.textContent = "Pin failed: " + e.message; panel.hidden = false; });
     });
-    unpinEl.addEventListener("click", function () {
+    unpinEl.addEventListener("click", async function () {
       if (!pinId) return;
-      if (!window.confirm("Unpin this artifact? The share link will stop working.")) return;
+      if (!(await confirmAction({ title: "Unpin artifact?", message: "The share link will stop working.", confirmLabel: "Unpin", danger: true }))) return;
       fetch("/api/pins?id=" + encodeURIComponent(pinId), { method: "DELETE" })
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
         .then(function (res) {

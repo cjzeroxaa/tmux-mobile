@@ -1,3 +1,4 @@
+import { confirmAction, promptValue } from "./dialogs.js";
 import { setScreenAwake, syncInputWakeLock } from "./screen-awake.mjs";
 import { showTerminalShareDialog } from "./terminal-share.js";
 import { createReadScope, createRefreshLoop } from "./view-work.mjs";
@@ -1157,7 +1158,7 @@ async function shareRmuxWindow(win, button) {
     }
     const opened = openRmuxShareUrl(data.operatorUrl);
     if (!opened && data.operatorUrl) {
-      window.prompt(copied ? "RMUX operator link (PIN copied)" : "RMUX operator link", data.operatorUrl);
+      await promptValue({ title: copied ? "RMUX operator link (PIN copied)" : "RMUX operator link", value: data.operatorUrl, readOnly: true, label: "Copy this link" });
     }
     button.classList.remove("is-busy");
     button.classList.add("is-copied");
@@ -1237,7 +1238,7 @@ function windowAnnotationRow(win) {
 
 async function editWindowAnnotation(win) {
   const current = win.annotation || "";
-  const next = window.prompt(`Note for window "${win.index}: ${win.name}":`, current);
+  const next = await promptValue({ title: "Edit window note", message: `${win.index}: ${win.name}`, value: current, label: "Note" });
   if (next === null) return; // cancelled
   try {
     const updated = await api("/api/windows", {
@@ -1921,7 +1922,7 @@ function renderPinRow(pin) {
     unpin.type = "button";
     unpin.textContent = "Unpin";
     unpin.addEventListener("click", async () => {
-      if (!window.confirm(`Unpin "${pin.name}"? The share link will stop working.`)) {
+      if (!(await confirmAction({ title: "Unpin artifact?", message: `"${pin.name}" — the share link will stop working.`, confirmLabel: "Unpin", danger: true }))) {
         return;
       }
       try {
@@ -3843,7 +3844,7 @@ async function renameSelectedWindow() {
     setStatus("Select a window first", false);
     return;
   }
-  const next = window.prompt("Rename window", win.name);
+  const next = await promptValue({ title: "Rename window", value: win.name, confirmLabel: "Rename" });
   if (next === null) return;
   const name = next.trim();
   if (!name || name === win.name) return;
@@ -4030,7 +4031,7 @@ async function closeCurrentWindow() {
     setStatus("Select a window first", false);
     return;
   }
-  const ok = window.confirm(`Close window "${win.index}: ${win.name}"? This kills the window and its panes.`);
+  const ok = await confirmAction({ title: "Close window?", message: `"${win.index}: ${win.name}" — this ends the window and all its running commands.`, confirmLabel: "Close window", danger: true });
   if (!ok) return;
   els.closeWindow.disabled = true;
   setStatus("closing window...");

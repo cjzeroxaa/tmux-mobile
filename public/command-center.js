@@ -1,3 +1,4 @@
+import { confirmAction, promptValue } from "./dialogs.js";
 import { showTerminalShareDialog } from "./terminal-share.js";
 import { syncInputWakeLock } from "./screen-awake.mjs";
 import { conversationUrl } from "./conversation-link.mjs";
@@ -3236,7 +3237,7 @@ function renderPinRow(pin) {
     rename.type = "button";
     rename.textContent = "Rename";
     rename.addEventListener("click", async () => {
-      const next = window.prompt("Rename artifact", pin.name || "");
+      const next = await promptValue({ title: "Rename artifact", value: pin.name || "", confirmLabel: "Rename" });
       if (next == null) return;
       const trimmed = next.trim();
       if (!trimmed || trimmed === pin.name) return;
@@ -3263,7 +3264,7 @@ function renderPinRow(pin) {
     unpin.type = "button";
     unpin.textContent = "Unpin";
     unpin.addEventListener("click", async () => {
-      if (!window.confirm(`Unpin "${pin.name || "this artifact"}"? This removes the shared link for everyone.`)) {
+      if (!(await confirmAction({ title: "Unpin artifact?", message: `"${pin.name || "this artifact"}" — this removes the shared link for everyone.`, confirmLabel: "Unpin", danger: true }))) {
         return;
       }
       unpin.disabled = true;
@@ -3513,7 +3514,7 @@ async function renameAgentWindow(agent) {
     return;
   }
   const currentName = String(agent.windowName || "").trim();
-  const next = window.prompt("Rename window", currentName);
+  const next = await promptValue({ title: "Rename window", value: currentName, confirmLabel: "Rename" });
   if (next === null) return;
   const name = next.trim();
   if (!name || name === currentName) return;
@@ -3570,7 +3571,7 @@ async function shareRmuxAgent(agent) {
     }
     const opened = openRmuxShareUrl(data.operatorUrl);
     if (!opened && data.operatorUrl) {
-      window.prompt(copied ? "RMUX operator link (PIN copied)" : "RMUX operator link", data.operatorUrl);
+      await promptValue({ title: copied ? "RMUX operator link (PIN copied)" : "RMUX operator link", value: data.operatorUrl, readOnly: true, label: "Copy this link" });
     }
     setStatus(copied ? "RMUX share ready. PIN copied." : "RMUX share ready.");
   } catch (error) {
