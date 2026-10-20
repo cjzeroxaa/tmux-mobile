@@ -32,6 +32,12 @@ try {
   await assert.rejects(installSkills({ ...startOptions, skill: '../escape' }), /Unknown Skill/);
   await assert.rejects(installSkills({ ...startOptions, source }), /Invalid Skill manifest/);
   assert.ok((await installSkills({ ...options, verify: true })).installations.every(x => x.status === 'verified'), 'installing the second skill preserves the first');
+  const configOptions = { ...options, source: fileURLToPath(new URL('../public/skills/tmax-config-agent', import.meta.url)), skill: 'tmax-config-agent' };
+  const configured = await installSkills(configOptions);
+  assert.ok(configured.installations.every(x => x.status === 'installed' && x.files === 1));
+  assert.ok((await installSkills({ ...configOptions, verify: true })).installations.every(x => x.status === 'verified'));
+  assert.ok((await installSkills({ ...startOptions, verify: true })).installations.every(x => x.status === 'verified'), 'config skill preserves the startup skill');
+  assert.ok((await installSkills({ ...options, verify: true })).installations.every(x => x.status === 'verified'), 'config skill preserves drafts');
   const entry = first.installations[0].directory;
   await writeFile(path.join(entry, 'personal-note.txt'), 'keep');
   const again = await installSkills(options);
