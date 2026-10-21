@@ -1,4 +1,5 @@
 import { Terminal } from '@xterm/xterm';
+import { installTextSelection } from './text-selection';
 import { createViewportFollow } from './viewport';
 import { installHistoryFill } from './history-fill';
 import { installMobileInput } from './mobile-input';
@@ -26,6 +27,7 @@ const theme = () => ({ background: dark.matches ? '#002b36' : '#fdf6e3', foregro
 const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 5000, convertEol: false, disableStdin: true, theme: theme(), fontSize: 14 });
 terminal.open(document.querySelector<HTMLElement>('#terminal')!);
 const viewport = document.querySelector<HTMLElement>('#viewport')!;
+const textSelection = installTextSelection(terminal, viewport);
 const follow = createViewportFollow(viewport, terminal, callback => requestAnimationFrame(callback));
 const historyFill = installHistoryFill(viewport, terminal, follow.changed);
 viewport.addEventListener('scroll', follow.scrolled, { passive: true });
@@ -157,7 +159,7 @@ function schedule() {
   if (++attempts <= 8) retry = setTimeout(() => void connect(), Math.min(1000 * 2 ** attempts, 15000));
 }
 function sendInput(value: string) {
-  if (!canWrite || socket?.readyState !== WebSocket.OPEN) return;
+  if (textSelection.open || !canWrite || socket?.readyState !== WebSocket.OPEN) return;
   const data = new TextEncoder().encode(value);
   for (let i = 0; i < data.length; i += 32768) {
     const part = data.subarray(i, i + 32768);
@@ -199,7 +201,7 @@ function setWritable(value: boolean) {
   updateControlNotice();
 }
 function focusKeyboard() {
-  if (!canWrite) return;
+  if (textSelection.open || !canWrite) return;
   if (document.activeElement === terminal.textarea) return;
   // iOS needs focus inside the tap, after the textarea is writable. Refocus
   // also handles a textarea previously focused while control was pending.
@@ -245,7 +247,7 @@ noticeControl.onclick = toggleControl;
 control.title = 'Take or release control (Ctrl + Shift + Enter)';
 control.setAttribute('aria-keyshortcuts', 'Control+Shift+Enter');
 document.addEventListener('keydown', event => {
-  if (event.isComposing || !event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey || event.key !== 'Enter') return;
+  if (textSelection.open || event.isComposing || !event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey || event.key !== 'Enter') return;
   // Capture before xterm: the shortcut must never submit the terminal prompt.
   event.preventDefault();
   event.stopImmediatePropagation();
