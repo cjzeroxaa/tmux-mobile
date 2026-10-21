@@ -5,7 +5,9 @@
     "references/pr-lens/example.graph.json": "fbc097b34641b5d2d527aac73bd00d52bdfa98a204fb102ca0005c476bbb6e91",
     "references/pr-lens/graph-document.md": "dcd2bb17e092806f175d580d552419b5aec7c10a302ff954c1a3541ba7db0fda",
     "references/pr-lens/LICENSE": "f95e90af396c71c9a94648bd58e4f5bb2dcab4f6ac3ab7d3d2ca3f4e4f4a1ae7",
-    "references/pr-lens.md": "82388da5c0d88b038151163b4852b73966fb394fa1493c412960c6e2e7680730",
-    "SKILL.md": "ed6a1d1e821e1802547913c7d8855ce26bc03a7620a032d638986df98a58e03d"
+    "references/pr-lens.md": "698b1649758edc7a8ad508e9550e967814af8b3db7c4cc254921ffbd9e0491d5",
+    "scripts/asset-contract.mjs": "b404e86d09d71b92c5e8fd63ed6caa61f39b71ca9e780aadcfd08e5d43b82639",
+    "scripts/upload-asset.mjs": "bf95e0885407abd668432f44cb1fb6adf67403a1bf3419abd5e7b7716bd6cf26",
+    "SKILL.md": "a2c8aa1cafa2da894593877dc8eea5ad3547cc8fa97ae4e8cf648f94a48d4fc5"
   }
 }

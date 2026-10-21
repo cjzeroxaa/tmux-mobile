@@ -18,7 +18,8 @@ try {
   const options = { source, home: root, env: { CODEX_HOME: path.join(root,'custom-codex'), CLAUDE_CONFIG_DIR: '~/custom-claude', PI_CODING_AGENT_DIR: '~/custom-pi' } };
   const first = await installSkills(options);
   assert.equal(first.installations.length, 3);
-  assert.ok(first.installations.every(x => x.status === 'installed' && x.files === 6));
+  const sourceManifest = JSON.parse(await readFile(path.join(source, 'manifest.json')));
+  assert.ok(first.installations.every(x => x.status === 'installed' && x.files === Object.keys(sourceManifest.files).length));
   assert.equal(first.installations[2].directory, path.join(root,'custom-pi/skills/tmax-drafts'));
   const startSource = fileURLToPath(new URL('../public/skills/tmax-start-agent', import.meta.url));
   const startOptions = { ...options, source: startSource, skill: 'tmax-start-agent' };

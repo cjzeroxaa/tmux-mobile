@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHmac } from "node:crypto";
+import { machineAssetPrefix, ASSET_ORIGIN, assetSigningKey } from '../lib/draft-assets.mjs';
+import { validToken } from '../services/draft-assets/worker.mjs';
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -203,6 +205,19 @@ try {
     historical.headers.get("content-security-policy"),
     /sandbox allow-scripts/,
   );
+  const assetUrl = ASSET_ORIGIN + '/' + machineAssetPrefix(context.machineId) + 'a'.repeat(64) + '.mp4';
+  await writeFile(file, `<!doctype html><html><head><title>Media review</title></head><body><p>Selectable media explanation.</p><video controls src="${assetUrl}"></video></body></html>`);
+  const media = await client('publish', '--kind', 'codex', '--session', 'test-session', '--file', file);
+  const rendered = await fetch(`${api}/api/drafts/content?id=${media.id}`, { headers: { cookie } });
+  assert.equal(rendered.status, 200);
+  assert.match(rendered.headers.get('content-security-policy'), /media-src data: blob: https:\/\/draft-assets.xyznot.com/);
+  const renderedHtml = await rendered.text();
+  const readUrl = new URL(renderedHtml.match(/src="(https:\/\/draft-assets[^\"]+)"/)[1]);
+  assert.ok(await validToken(readUrl.pathname, readUrl.searchParams.get('token'), assetSigningKey(secret)));
+  const download = await fetch(`${api}/api/drafts/content?id=${media.id}&download=1`, { headers: { cookie } });
+  assert.ok(!(await download.text()).includes('?token='), 'stored/downloaded HTML contains no temporary read credentials');
+  const denied = await fetch(`${api}/api/drafts/content?id=${media.id}`, { headers: { cookie: `tmux_mobile_session=${token('session', 'other@example.org')}` } });
+  assert.equal(denied.status, 404);
   console.log(
     "drafts HTTP: real controller + CLI publish/retry/context/comments/revise, browser auth, isolated users and version history passed",
   );

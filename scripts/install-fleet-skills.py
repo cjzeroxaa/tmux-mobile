@@ -25,6 +25,8 @@ p.add_argument('--receipts', required=True)
 p.add_argument('--machine', help='Optional exact hostname to install first')
 p.add_argument('--skill', choices=['tmax-drafts', 'tmax-start-agent', 'tmax-config-agent', 'tmax-assign-task'], default='tmax-drafts')
 p.add_argument('--local-installer', action='store_true', help='Copy the checked-out installer through the Connector instead of downloading it')
+p.add_argument('--asset-credentials', help='Private 0600 R2 credential JSON to provision after installing tmax-drafts')
+p.add_argument('--asset-probe-key', help='Existing object key for credential verification')
 a = p.parse_args()
 cookie_path = Path(a.cookie_file)
 if cookie_path.stat().st_mode & 0o077:
@@ -36,6 +38,24 @@ repository = Path(__file__).resolve().parent.parent
 installer_hash = hashlib.sha256((repository / 'public/skills/install.mjs').read_bytes()).hexdigest()
 manifest = json.loads((repository / 'public/skills' / a.skill / 'manifest.json').read_text())
 expected = hashlib.sha256(json.dumps(manifest['files'], separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
+asset_credentials = None
+if a.asset_credentials:
+    credential_file = Path(a.asset_credentials)
+    if a.skill != 'tmax-drafts' or not a.asset_probe_key or credential_file.stat().st_mode & 0o077:
+        raise SystemExit('Asset provisioning requires tmax-drafts, a probe key, and a private 0600 credential file')
+    asset_credentials = credential_file.read_bytes()
+    audit_inventory = {
+        'skills': {d.name: json.loads((d / 'manifest.json').read_text())['files']
+                   for d in (repository / 'public/skills').iterdir() if (d / 'manifest.json').is_file()},
+        'globalInstructionSha256': hashlib.sha256((Path.home() / '.config/agent-instructions/AGENTS.md').read_bytes()).hexdigest(),
+    }
+
+def upload_private(machine, pane, name, body):
+    route = '/api/upload?' + urllib.parse.urlencode({'paneId': pane, 'name': name})
+    request = urllib.request.Request(a.api.rstrip('/') + route, data=body, method='POST',
+        headers={'Cookie': cookie, 'Content-Type': 'application/octet-stream', 'x-machine-id': machine['id'], 'x-mux': 'tmux'})
+    with urllib.request.urlopen(request, timeout=45) as response:
+        return json.load(response)['path']
 
 def call(route, data=None, machine=None, method=None):
     if route == '/api/send' and data and data.get('enter'):
@@ -61,6 +81,7 @@ results = []
 for machine in machines:
     row = {k: machine.get(k) for k in ['id', 'hostname', 'ownerEmail', 'online']}
     window = None
+    private_paths = []
     try:
         if not machine.get('online'):
             row['status'] = 'offline'
@@ -128,13 +149,47 @@ for machine in machines:
         if verified['sha256'] != expected or len(verified['installations']) != 3 or any(x['status'] != 'verified' for x in verified['installations']):
             raise RuntimeError('Receipt does not match repository Skill')
         row.update(status='verified', receipt=verified)
+        if asset_credentials:
+            candidate = upload_private(machine, pane, 'tmax-draft-credential-' + nonce + '.json', asset_credentials)
+            private_paths.append(candidate)
+            helper = upload_private(machine, pane, 'tmax-draft-provision-' + nonce + '.mjs', (repository / 'scripts/provision-machine-draft-assets.mjs').read_bytes())
+            private_paths.append(helper)
+            inventory = upload_private(machine, pane, 'tmax-draft-inventory-' + nonce + '.json', json.dumps(audit_inventory).encode())
+            private_paths.append(inventory)
+            asset_receipt = prefix + '-assets.json'
+            private_paths.extend([asset_receipt, asset_receipt + '.txt'])
+            command = ' '.join([node, shlex.quote(helper), shlex.quote(candidate), shlex.quote(a.asset_probe_key), shlex.quote(asset_receipt), shlex.quote(inventory)])
+            call('/api/send', {'paneId': pane, 'text': command, 'enter': True}, machine)
+            deadline = time.monotonic() + 180
+            asset_result = None
+            while time.monotonic() < deadline:
+                time.sleep(3)
+                try:
+                    data = call('/api/file?' + urllib.parse.urlencode({'paneId': pane, 'path': asset_receipt}), machine=machine)
+                    asset_result = json.loads(base64.b64decode(data['base64']))
+                    break
+                except (urllib.error.HTTPError, json.JSONDecodeError):
+                    pass
+            if not asset_result:
+                raise RuntimeError('Draft credential provisioning did not produce a receipt')
+            row['assets'] = asset_result
+            if asset_result['credentialMode'] != 0o600 or not asset_result.get('upload'):
+                raise RuntimeError('Draft credential mode/upload verification failed')
+            if not all(item['verified'] for item in asset_result['skills']):
+                raise RuntimeError('One or more installed Skills differ from source')
+            row['globalInstructionsStatus'] = ('verified unchanged' if all(item['verified'] for item in asset_result['globalInstructions'])
+                                                else 'mismatch; unchanged by this Skill rollout')
         call('/api/send', {'paneId': pane, 'text': 'rm -f ' + shlex.quote(receipt) + ' ' + shlex.quote(log), 'enter': True}, machine)
         time.sleep(1)
     except Exception as error:
         row.update(status='failed', error=str(error))
     finally:
         if window:
-            try: call('/api/windows', {'windowId': window['id']}, machine, 'DELETE')
+            try:
+                if private_paths:
+                    call('/api/send', {'paneId': pane, 'text': 'rm -f ' + ' '.join(shlex.quote(x) for x in private_paths), 'enter': True}, machine)
+                    time.sleep(1)
+                call('/api/windows', {'windowId': window['id']}, machine, 'DELETE')
             except Exception as error: row['cleanupError'] = str(error)
         results.append(row)
         (out / 'results.json').write_text(json.dumps(results, indent=2) + '\n')

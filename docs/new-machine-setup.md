@@ -45,6 +45,25 @@ one agent is used first. The installer checks source and installed-file hashes,
 honors custom agent roots, and preserves unrelated local files. Run it in a
 normal shell, not by typing shell commands into an agent conversation.
 
+## 2a. Provision Draft asset upload credentials
+
+The public Skill installer never distributes secrets. Before claiming Draft media
+uploads work, privately provision `~/.config/tmux-mobile/draft-assets.json` with
+mode `0600`. Use the fixed Cloudflare account and `tmax-draft-assets` bucket from
+`public/skills/tmax-drafts/scripts/asset-contract.mjs`. The JSON contains
+`accountId`, `bucket`, `accessKeyId`, and `secretAccessKey`; keep it outside Git.
+Use a bucket-scoped R2 Object Read & Write credential when available. If this machine
+already has a working Cloudflare credential, reuse it only after checking its account
+and upload permissions. Otherwise copy the approved dedicated upload credential
+through an authenticated private channel; never put secrets in terminal input/history.
+Do not copy unrelated credential directories. This provisioning is authorized as part
+of the owner's Draft asset rollout and new-machine baseline.
+
+Run the bundled uploader on a small test asset, verify the returned size/hash, and
+record only the credential file's mode and SHA-256, never its contents. Verify a
+published Draft can load the asset; unsigned asset URLs must return 403. Missing
+credentials or failed upload validation are pending setup steps, not a finished setup.
+
 ## 3. Install the shared private instructions
 
 The Skill installer does **not** install global instructions. This is a separate

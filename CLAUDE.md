@@ -227,7 +227,7 @@ authenticated viewer. "Pinned artifacts" in the More menu lists/manages them.
 ## Session Drafts (2026-10-18)
 
 The new review workflow is Drafts, not manual pins. A generator writes a
-self-contained HTML file and explicitly publishes it using
+HTML entry file with optional private managed static media and explicitly publishes it using
 `public/draft-client.mjs`. The private Host stores bytes in artifact storage and
 metadata/revisions/comments in the existing comments table under `tmax-drafts`
 and `tmax-draft#<id>` namespaces. The client uses the existing Connector login;

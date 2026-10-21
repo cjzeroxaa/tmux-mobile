@@ -1,0 +1,9 @@
+{
+  "name": "tmax-draft-assets",
+  "main": "worker.mjs",
+  "account_id": "34431cd51da281ed3590ab6ce5141d09",
+  "compatibility_date": "2026-10-21",
+  "routes": [{ "pattern": "draft-assets.xyznot.com", "custom_domain": true }],
+  "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "tmax-draft-assets" }],
+  "observability": { "enabled": false }
+}

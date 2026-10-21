@@ -5823,7 +5823,7 @@ if (MODE.kind === "register") {
         ? authenticatedUser
         : { userId, email: userId, hd: "" };
 
-      if (await handleDraftHttp(req,res,url,{drafts,viewer,readJsonBody,sendJson,sendPrompt:sendDraftPrompt,origin:requestOrigin(req)})) return;
+      if (await handleDraftHttp(req,res,url,{drafts,viewer,readJsonBody,sendJson,sendPrompt:sendDraftPrompt,origin:requestOrigin(req),assetSessionSecret:process.env.SESSION_SECRET})) return;
 
       if (url.pathname === "/api/notification-settings") {
         res.setHeader("Cache-Control", "private, no-store");
