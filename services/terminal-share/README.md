@@ -17,8 +17,11 @@ agent binaries, analytics, or tunnel service is used.
 
 - Share buttons appear on session cards and in the terminal window list.
 - The Web creation dialog enables control by default; uncheck it for a view-only
-  link. Existing links retain their permissions. One viewer can hold control at
-  a time; disconnect releases it.
+  link. Existing links retain their permissions. Permitted viewers acquire input
+  automatically on open and reconnect. **Lock** pauses input immediately;
+  **Unlock** enables it again. An explicit lock survives reconnects in that page.
+  One viewer can hold control at a time; other viewers wait without taking it
+  away. Disconnect releases control, and view-only links remain read-only.
 - A separate signed host capability cannot be derived from a viewer link. Link
   creation requires the Controller's service key. Roles, session IDs and expiry
   are covered by HMAC; the fragment keeps the viewer credential out of page URLs
@@ -43,9 +46,9 @@ agent binaries, analytics, or tunnel service is used.
   64 KiB chunks into the existing Connector temp-file writer, with no total-size
   cap. Losing control or disconnecting cancels partial uploads. Completed paths
   appear in an editable field; Insert path pastes without submitting Enter.
-- On phones, take control then tap **Keyboard**, or tap the terminal. The toolbar
+- On phones, tap **Keyboard**, or tap the unlocked terminal. The toolbar
   sends Esc, Tab, Ctrl-C, arrows and Enter as terminal bytes, preserving focus.
-  **Ctrl + Shift + Enter** takes or releases control without sending Enter into
+  **Ctrl + Shift + Enter** locks or unlocks input without sending Enter into
   the terminal. Read-only links and another viewer's control remain protected.
   Changing the expiry requires stopping the existing share and creating a new link.
 - RMUX retains its existing share implementation.

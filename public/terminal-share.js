@@ -37,7 +37,7 @@ export async function showTerminalShareDialog(call, copyText) {
     url.hidden = copy.hidden = open.hidden = stop.hidden = !active;
     url.value = data.viewerUrl || "";
     open.href = data.viewerUrl || "#";
-    status.textContent = active ? `Sharing ${data.allowControl ? "with control" : "view only"}. Expires ${new Date(data.expiresAt).toLocaleString()}.` : "Ready to share. Viewers can request control; uncheck to make the link view-only.";
+    status.textContent = active ? `Sharing ${data.allowControl ? "with control" : "view only"}. Expires ${new Date(data.expiresAt).toLocaleString()}.` : "Ready to share. Input turns on automatically; uncheck to make the link view-only.";
   };
   const run = async action => {
     if (busy) return;

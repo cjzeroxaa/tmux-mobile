@@ -74,7 +74,7 @@ async function act(action, id = current?.id) {
     const result = await api('POST', { action, id });
     if (action === 'create') pendingCreateId = null;
     show(result);
-    $('status').textContent = result.share ? 'Take control in the terminal to type. Expiry stops sharing only.' : result.terminal ? 'Sharing stopped. Your shell is still running.' : 'Terminal closed.';
+    $('status').textContent = result.share ? 'Input turns on automatically. Use Lock to pause it. Expiry stops sharing only.' : result.terminal ? 'Sharing stopped. Your shell is still running.' : 'Terminal closed.';
   } catch (error) { $('status').textContent = error.message; }
   finally { setBusy(false); }
   if (action === 'close' && !current) await refresh();

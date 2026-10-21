@@ -3,6 +3,7 @@ import { installTextSelection } from './text-selection';
 import { createViewportFollow } from './viewport';
 import { installHistoryFill } from './history-fill';
 import { installMobileInput } from './mobile-input';
+import { InputControl } from './input-control';
 const status = document.querySelector<HTMLElement>('#status')!;
 const note = document.querySelector<HTMLElement>('#note')!;
 const control = document.querySelector<HTMLButtonElement>('#control')!;
@@ -62,6 +63,7 @@ let attempts = 0;
 let pendingBytes = 0;
 let viewerToken = '';
 let request: AbortController | null = null;
+const inputControl = new InputControl(type => send(type));
 try { viewerToken = sessionStorage.getItem(`tmax.share.${sessionId}`) || ''; } catch {}
 function stop() {
   generation++;
@@ -70,6 +72,7 @@ function stop() {
   const old = socket;
   socket = null;
   old?.close();
+  inputControl.reset();
   setWritable(false);
   control.disabled = true;
   updateControlNotice();
@@ -129,19 +132,14 @@ async function connect() {
       if (frame.type === 'session.status') {
         attempts = 0;
         const s = frame.payload;
-        setWritable(Boolean(s.canWrite));
+        inputControl.update(s);
         if (s.viewerToken) {
           viewerToken = s.viewerToken;
           try { sessionStorage.setItem(`tmax.share.${sessionId}`, viewerToken); } catch {}
         }
         if (s.terminalSize) terminal.resize(s.terminalSize.cols, s.terminalSize.rows);
         ended = s.state === 'ended' || s.state === 'closed';
-        status.textContent = ended ? 'Sharing stopped' : !s.hostConnected ? 'Waiting for machine…' : canWrite ? 'You have control' : 'View only';
-        control.hidden = !s.allowControl || ended;
-        control.disabled = !s.hostConnected || Boolean(s.controllerViewerId && !canWrite) || Boolean(s.pendingControlRequest);
-        control.textContent = canWrite ? 'Release control' : 'Take control';
-        note.textContent = s.allowControl ? 'Ctrl + Shift + Enter: take or release control. On phones, take control then tap Keyboard. Only one viewer can type at a time.' : 'View-only link. Keyboard input is disabled.';
-        updateControlNotice();
+        renderControl();
         if (ended) stop();
       }
     };
@@ -150,6 +148,7 @@ async function connect() {
   } catch { if (current === generation) schedule(); }
 }
 function schedule() {
+  inputControl.reset();
   setWritable(false);
   control.disabled = true;
   if (document.hidden || ended) return;
@@ -172,12 +171,23 @@ const mobileInput = navigator.maxTouchPoints > 0
   ? installMobileInput(terminal.textarea!, terminal.element!, sendInput, () => canWrite)
   : null;
 function updateControlNotice() {
-  controlNotice.hidden = canWrite;
+  controlNotice.hidden = canWrite || (!inputControl.status && !ended && !inputControl.locked);
   document.body.dataset.control = canWrite ? 'active' : 'none';
-  noticeControl.hidden = control.hidden;
+  noticeControl.hidden = control.hidden || !inputControl.locked;
   noticeControl.disabled = control.disabled;
-  noticeTitle.textContent = control.hidden && ended ? 'Sharing stopped — input is off' : 'No control — input is off';
-  noticeDetail.textContent = control.hidden ? 'This terminal is read-only. Typing and voice input will not be sent.' : 'Typing and voice input will not be sent. Take control first.';
+  noticeControl.textContent = 'Unlock';
+  noticeTitle.textContent = ended ? 'Sharing stopped — input is off' : inputControl.locked ? 'Locked — input is off' : control.hidden ? 'Read-only terminal' : 'Waiting for control — input is off';
+  noticeDetail.textContent = inputControl.locked ? 'Unlock to type, use voice input or upload files.' : control.hidden ? 'Typing and voice input will not be sent.' : 'Input turns on automatically when the machine is connected and control is available.';
+}
+function renderControl() {
+  const s = inputControl.status;
+  control.hidden = !s?.allowControl || ended;
+  control.disabled = socket?.readyState !== WebSocket.OPEN;
+  control.textContent = inputControl.locked ? 'Unlock' : 'Lock';
+  control.setAttribute('aria-pressed', String(inputControl.locked));
+  note.textContent = s?.allowControl ? 'Input is on by default. Lock to pause input. Ctrl + Shift + Enter: lock or unlock. On phones, tap Keyboard. Only one viewer can type at a time.' : 'View-only link. Keyboard input is disabled.';
+  setWritable(inputControl.writable);
+  status.textContent = ended ? 'Sharing stopped' : !s?.hostConnected ? 'Waiting for machine…' : !s.allowControl ? 'View only' : inputControl.locked ? 'Locked' : canWrite ? 'You have control' : 'Waiting for control…';
 }
 function setWritable(value: boolean) {
   canWrite = value;
@@ -185,7 +195,7 @@ function setWritable(value: boolean) {
   // Prevent mobile keyboards/dictation from opening on a read-only terminal.
   // Keep focus available for selection and local history keyboard shortcuts.
   terminal.textarea!.readOnly = !value;
-  terminal.textarea!.setAttribute('aria-label', value ? 'Terminal input' : 'Read-only terminal — take control to type');
+  terminal.textarea!.setAttribute('aria-label', value ? 'Terminal input' : inputControl.locked ? 'Locked terminal — unlock to type' : 'Read-only terminal');
   keyboard.hidden = keys.hidden = !value;
   uploadButton.hidden = !value;
   uploadButton.disabled = !value || uploading;
@@ -238,13 +248,12 @@ window.visualViewport?.addEventListener('resize', fitKeyboardViewport);
 fitKeyboardViewport();
 function toggleControl() {
   if (control.hidden || control.disabled || socket?.readyState !== WebSocket.OPEN) return;
-  control.disabled = true;
-  updateControlNotice();
-  send(canWrite ? 'control.release' : 'control.request');
+  inputControl.toggle();
+  renderControl();
 }
 control.onclick = toggleControl;
 noticeControl.onclick = toggleControl;
-control.title = 'Take or release control (Ctrl + Shift + Enter)';
+control.title = 'Lock or unlock input (Ctrl + Shift + Enter)';
 control.setAttribute('aria-keyshortcuts', 'Control+Shift+Enter');
 document.addEventListener('keydown', event => {
   if (textSelection.open || event.isComposing || !event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey || event.key !== 'Enter') return;
@@ -255,7 +264,7 @@ document.addEventListener('keydown', event => {
 }, true);
 lines.onchange = () => send('terminal.snapshot.request', { lines: Number(lines.value) });
 function uploadRequest(type: string, payload: Record<string, unknown>): Promise<any> {
-  if (!canWrite || socket?.readyState !== WebSocket.OPEN) return Promise.reject(Error('Take control before uploading'));
+  if (!canWrite || socket?.readyState !== WebSocket.OPEN) return Promise.reject(Error('Terminal input must be unlocked and connected before uploading'));
   const requestId = crypto.randomUUID();
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { uploads.delete(requestId); reject(Error('Upload timed out. Check the Connector is updated.')); }, 60_000);
@@ -265,7 +274,7 @@ function uploadRequest(type: string, payload: Record<string, unknown>): Promise<
 }
 async function uploadFiles(files: File[]) {
   if (!files.length || uploading) return;
-  if (!canWrite) { uploadStatus.textContent = 'Take control before uploading'; return; }
+  if (!canWrite) { uploadStatus.textContent = 'Terminal input must be unlocked and connected before uploading'; return; }
   uploading = true; uploadButton.disabled = true;
   let id = '';
   try {
