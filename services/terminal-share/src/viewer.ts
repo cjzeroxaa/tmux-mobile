@@ -24,7 +24,15 @@ const insertPaths = document.querySelector<HTMLButtonElement>('#insert-paths')!;
 let uploading = false;
 const uploads = new Map<string, { resolve: (value: any) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 const dark = matchMedia('(prefers-color-scheme: dark)');
-const theme = () => ({ background: dark.matches ? '#002b36' : '#fdf6e3', foreground: dark.matches ? '#93a1a1' : '#586e75', cursor: '#268bd2' });
+const theme = () => {
+  const colors = getComputedStyle(document.documentElement);
+  return {
+    background: dark.matches ? '#002b36' : '#fdf6e3', foreground: dark.matches ? '#93a1a1' : '#586e75', cursor: '#268bd2',
+    selectionBackground: colors.getPropertyValue('--selection-bg').trim(),
+    selectionForeground: colors.getPropertyValue('--selection-fg').trim(),
+    selectionInactiveBackground: colors.getPropertyValue('--selection-inactive-bg').trim(),
+  };
+};
 const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 5000, convertEol: false, disableStdin: true, theme: theme(), fontSize: 14 });
 terminal.open(document.querySelector<HTMLElement>('#terminal')!);
 const viewport = document.querySelector<HTMLElement>('#viewport')!;
