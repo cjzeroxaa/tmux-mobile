@@ -16,6 +16,7 @@ assert.equal((empty.match(/<a /g) || []).length, 0, 'unavailable links are disab
 
 const reading = renderCardActionBar({
   conversation: { href: '/conversation?sessionId=test&kind=codex' },
+  terminal: { href: '/app/?windowId=%401' },
   read: { label: 'Stop reading', icon: 'stop', active: true, attributes: { 'data-read-key': 'machine::@1' } },
   rename: { disabled: true, busy: true },
   copyLink: { attributes: { 'data-copy-conversation-key': 'machine::"test' } },
@@ -26,6 +27,8 @@ assert.match(reading, /data-read-key="machine::@1"/);
 assert.match(reading, /data-copy-conversation-key="machine::&quot;test"/);
 assert.match(reading, /href="\/conversation\?sessionId=test&amp;kind=codex"/);
 assert.match(reading, /aria-busy="true"[^>]+disabled/);
+assert.match(reading, /class="[^"]*cc-open-button[^"]*" data-card-action="terminal"/);
+assert.equal((reading.match(/cc-open-button/g) || []).length, 1, 'keyboard navigation must target Terminal, never another card link');
 
 const mobile = new URL('../../tmux-mobile-mobile/sources/tmux-mobile/card-actions.js', import.meta.url);
 if (existsSync(mobile)) assert.equal(readFileSync(mobile, 'utf8'), readFileSync(new URL('../public/card-actions.js', import.meta.url), 'utf8'), 'native must bundle the same canonical contract');

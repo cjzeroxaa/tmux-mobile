@@ -17,7 +17,7 @@ export function renderCardActionBar(states) {
     const label = state?.label || action.label;
     const title = `${label}${state?.shortcut ? ` (${state.shortcut})` : ""} · ${action.hint}`;
     const attrs = Object.entries(state?.attributes || {}).map(([key, value]) => `${key}="${escape(value)}"`).join(" ");
-    const shared = `class="cc-card-action cc-${action.id}-button${state?.active ? " is-reading" : ""}${state?.busy ? " is-busy" : ""}" data-card-action="${action.id}" title="${escape(title)}" aria-label="${escape(label)}"${state?.busy ? ' aria-busy="true"' : ""}`;
+    const shared = `class="cc-card-action cc-${action.id}-button${action.id === "terminal" ? " cc-open-button" : ""}${state?.active ? " is-reading" : ""}${state?.busy ? " is-busy" : ""}" data-card-action="${action.id}" title="${escape(title)}" aria-label="${escape(label)}"${state?.busy ? ' aria-busy="true"' : ""}`;
     const icon = cardActionIcon(state?.icon || action.id);
     if (state?.href && !disabled) return `<a ${shared} href="${escape(state.href)}" target="_blank" rel="noopener noreferrer">${icon}</a>`;
     return `<button ${shared} type="button"${disabled ? " disabled" : ""} ${attrs}>${icon}</button>`;
