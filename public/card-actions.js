@@ -1,7 +1,7 @@
 // Canonical card action contract for Web, iOS and Android.
 // Native bundles an exact copy via scripts/sync-card-actions.mjs.
 // Icons: Lucide (ISC), see card-actions.LICENSE.
-export const CARD_ACTION_LAYOUT = { minWidth: 32, height: 32, gap: 0 };
+export const CARD_ACTION_LAYOUT = { minWidth: 24, height: 32, gap: 0 };
 export const CARD_ACTIONS = [
   {
     "id": "interact",

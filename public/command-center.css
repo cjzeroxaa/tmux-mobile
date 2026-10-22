@@ -1326,8 +1326,8 @@
 }
 
 .cc-card-actions .cc-card-action {
-  flex: 1 0 var(--card-action-min-width, 32px);
-  min-width: var(--card-action-min-width, 32px);
+  flex: 1 0 var(--card-action-min-width, 24px);
+  min-width: var(--card-action-min-width, 24px);
   width: auto;
   height: var(--card-action-height, 32px);
 }

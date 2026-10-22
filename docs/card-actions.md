@@ -4,7 +4,7 @@
 Every card renders one compact 32px-high row, at every viewport size:
 Send message, Conversation, Drafts, Transcript, Read aloud, Open terminal,
 Share terminal, Copy conversation link, Rename window, Complete and delete window.
-The ten buttons fit in 320px; narrower cards scroll horizontally instead of
+The ten buttons fit in 240px; narrower cards scroll horizontally instead of
 wrapping. Web and native share the button dimensions and spacing too.
 
 Unavailable actions remain disabled in their slots. Reading changes the fifth
