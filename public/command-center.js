@@ -1,4 +1,5 @@
 import { confirmAction, promptValue } from "./dialogs.js";
+import { renderCardActionBar } from "./card-action-bar.mjs";
 import { showTerminalShareDialog } from "./terminal-share.js";
 import { syncInputWakeLock } from "./screen-awake.mjs";
 import { conversationUrl } from "./conversation-link.mjs";
@@ -60,32 +61,14 @@ const STARRED_CARDS_DIRTY_KEY = "tmux-mobile-command-center-starred-cards-server
 const ICONS = {
   star:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.5 2.7a.55.55 0 0 1 1 0l2.8 5.7a.55.55 0 0 0 .42.3l6.3.92a.55.55 0 0 1 .3.94l-4.55 4.43a.55.55 0 0 0-.16.49l1.08 6.26a.55.55 0 0 1-.8.58l-5.63-2.96a.55.55 0 0 0-.51 0l-5.63 2.96a.55.55 0 0 1-.8-.58l1.08-6.26a.55.55 0 0 0-.16-.49L1.68 10.56a.55.55 0 0 1 .3-.94l6.3-.92a.55.55 0 0 0 .42-.3l2.8-5.7Z"/></svg>',
-  interact:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/><path d="M8 9h8"/><path d="M8 13h5"/></svg>',
-  read:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4Z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>',
-  stop:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
-  open:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>',
   pin:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>',
   fullscreen:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>',
-  conversation:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16v12H8l-4 4V4Z"/><path d="M8 8h8M8 12h5"/></svg>',
-  transcript:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>',
-  rename:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
-  share:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 0 20"/><path d="M12 2a15.3 15.3 0 0 0 0 20"/></svg>',
   copy:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>',
   check:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
-  delete:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
   chevron:
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>',
 };
@@ -3596,9 +3579,6 @@ function cardActionButton({ className = "", title, dataAttrs, disabled = false, 
   return `<button class="${classes}" type="button" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"${busy ? ' aria-busy="true"' : ""}${disabled ? " disabled" : ""} ${dataAttrs}>${icon}</button>`;
 }
 
-function cardActionLink({ href, title, icon, label = "" }) {
-  return `<a class="cc-card-action cc-open-button${label ? " cc-card-action-label" : ""}" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${icon}${label ? `<span>${escapeHtml(label)}</span>` : ""}</a>`;
-}
 
 function isCurrentRead(readId) {
   return state.audio.readId === readId;
@@ -3778,69 +3758,36 @@ function renderCard(agent) {
   const deletingThis = state.deletingWindows.has(deleteKey);
   const renamingThis = state.renamingWindows.has(renameKey);
   const sharingThis = state.sharingWindows.has(shareKey);
-  footer.innerHTML = `
-    <span class="cc-card-actions">
-      ${cardActionButton({
-        className: "cc-interact-button",
-        title: "Interact (R)",
-        dataAttrs: `data-interact-key="${escapeHtml(readKey)}"`,
-        icon: ICONS.interact,
-      })}
-      ${cardActionButton({
-        className: "cc-transcript-button",
-        title: "Transcript",
-        dataAttrs: `data-transcript-key="${escapeHtml(transcriptKey)}"`,
-        disabled: !agent.paneId,
-        icon: ICONS.transcript,
-      })}
-      ${cardActionButton({
-        className: "cc-rename-button",
-        title: "Rename window",
-        dataAttrs: `data-rename-window-key="${escapeHtml(renameKey)}"`,
-        disabled: renamingThis || !agent.windowId,
-        busy: renamingThis,
-        icon: ICONS.rename,
-      })}
-      ${cardActionButton({
-        className: "cc-rmux-share-button",
-        title: sharingThis ? "Sharing terminal" : "Share terminal",
-        dataAttrs: `data-rmux-share-key="${escapeHtml(shareKey)}"`,
-        disabled: sharingThis || !agent.paneId,
-        busy: sharingThis,
-        icon: ICONS.share,
-      })}
-      ${cardActionButton({
-        className: `cc-read-button${readingThis ? " is-reading" : ""}`,
-        title: readingThis ? "Stop reading" : "Read aloud (I)",
-        dataAttrs: `data-read-key="${escapeHtml(readKey)}"`,
-        disabled: readDisabled,
-        icon: readingThis ? ICONS.stop : ICONS.read,
-      })}
-      ${conversationUrl(agent) ? cardActionLink({
-        href: `/drafts?${new URLSearchParams({ machineId: agent.machineId, kind: agent.kind, sessionId: agent.agentSessionId })}`,
-        title: "Drafts and comments",
-        icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>',
-      }) : ""}
-      ${conversationUrl(agent) ? cardActionLink({
-        href: conversationUrl(agent),
-        title: "Conversation · user messages and final replies",
-        icon: ICONS.conversation,
-      }) : ""}
-      ${cardActionLink({
-        href: buildAgentAppUrl(agent),
-        title: "Open Terminal in new tab",
-        icon: ICONS.open,
-      })}
-      ${cardActionButton({
-        className: "cc-delete-button",
-        title: "Complete and delete mux window",
-        dataAttrs: `data-delete-window-key="${escapeHtml(deleteKey)}"`,
-        disabled: deletingThis || !agent.windowId,
-        busy: deletingThis,
-        icon: ICONS.delete,
-      })}
-    </span>
-  `;
+  const conversation = conversationUrl(agent);
+  footer.innerHTML = renderCardActionBar({
+    interact: { shortcut: "R", attributes: { "data-interact-key": readKey } },
+    conversation: { href: conversation, disabled: !conversation },
+    drafts: {
+      href: conversation ? `/drafts?${new URLSearchParams({ machineId: agent.machineId, kind: agent.kind, sessionId: agent.agentSessionId })}` : null,
+      disabled: !conversation,
+    },
+    transcript: { attributes: { "data-transcript-key": transcriptKey }, disabled: !agent.paneId },
+    read: {
+      attributes: { "data-read-key": readKey }, shortcut: "I",
+      label: readingThis ? "Stop reading" : undefined,
+      icon: readingThis ? "stop" : "read", active: readingThis, disabled: readDisabled,
+    },
+    terminal: { href: buildAgentAppUrl(agent) },
+    share: {
+      attributes: { "data-rmux-share-key": shareKey },
+      label: sharingThis ? "Sharing terminal" : undefined,
+      disabled: sharingThis || !agent.paneId, busy: sharingThis,
+    },
+    copyLink: { attributes: { "data-copy-conversation-key": readKey }, disabled: !conversation },
+    rename: {
+      attributes: { "data-rename-window-key": renameKey },
+      disabled: renamingThis || !agent.windowId, busy: renamingThis,
+    },
+    delete: {
+      attributes: { "data-delete-window-key": deleteKey },
+      disabled: deletingThis || !agent.windowId, busy: deletingThis,
+    },
+  });
   card.append(footer);
 
   return card;
@@ -4307,6 +4254,17 @@ els.list.addEventListener("click", (event) => {
     const agent = agentForReadActionKey(interactButton.dataset.interactKey, cardKey);
     if (agent) openInteract(agent);
     else setStatus("Card changed. Refresh and try again.");
+    return;
+  }
+  const copyConversationButton = target.closest("[data-copy-conversation-key]");
+  if (copyConversationButton) {
+    const agent = agentForReadActionKey(copyConversationButton.dataset.copyConversationKey, cardKey);
+    const path = agent && conversationUrl(agent);
+    if (path) {
+      copyTextToClipboard(new URL(path, location.origin).href)
+        .then(() => setStatus("Conversation link copied. Only people with session access can open it."))
+        .catch(error => setStatus(`Could not copy link: ${error.message}`));
+    }
     return;
   }
   const starButton = target.closest("[data-star-key]");
