@@ -1310,16 +1310,26 @@
 }
 
 .cc-card-actions {
-  display: grid;
-  grid-template-columns: repeat(var(--card-action-columns, 5), minmax(44px, 1fr));
+  display: flex;
+  flex-wrap: nowrap;
   width: 100%;
-  max-width: 300px;
-  gap: 4px 6px;
+  min-width: 0;
+  gap: var(--card-action-gap, 0px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.cc-card-actions::-webkit-scrollbar {
+  display: none;
 }
 
 .cc-card-actions .cc-card-action {
-  width: 100%;
-  height: 44px;
+  flex: 1 0 var(--card-action-min-width, 32px);
+  min-width: var(--card-action-min-width, 32px);
+  width: auto;
+  height: var(--card-action-height, 32px);
 }
 
 .cc-card-actions .cc-card-action svg {

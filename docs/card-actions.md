@@ -1,10 +1,11 @@
 # Card actions across Web, iOS and Android
 
 `public/card-actions.js` is the canonical order, label and Lucide icon geometry.
-Every card renders two rows of five 44px targets, at every viewport size:
-
-1. Send message, Conversation, Drafts, Transcript, Read aloud.
-2. Open terminal, Share terminal, Copy conversation link, Rename window, Complete and delete window.
+Every card renders one compact 32px-high row, at every viewport size:
+Send message, Conversation, Drafts, Transcript, Read aloud, Open terminal,
+Share terminal, Copy conversation link, Rename window, Complete and delete window.
+The ten buttons fit in 320px; narrower cards scroll horizontally instead of
+wrapping. Web and native share the button dimensions and spacing too.
 
 Unavailable actions remain disabled in their slots. Reading changes the fifth
 slot to Stop reading. Platform navigation stays native to each client.

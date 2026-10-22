@@ -1,4 +1,4 @@
-import { CARD_ACTIONS, CARD_ACTION_COLUMNS, CARD_ACTION_ICONS } from "./card-actions.js";
+import { CARD_ACTIONS, CARD_ACTION_LAYOUT, CARD_ACTION_ICONS } from "./card-actions.js";
 
 const escape = (value) => String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 
@@ -11,7 +11,7 @@ export function cardActionIcon(id) {
 // Render every slot, including unavailable actions: capability changes must not
 // move a different action underneath the user's finger.
 export function renderCardActionBar(states) {
-  return `<div class="cc-card-actions" role="group" aria-label="Session actions" style="--card-action-columns:${CARD_ACTION_COLUMNS}">${CARD_ACTIONS.map(action => {
+  return `<div class="cc-card-actions" role="group" aria-label="Session actions" style="--card-action-min-width:${CARD_ACTION_LAYOUT.minWidth}px;--card-action-height:${CARD_ACTION_LAYOUT.height}px;--card-action-gap:${CARD_ACTION_LAYOUT.gap}px">${CARD_ACTIONS.map(action => {
     const state = states[action.id];
     const disabled = !state || Boolean(state.disabled);
     const label = state?.label || action.label;

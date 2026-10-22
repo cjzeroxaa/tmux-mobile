@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { CARD_ACTIONS, CARD_ACTION_COLUMNS } from '../public/card-actions.js';
+import { CARD_ACTIONS, CARD_ACTION_LAYOUT } from '../public/card-actions.js';
 import { renderCardActionBar } from '../public/card-action-bar.mjs';
 
-// Product contract: five fixed positions per row on Web, iOS and Android.
+// Product contract: every action stays in one compact row on all clients.
 const order = ['interact', 'conversation', 'drafts', 'transcript', 'read', 'terminal', 'share', 'copyLink', 'rename', 'delete'];
 const slots = html => [...html.matchAll(/data-card-action="([^"]+)"/g)].map(match => match[1]);
-assert.equal(CARD_ACTION_COLUMNS, 5);
+assert.equal(CARD_ACTION_LAYOUT.height, 32);
 assert.deepEqual(CARD_ACTIONS.map(action => action.id), order);
 
 const empty = renderCardActionBar({});
