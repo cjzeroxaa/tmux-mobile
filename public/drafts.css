@@ -113,6 +113,22 @@ h2 {
 .library-heading {
   padding: 0 8px 24px;
 }
+.library-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--paper-line, #d4c7ab);
+  border-radius: 8px;
+  background: var(--paper-surface, #fcf8ee);
+  font-size: 13px;
+}
+.document-toolbar .library-button { margin-bottom: 12px; }
+.library-filters { display: grid; gap: 6px; margin: 16px 0; }
+.library-filters label { font-size: 12px; }
+.library-filters select { width: 100%; min-width: 0; min-height: 44px; }
+.machine-heading { font-family: inherit; font-size: 14px; font-weight: 600; line-height: 1.5; margin: 24px 10px 8px; overflow-wrap: anywhere; }
+.draft-link .draft-machine { opacity: 0.85; overflow-wrap: anywhere; }
 .draft-link {
   display: block;
   padding: 14px 10px;
@@ -443,6 +459,10 @@ blockquote {
 .is-embedded .library {
   min-height: 100dvh;
   border-right: 0;
+}
+.is-embedded #draftList {
+  max-height: none;
+  overflow: visible;
 }
 .is-embedded .feedback {
   max-height: none;

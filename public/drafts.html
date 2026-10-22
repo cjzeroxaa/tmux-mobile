@@ -35,12 +35,24 @@
       ><a href="/drafts" class="brand">AMUX <span>Drafts</span></a
       ><button id="refresh" type="button">Refresh</button>
     </header>
+    <p id="status" role="status" aria-live="polite">Loading…</p>
+    <a id="login" hidden>Sign in to view</a>
     <main class="workspace">
       <aside class="library">
         <div class="library-heading">
           <span class="eyebrow">DRAFTS</span>
-          <h1>Make room<br />for clarity.</h1>
-          <p id="scope">Explanations, diagrams and feedback, together.</p>
+          <h1 id="libraryTitle">All drafts</h1>
+          <p id="scope">Across all your machines, newest first.</p>
+          <a class="library-button all-drafts" href="/drafts">All drafts</a>
+          <div class="library-filters">
+            <label for="machineFilter">Machine</label>
+            <select id="machineFilter"><option value="">All machines</option></select>
+            <label for="sortOrder">Sort</label>
+            <select id="sortOrder">
+              <option value="newest">Newest first</option>
+              <option value="machine">Machine · newest first</option>
+            </select>
+          </div>
         </div>
         <nav id="draftList" aria-label="Draft library"></nav>
         <details id="createPanel" hidden>
@@ -70,6 +82,7 @@
       <section class="document" aria-label="Draft content">
         <div class="document-toolbar">
           <div>
+            <a class="library-button all-drafts" href="/drafts">← All drafts</a>
             <h2 id="title">Select a draft</h2>
             <p id="updated"></p>
           </div>
@@ -83,8 +96,6 @@
             ><button id="share" hidden>Copy link</button>
           </div>
         </div>
-        <p id="status" role="status" aria-live="polite">Loading…</p>
-        <a id="login" hidden>Sign in to view</a>
         <div id="empty" hidden>
           <span class="paper-mark" aria-hidden="true">↗</span>
           <h2>Start with a complete explanation</h2>

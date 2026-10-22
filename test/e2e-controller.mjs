@@ -554,7 +554,10 @@ try {
   const terminalCookie = terminalRedirect.headers.get("set-cookie").split(";", 1)[0];
   const terminalPage = await fetch(`${baseUrl}/temporary-terminals`, { headers: { cookie: terminalCookie } });
   assert.equal(terminalPage.status, 200);
-  assert.match(await terminalPage.text(), /New 10-minute terminal/);
+  const terminalHtml = await terminalPage.text();
+  assert.match(terminalHtml, /New terminal/);
+  assert.match(terminalHtml, /<option value="600">10 minutes<\/option>/);
+  assert.match(terminalHtml, /<option value="3600">1 hour<\/option>/);
   const consumedHandoff = await fetch(`${baseUrl}${terminalHandoff.handoffUrl}`, { redirect: "manual" });
   assert.notEqual(consumedHandoff.status, 302, "handoff ticket is single-use");
 

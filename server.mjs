@@ -5666,6 +5666,7 @@ if (MODE.kind === "register") {
   try {
     drafts = createDrafts({ store: await createDraftStore(), storage: ARTIFACT_STORAGE,
       canAccess: (viewer, machineId) => Boolean(hub?.archiveSourceFor(viewer,machineId)),
+      listMachines: viewer => hub?.listMachines(viewer) || [],
     });
   } catch(error) { console.error(`Draft storage unavailable: ${error.message}`); }
   async function sendDraftPrompt(viewer, target, text) {

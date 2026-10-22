@@ -1,10 +1,23 @@
 import { syncInputWakeLock } from "./screen-awake.mjs";
+import { draftLibrary, draftLibraryUrl, draftMachineName } from "./draft-library.mjs";
 const $ = (id) => document.getElementById(id),
   params = new URLSearchParams(location.search);
 const context = {
   machineId: params.get("machineId") || "",
   kind: params.get("kind") || "",
   sessionId: params.get("sessionId") || "",
+};
+const embedded = params.get("embedded") === "1";
+const sort = params.get("sort") === "machine" ? "machine" : "newest";
+for (const link of document.querySelectorAll(".all-drafts")) {
+  link.href = draftLibraryUrl({ embedded });
+}
+$("machineFilter").onchange = () => {
+  location.assign(draftLibraryUrl({ embedded, machineId: $("machineFilter").value, sort }));
+};
+$("sortOrder").value = sort;
+$("sortOrder").onchange = () => {
+  location.assign(draftLibraryUrl({ embedded, ...context, sort: $("sortOrder").value }));
 };
 let id = params.get("id") || "",
   detail = null,
@@ -129,24 +142,45 @@ async function load({ preserveFrame = false } = {}) {
   $("status").textContent = "Loading…";
   try {
     const [list, selected] = await Promise.all([
-      request(`/api/drafts?${query()}`, { signal }),
+      request("/api/drafts", { signal }),
       id ? request(`/api/drafts?id=${id}`, { signal }) : null,
     ]);
     if (current !== generation) return;
-    $("draftList").replaceChildren();
-    for (const d of list.drafts) {
-      const a = node("a", undefined, "draft-link");
-      a.href = `/drafts?${query({ id: d.id })}`;
-      a.setAttribute("aria-current", String(d.id === id));
-      a.append(
-        node("strong", d.title),
-        node("small", `${d.kind} · v${d.version} · ${date(d.updatedAt)}`),
-      );
-      $("draftList").append(a);
+    const library = draftLibrary(list.drafts, { ...context, sort });
+    $("machineFilter").replaceChildren(node("option", `All machines (${list.drafts.length})`));
+    $("machineFilter").firstChild.value = "";
+    for (const machine of library.machines) {
+      const option = node("option", `${machine.name} (${machine.count})`);
+      option.value = machine.id;
+      $("machineFilter").append(option);
     }
+    if (context.machineId && !library.machines.some(m => m.id === context.machineId)) {
+      const option = node("option", "Current machine (0)");
+      option.value = context.machineId;
+      $("machineFilter").append(option);
+    }
+    $("machineFilter").value = context.machineId;
+    $("libraryTitle").textContent = context.sessionId ? "Session drafts" : context.machineId ? "Machine drafts" : "All drafts";
+    $("scope").textContent = `${library.count} drafts · ${context.sessionId ? "This session" : context.machineId ? "This machine" : "All machines"} · Newest first${sort === "machine" ? " within each machine" : ""}`;
+    $("draftList").replaceChildren();
+    for (const group of library.groups) {
+      if (group.name) $("draftList").append(node("h2", `${group.name} · ${group.drafts.length}`, "machine-heading"));
+      for (const d of group.drafts) {
+        const a = node("a", undefined, "draft-link");
+        a.href = draftLibraryUrl({ embedded, ...context, sort, id: d.id });
+        a.setAttribute("aria-current", String(d.id === id));
+        a.append(
+          node("strong", d.title),
+          node("small", draftMachineName(d), "draft-machine"),
+          node("small", `${d.kind} · v${d.version} · ${date(d.updatedAt)}`),
+        );
+        $("draftList").append(a);
+      }
+    }
+    if (!library.count) $("draftList").append(node("p", context.sessionId ? "No drafts for this session yet. Use All drafts to browse the full library." : context.machineId ? "No drafts for this machine yet." : "No drafts yet."));
     if (!selected) {
       $("empty").hidden = false;
-      $("status").textContent = list.drafts.length
+      $("status").textContent = library.count
         ? ""
         : context.sessionId
           ? "No drafts for this session yet."
