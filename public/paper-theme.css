@@ -7,6 +7,7 @@
   --paper-soft: #eee8d5; --paper-ink: #586e75; --paper-muted: #586e75;
   --paper-line: #93a1a1; --paper-accent: #073642; --paper-orange: #cb4b16;
   --paper-selection: #eee8d5; --paper-on-accent: #fdf6e3;
+  --paper-text-selection-bg: #175b94; --paper-text-selection-ink: #fff;
   --paper-glass: #fdf6e3db; --paper-shadow: 0 2px 0 #93a1a155;
   --paper-serif: Georgia, "Iowan Old Style", "Noto Serif SC", serif;
   --paper-sans: "Avenir Next", "Lato", "PingFang SC", system-ui, sans-serif;
@@ -17,6 +18,7 @@ html[data-theme="dark"], html[data-theme=""] {
   --paper-soft: #073642; --paper-ink: #93a1a1; --paper-muted: #839496;
   --paper-line: #586e75; --paper-accent: #93a1a1; --paper-orange: #cb4b16;
   --paper-selection: #073642; --paper-on-accent: #002b36;
+  --paper-text-selection-bg: #28627c; --paper-text-selection-ink: #fdf6e3;
   --paper-glass: #002b36ed; --paper-shadow: 0 2px 0 #002b3655;
 }
 @media (prefers-color-scheme: dark) {
@@ -26,6 +28,7 @@ html[data-theme="dark"], html[data-theme=""] {
     --paper-soft: #073642; --paper-ink: #93a1a1; --paper-muted: #839496;
     --paper-line: #586e75; --paper-accent: #93a1a1; --paper-orange: #cb4b16;
     --paper-selection: #073642; --paper-on-accent: #002b36;
+    --paper-text-selection-bg: #28627c; --paper-text-selection-ink: #fdf6e3;
     --paper-glass: #002b36ed; --paper-shadow: 0 2px 0 #002b3655;
   }
 }
@@ -44,7 +47,9 @@ html:root, html:root body, html:root .app-body, html:root .command-center-body {
   --cc-strong: var(--paper-ink); --cc-secondary: var(--paper-muted); --cc-hairline: var(--paper-line);
   background-color: var(--paper-bg); color: var(--paper-ink); font-family: var(--paper-sans);
 }
-::selection { background: var(--paper-selection); color: var(--paper-ink); }
+/* Text selection needs stronger contrast than selected cards/controls. Match
+ * the shared Terminal viewer's light/dark selection palette. */
+::selection { background: var(--paper-text-selection-bg); color: var(--paper-text-selection-ink); text-shadow: none; }
 html:root :focus-visible { outline: 2px solid var(--solarized-blue); outline-offset: 3px; }
 html:root h1, html:root .cc-title, html:root .brand, html:root .report-head h2,
 html:root .empty h2, html:root .machine h3, html:root .sheet-header h2 {
