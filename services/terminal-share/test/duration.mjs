@@ -46,7 +46,7 @@ test('invalid durations never allocate a Durable Object', async () => {
 
 test('temporary renewals allow bounded additive durations and bind expiry', async () => {
   const { create, calls } = fixture();
-  for (const ttlSeconds of [600, 1199, 1800]) {
+  for (const ttlSeconds of [600, 1199, 1800, 3600, 4199]) {
     const response = await create({temporary: true, ttlSeconds, allowControl: true});
     assert.equal(response.status, 200);
     const share = await response.json();

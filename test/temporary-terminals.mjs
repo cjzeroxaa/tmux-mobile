@@ -25,6 +25,11 @@ try {
   assert.deepEqual(await manager.list(), [], 'no tmux server means an empty list');
   await tmux(['new-session', '-d', '-s', 'unrelated', 'sleep 600']);
   await tmux(['set-option', '-g', 'default-command', 'exit 42']);
+  for (const duration of [0, 599, 601, 1800, 3600.5, 604800, '3600', null]) {
+    await assert.rejects(manager.run('create', randomUUID(), duration), /Choose 10 minutes or 1 hour/);
+  }
+  assert.equal(starts, 0, 'invalid durations cannot start shares');
+  assert.deepEqual(await manager.list(), [], 'invalid durations cannot create shells');
   const id = randomUUID();
   const results = await Promise.all(Array.from({length: 10}, () => manager.run('create', id)));
   assert.equal(starts, 1, 'concurrent retries reuse one shell/share');
@@ -47,15 +52,28 @@ try {
   const renewed = await manager.run('extend', id);
   assert(renewed.share.expiresAt >= share.expiresAt + 599000);
   assert.deepEqual(await inspect(), before, 'renewal preserves process');
+  const hourExtended = await manager.run('extend', id, 3600);
+  assert(hourExtended.share.expiresAt >= renewed.share.expiresAt + 3599000, 'one hour extends the remaining time');
+  assert(hourExtended.share.expiresAt <= renewed.share.expiresAt + 3601000);
+  assert.deepEqual(await inspect(), before, 'one-hour extension preserves process');
+  assert.deepEqual((await manager.run('open', id, 600)).share, hourExtended.share, 'opening a valid link preserves its expiry');
   await manager.run('stop', id);
   assert.deepEqual(await inspect(), before, 'stop only revokes share');
   const restartedManager = temporaryTerminals(backend, startShare);
   assert.equal((await restartedManager.list())[0].id, id, 'marker survives controller restart');
-  const reopened = await restartedManager.run('open', id);
+  const reopened = await restartedManager.run('open', id, 3600);
   assert.equal(reopened.terminal.paneId, terminal.paneId);
+  assert.equal(reopened.share.ttlSeconds, 3600, 'stopped share reopens for one hour');
   shares.set(terminal.paneId, { ...reopened.share, expiresAt: Date.now() - 1 });
   assert.equal((await manager.run('open', id)).share.ttlSeconds, 600, 'expired share reopens same shell');
   assert.deepEqual(await inspect(), before);
+  const hourId = randomUUID();
+  const hourCreated = await manager.run('create', hourId, 3600);
+  assert.equal(hourCreated.share.ttlSeconds, 3600, 'new terminal supports one hour');
+  assert.equal((await manager.run('create', hourId, 600)).terminal.paneId, hourCreated.terminal.paneId, 'retry preserves the created shell');
+  shares.set(hourCreated.terminal.paneId, { ...hourCreated.share, expiresAt: Date.now() - 1 });
+  assert.equal((await manager.run('open', hourId, 3600)).share.ttlSeconds, 3600, 'expired share reopens for one hour');
+  await manager.run('close', hourId);
   await assert.rejects(manager.run('close', '@0'), /Invalid/);
   await assert.rejects(manager.run('close', randomUUID()), /no longer exists/);
   failShare = true;
@@ -69,5 +87,5 @@ try {
   await manager.run('close', id);
   assert.deepEqual(await manager.list(), []);
   assert.match(await tmux(['list-sessions', '-F', '#{session_name}']), /unrelated/);
-  console.log('temporary terminals: real tmux creation, retries, renewal, recovery, expiry and isolated cleanup passed');
+  console.log('temporary terminals: 10-minute/1-hour creation, additive renewal, retries, recovery, expiry, validation and isolated cleanup passed');
 } finally { await tmux(['kill-server']).catch(() => {}); }

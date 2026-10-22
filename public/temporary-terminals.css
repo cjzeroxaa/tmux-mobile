@@ -10,6 +10,7 @@ button, select { color: inherit; background: var(--paper-surface); border: 1px s
 button { cursor: pointer; }
 button:disabled { opacity: .5; cursor: wait; }
 select { max-width: 100%; min-width: 180px; }
+#duration, #workspaceDuration { min-width: 130px; }
 #create { background: var(--paper-accent); color: var(--paper-on-accent); }
 #terminals { list-style: none; padding: 0; display: grid; gap: 8px; }
 #terminals li { display: flex; align-items: center; gap: 12px; }
@@ -26,7 +27,7 @@ body.has-terminal main { display: flex; flex-direction: column; flex: 1; min-hei
   h1 { font-size: 19px; }
   main { padding: 12px; }
   .terminal-toolbar { gap: 6px; }
-  .terminal-toolbar button { font-size: 13px; padding: 6px 9px; min-height: 36px; }
+  .terminal-toolbar button, .terminal-toolbar select { font-size: 13px; padding: 6px 9px; min-height: 36px; }
   #terminalName { font-size: 13px; }
   #remaining { font-size: 13px; }
 }

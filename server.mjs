@@ -4553,7 +4553,7 @@ async function handleApi(req, res, url) {
     if (req.method === "GET") sendJson(res, 200, { terminals: await manager.list() });
     else {
       const body = await readJsonBody(req);
-      sendJson(res, 200, await manager.run(body.action, body.id));
+      sendJson(res, 200, await manager.run(body.action, body.id, body.ttlSeconds));
     }
     return;
   }

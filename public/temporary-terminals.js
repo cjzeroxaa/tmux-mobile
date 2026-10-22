@@ -4,6 +4,12 @@ const params = new URLSearchParams(location.search);
 let busy = false, current = null, share = null, pendingCreateId = null, generation = 0;
 let tick = null;
 const machineName = () => $('machine').selectedOptions[0]?.textContent || 'Shell';
+function selectDuration(value) {
+  $('duration').value = $('workspaceDuration').value = value;
+  const label = value === '3600' ? '1 hour' : '10 minutes';
+  $('extend').textContent = `+${label}`;
+  $('reopen').textContent = `Reopen for ${label}`;
+}
 function setBusy(value) {
   busy = value;
   document.querySelectorAll('button,select').forEach(el => { el.disabled = value; });
@@ -71,7 +77,7 @@ async function act(action, id = current?.id) {
   if (action === 'close' && !(await confirmAction({ title: "Close temporary terminal?", message: `${machineName()} · ${id.slice(0, 8)}\nThis ends its running commands.`, confirmLabel: "Close terminal", danger: true }))) return;
   setBusy(true); $('status').textContent = action === 'create' ? 'Starting shell…' : 'Updating terminal…';
   try {
-    const result = await api('POST', { action, id });
+    const result = await api('POST', { action, id, ttlSeconds: Number($('duration').value) });
     if (action === 'create') pendingCreateId = null;
     show(result);
     $('status').textContent = result.share ? 'Input turns on automatically. Use Lock to pause it. Expiry stops sharing only.' : result.terminal ? 'Sharing stopped. Your shell is still running.' : 'Terminal closed.';
@@ -82,6 +88,8 @@ async function act(action, id = current?.id) {
 $('create').onclick = () => { pendingCreateId ||= crypto.randomUUID(); void act('create', pendingCreateId); };
 $('refresh').onclick = refresh;
 $('machine').onchange = () => { pendingCreateId = null; show({ terminal: null, share: null }); void refresh(); };
+$('duration').onchange = event => selectDuration(event.target.value);
+$('workspaceDuration').onchange = event => selectDuration(event.target.value);
 $('extend').onclick = () => act('extend');
 $('reopen').onclick = () => act('open');
 $('stop').onclick = () => act('stop');
