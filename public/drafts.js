@@ -30,6 +30,7 @@ let busy = false;
 let feedbackOpen = false;
 let reviseState = "idle";
 let reviseReset;
+let sharingBusy = false;
 const node = (tag, text, cls) => {
   const el = document.createElement(tag);
   if (text !== undefined) el.textContent = text;
@@ -79,6 +80,28 @@ function syncReviewActions() {
   button.textContent = reviseState === "sending" ? "Sending…"
     : reviseState === "sent" ? "✓ Sent to Agent" : "Ask Agent to revise";
   $("copyFeedback").disabled = busy || !hasFeedback;
+}
+function renderSharing() {
+  const sharing = detail?.sharing;
+  const enabled = sharing?.enabled === true;
+  $("share").textContent = enabled ? "Share · Public" : "Share";
+  $("publicSharingTitle").textContent = enabled ? "Public link is on" : "Public link is off";
+  $("publicLinkRow").hidden = !enabled;
+  $("publicLink").value = enabled ? new URL(sharing.path, location.origin).href : "";
+  $("sharingOwnerOnly").hidden = !!sharing?.canManage;
+  const toggle = $("togglePublicSharing");
+  toggle.disabled = sharingBusy || !sharing?.canManage;
+  toggle.setAttribute("aria-busy", String(sharingBusy));
+  toggle.textContent = sharingBusy ? "Saving…" : enabled ? "Disable public link" : "Enable public link";
+  $("copyPublicLink").disabled = sharingBusy || !enabled;
+}
+function setSharingOpen(open) {
+  $("sharePanel").hidden = !open;
+  $("share").setAttribute("aria-expanded", String(open));
+  if (open) {
+    renderSharing();
+    $("sharePanel").scrollIntoView({ block: "nearest" });
+  } else $("share").focus();
 }
 function setFeedbackOpen(open, { reveal = false } = {}) {
   feedbackOpen = !!open;
@@ -143,6 +166,7 @@ function renderComments() {
 async function reloadDetail() {
   detail = await request(`/api/drafts?id=${id}`);
   renderComments();
+  renderSharing();
 }
 async function load({ preserveFrame = false } = {}) {
   const current = ++generation;
@@ -199,6 +223,7 @@ async function load({ preserveFrame = false } = {}) {
       return;
     }
     detail = selected;
+    renderSharing();
     if (
       preserveFrame &&
       version &&
@@ -378,11 +403,45 @@ $("createForm").onsubmit = (e) => {
   action(() => prompt(true, true));
 };
 $("copyCreate").onclick = () => action(() => prompt(false, true));
-$("share").onclick = () =>
-  action(async () => {
-    await navigator.clipboard.writeText(`${location.origin}/drafts?id=${id}`);
-    $("status").textContent = "Link copied. Access requires permission to this session.";
-  });
+$("share").onclick = () => setSharingOpen($("sharePanel").hidden);
+$("closeShare").onclick = () => setSharingOpen(false);
+$("sharePanel").onkeydown = (event) => {
+  if (event.key === "Escape") setSharingOpen(false);
+};
+$("publicLink").onclick = () => $("publicLink").select();
+async function copyShareLink(isPublic) {
+  const link = isPublic ? $("publicLink").value : `${location.origin}/drafts?id=${id}`;
+  if (!link) return;
+  try {
+    await navigator.clipboard.writeText(link);
+    $("shareStatus").textContent = isPublic ? "Public link copied. Anyone with this link can open it." : "Private link copied. Sign-in and session access are required.";
+  } catch {
+    $("shareStatus").textContent = isPublic ? "Could not copy. Select the public link above and copy it." : "Could not copy the link. Try again.";
+    if (isPublic) { $("publicLink").focus(); $("publicLink").select(); }
+  }
+}
+$("copyPrivateLink").onclick = () => copyShareLink(false);
+$("copyPublicLink").onclick = () => copyShareLink(true);
+$("togglePublicSharing").onclick = async () => {
+  if (sharingBusy || !detail?.sharing?.canManage) return;
+  sharingBusy = true;
+  const enabled = !detail.sharing.enabled;
+  renderSharing();
+  $("shareStatus").textContent = enabled ? "Enabling public link…" : "Disabling public link…";
+  try {
+    const result = await request(`/api/drafts/sharing?id=${id}`, {
+      method: "PUT", body: JSON.stringify({ enabled }),
+    });
+    detail.sharing = result.sharing;
+    $("shareStatus").textContent = enabled ? "Public link enabled. Copy the link to share this draft."
+      : "Public link disabled. The old link no longer opens this draft.";
+  } catch (error) {
+    $("shareStatus").textContent = error.message;
+  } finally {
+    sharingBusy = false;
+    renderSharing();
+  }
+};
 $("versions").onchange = () => {
   if ($("comment").value) {
     $("status").textContent = "Save your comment before switching versions.";

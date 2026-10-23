@@ -1,7 +1,7 @@
 import { temporaryTerminals } from "./lib/temporary-terminals.mjs";
 import { createDraftStore } from "./lib/draft-store.mjs";
 import { createDrafts, DRAFT_UPLOAD_PATH, MAX_DRAFT_BYTES } from "./lib/drafts.mjs";
-import { handleDraftHttp } from "./lib/draft-http.mjs";
+import { handleDraftHttp, handlePublicDraftHttp } from "./lib/draft-http.mjs";
 import { CONTROLLER_ORIGIN, canonicalControllerUrl, controllerOAuthRedirectUri } from "./lib/controller-origin.mjs";
 import { isPiCommand, installPiExtension } from "./lib/pi-runtime.mjs";
 import { createProgressReports, createGeminiSummarizer, loadReportConfig, validReportId } from './lib/progress-reports.mjs';
@@ -5667,6 +5667,8 @@ if (MODE.kind === "register") {
     drafts = createDrafts({ store: await createDraftStore(), storage: ARTIFACT_STORAGE,
       canAccess: (viewer, machineId) => Boolean(hub?.archiveSourceFor(viewer,machineId)),
       listMachines: viewer => hub?.listMachines(viewer) || [],
+      canManageSharing: (viewer, draft) => viewer?.userId === draft.ownerId ||
+        ACCESS_CONTROL.superAdminEmails.includes(String(viewer?.email || viewer?.userId || "").toLowerCase()),
     });
   } catch(error) { console.error(`Draft storage unavailable: ${error.message}`); }
   async function sendDraftPrompt(viewer, target, text) {
@@ -5715,6 +5717,8 @@ if (MODE.kind === "register") {
       if (await serveConnectorArtifact(req, res, url)) {
         return;
       }
+
+      if (await handlePublicDraftHttp(req, res, url, { drafts, assetSessionSecret: process.env.SESSION_SECRET })) return;
 
       if (url.pathname === "/draft-client.mjs" || url.pathname === "/skills/install.mjs" || url.pathname.startsWith("/skills/tmax-drafts/") || url.pathname.startsWith("/skills/tmax-start-agent/") || url.pathname.startsWith("/skills/tmax-config-agent/") || url.pathname.startsWith("/skills/tmax-assign-task/")) {
         if (["GET","HEAD"].includes(req.method)) { await serveStatic(req,res,url); return; }

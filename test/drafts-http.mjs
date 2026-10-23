@@ -218,8 +218,36 @@ try {
   assert.ok(!(await download.text()).includes('?token='), 'stored/downloaded HTML contains no temporary read credentials');
   const denied = await fetch(`${api}/api/drafts/content?id=${media.id}`, { headers: { cookie: `tmux_mobile_session=${token('session', 'other@example.org')}` } });
   assert.equal(denied.status, 404);
+  const sharePath = `/api/drafts/sharing?id=${media.id}`;
+  assert.equal((await fetch(api + sharePath, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: '{"enabled":true}' })).status, 401);
+  assert.equal((await call(sharePath, { method: 'PUT', headers: { cookie: `tmux_mobile_session=${token('session', 'other@example.org')}` }, body: '{"enabled":true}' })).status, 404);
+  for (const headers of [{ origin: 'https://other.example' }, { origin: 'null' }, { 'sec-fetch-site': 'cross-site' }, { 'content-type': 'text/plain' }]) {
+    assert.equal((await call(sharePath, { method: 'PUT', headers, body: '{"enabled":true}' })).status, 403);
+  }
+  assert.equal((await call(`/api/drafts?id=${media.id}`)).body.sharing.enabled, false);
+  const sharing = await call(sharePath, { method: 'PUT', headers: { origin: api }, body: '{"enabled":true}' });
+  assert.equal(sharing.status, 200);
+  const publicUrl = api + sharing.body.sharing.path;
+  const anonymous = await fetch(publicUrl, { redirect: 'manual' });
+  assert.equal(anonymous.status, 200, 'public Draft requires no login or redirect');
+  const publicHtml = await anonymous.text();
+  assert.match(publicHtml, /Selectable media explanation/);
+  assert.doesNotMatch(publicHtml, /Please explain this|Simplify the whole draft|locateDraftQuote|test-session/);
+  const publicMedia = new URL(publicHtml.match(/src="(https:\/\/draft-assets[^\"]+)"/)[1]);
+  assert.ok(await validToken(publicMedia.pathname, publicMedia.searchParams.get('token'), assetSigningKey(secret)));
+  assert.equal((await fetch(publicUrl, { method: 'HEAD' })).status, 200);
+  assert.equal((await fetch(publicUrl, { method: 'PUT' })).status, 405);
+  assert.equal((await fetch(`${api}/api/drafts?id=${media.id}`)).status, 401, 'public links never authorize private metadata');
+  assert.equal((await fetch(`${api}/api/drafts/content?id=${media.id}`)).status, 401);
+  assert.equal((await fetch(`${api}/api/drafts/comments?id=${media.id}`, { method: 'POST' })).status, 401);
+  assert.equal((await call(sharePath, { method: 'PUT', body: '{"enabled":false}' })).status, 200);
+  assert.equal((await fetch(publicUrl, { redirect: 'manual' })).status, 404);
+  const enabledAgain = await call(sharePath, { method: 'PUT', body: '{"enabled":true}' });
+  assert.notEqual(enabledAgain.body.sharing.path, sharing.body.sharing.path);
+  assert.equal((await fetch(publicUrl)).status, 404);
+  assert.equal((await fetch(api + enabledAgain.body.sharing.path)).status, 200);
   console.log(
-    "drafts HTTP: real controller + CLI publish/retry/context/comments/revise, browser auth, isolated users and version history passed",
+    "drafts HTTP: real controller + CLI, private review, anonymous sharing/media, auth/CSRF boundaries and revocation passed",
   );
 } finally {
   child.kill("SIGTERM");

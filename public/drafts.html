@@ -93,9 +93,28 @@
             <label for="versions" class="sr-only">Version</label
             ><select id="versions" aria-label="Version" hidden></select
             ><a id="download" hidden>Download HTML</a
-            ><button id="share" hidden>Copy link</button>
+            ><button id="share" type="button" aria-expanded="false" aria-controls="sharePanel" hidden>Share</button>
           </div>
         </div>
+        <section id="sharePanel" class="share-panel" aria-labelledby="shareTitle" hidden>
+          <div class="share-heading">
+            <h3 id="shareTitle">Share draft</h3>
+            <button id="closeShare" type="button" aria-label="Close sharing">×</button>
+          </div>
+          <p>The private review link requires sign-in and access to this session.</p>
+          <button id="copyPrivateLink" type="button">Copy private link</button>
+          <div class="public-sharing">
+            <h4 id="publicSharingTitle">Public link is off</h4>
+            <p>Anyone with the public link can view the latest version, including images and videos. Comments stay private.</p>
+            <div id="publicLinkRow" class="public-link-row" hidden>
+              <input id="publicLink" type="text" readonly aria-label="Public link" />
+              <button id="copyPublicLink" type="button">Copy public link</button>
+            </div>
+            <button id="togglePublicSharing" type="button" disabled>Enable public link</button>
+            <p id="sharingOwnerOnly" hidden>Only the owner or an administrator can change public sharing.</p>
+          </div>
+          <p id="shareStatus" role="status" aria-live="polite"></p>
+        </section>
         <div id="empty" hidden>
           <span class="paper-mark" aria-hidden="true">↗</span>
           <h2>Start with a complete explanation</h2>
