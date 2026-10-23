@@ -28,6 +28,8 @@ let id = params.get("id") || "",
   frameReady = false;
 let busy = false;
 let feedbackOpen = false;
+let reviseState = "idle";
+let reviseReset;
 const node = (tag, text, cls) => {
   const el = document.createElement(tag);
   if (text !== undefined) el.textContent = text;
@@ -67,6 +69,16 @@ function syncCommentForm() {
   $("selection").textContent = anchor?.quote || "Overall comment · Whole draft";
   $("clearSelection").hidden = !anchor;
   $("saveComment").disabled = busy || !version || !$("comment").value.trim();
+}
+function syncReviewActions() {
+  const hasFeedback = detail?.comments.some((c) => c.status === "open");
+  const button = $("revise");
+  button.disabled = busy || reviseState !== "idle" || !hasFeedback;
+  button.dataset.state = reviseState;
+  button.setAttribute("aria-busy", String(reviseState === "sending"));
+  button.textContent = reviseState === "sending" ? "Sending…"
+    : reviseState === "sent" ? "✓ Sent to Agent" : "Ask Agent to revise";
+  $("copyFeedback").disabled = busy || !hasFeedback;
 }
 function setFeedbackOpen(open, { reveal = false } = {}) {
   feedbackOpen = !!open;
@@ -125,8 +137,7 @@ function renderComments() {
   }
   if (!detail.comments.length)
     $("comments").append(node("p", "No comments yet. Leave overall feedback or select text to begin."));
-  $("revise").disabled = !detail.comments.some((c) => c.status === "open");
-  $("copyFeedback").disabled = $("revise").disabled;
+  syncReviewActions();
   sendComments();
 }
 async function reloadDetail() {
@@ -240,6 +251,7 @@ async function action(fn) {
   if (busy) return;
   busy = true;
   syncCommentForm();
+  syncReviewActions();
   try {
     await fn();
   } catch (e) {
@@ -248,6 +260,7 @@ async function action(fn) {
   } finally {
     busy = false;
     syncCommentForm();
+    syncReviewActions();
   }
 }
 window.addEventListener("message", (event) => {
@@ -340,7 +353,25 @@ async function prompt(send, create = false) {
   $("status").textContent = text;
   $("feedbackStatus").textContent = text;
 }
-$("revise").onclick = () => action(() => prompt(true));
+$("revise").onclick = () => {
+  if ($("revise").disabled) return;
+  action(async () => {
+    reviseState = "sending";
+    syncReviewActions();
+    $("feedbackStatus").textContent = "Sending feedback to Agent…";
+    try {
+      await prompt(true);
+      reviseState = "sent";
+      reviseReset = setTimeout(() => {
+        reviseState = "idle";
+        syncReviewActions();
+      }, 1800);
+    } catch (error) {
+      reviseState = "idle";
+      throw error;
+    }
+  });
+};
 $("copyFeedback").onclick = () => action(() => prompt(false));
 $("createForm").onsubmit = (e) => {
   e.preventDefault();
@@ -368,6 +399,9 @@ $("refresh").onclick = () => {
 window.addEventListener("pagehide", () => {
   ++generation;
   controller?.abort();
+  clearTimeout(reviseReset);
+  if (reviseState === "sent") reviseState = "idle";
+  syncReviewActions();
 });
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && !busy) load({ preserveFrame: true });
@@ -378,4 +412,5 @@ if (context.machineId && context.sessionId) {
   $("emptyHint").textContent = "Open New draft on the left and tell the Agent what to create.";
 }
 syncInputWakeLock();
+syncReviewActions();
 load();

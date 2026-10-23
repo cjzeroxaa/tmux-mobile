@@ -181,6 +181,22 @@ form button[type="submit"],
   color: var(--paper-on-accent, #fcf8ee);
   border-color: transparent;
 }
+#revise {
+  transition: opacity 150ms ease-out;
+}
+#revise[data-state="sending"] {
+  background: var(--paper-rail, #eae6d8);
+  color: var(--paper-muted, #586e75);
+  border-color: var(--paper-line, #d4c7ab);
+  opacity: 1;
+  cursor: wait;
+}
+#revise[data-state="sent"] {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  #revise { transition: none; }
+}
 .skill-link {
   display: block;
   font-size: 12px;
