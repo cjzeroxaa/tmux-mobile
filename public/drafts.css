@@ -124,9 +124,40 @@ h2 {
   font-size: 13px;
 }
 .document-toolbar .library-button { margin-bottom: 12px; }
-.library-filters { display: grid; gap: 6px; margin: 16px 0; }
-.library-filters label { font-size: 12px; }
-.library-filters select { width: 100%; min-width: 0; min-height: 44px; }
+.library-filters { display: grid; gap: 14px; margin: 16px 0; }
+.library-filter { display: grid; min-width: 0; gap: 6px; }
+.library-filter label { font-size: 12px; line-height: 18px; }
+.library-select { position: relative; min-width: 0; }
+/* Keep the native picker, but give its closed control the same geometry on
+   macOS, iOS and Android. Native menu arrows ignore our horizontal padding. */
+html:root .library-select select {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  margin: 0;
+  padding: 0 36px 0 12px;
+  border-radius: 8px;
+  font-size: 16px;
+  line-height: normal;
+  text-overflow: ellipsis;
+}
+.library-select svg {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
 .machine-heading { font-family: inherit; font-size: 14px; font-weight: 600; line-height: 1.5; margin: 24px 10px 8px; overflow-wrap: anywhere; }
 .draft-link .draft-machine { opacity: 0.85; overflow-wrap: anywhere; }
 .draft-link {

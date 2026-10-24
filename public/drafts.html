@@ -45,13 +45,23 @@
           <p id="scope">Across all your machines, newest first.</p>
           <a class="library-button all-drafts" href="/drafts">All drafts</a>
           <div class="library-filters">
-            <label for="machineFilter">Machine</label>
-            <select id="machineFilter"><option value="">All machines</option></select>
-            <label for="sortOrder">Sort</label>
-            <select id="sortOrder">
-              <option value="newest">Newest first</option>
-              <option value="machine">Machine · newest first</option>
-            </select>
+            <div class="library-filter">
+              <label for="machineFilter">Machine</label>
+              <div class="library-select">
+                <select id="machineFilter"><option value="">All machines</option></select>
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6" /></svg>
+              </div>
+            </div>
+            <div class="library-filter">
+              <label for="sortOrder">Sort</label>
+              <div class="library-select">
+                <select id="sortOrder">
+                  <option value="newest">Newest first</option>
+                  <option value="machine">Machine · newest first</option>
+                </select>
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6" /></svg>
+              </div>
+            </div>
           </div>
         </div>
         <nav id="draftList" aria-label="Draft library"></nav>
