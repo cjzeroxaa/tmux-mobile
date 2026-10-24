@@ -9,6 +9,35 @@ const context = {
 };
 const embedded = params.get("embedded") === "1";
 const sort = params.get("sort") === "machine" ? "machine" : "newest";
+const libraryBody = $("libraryBody"), libraryToggle = $("toggleLibrary");
+const libraryScrollKey = `tmux-mobile-draft-library-scroll:${JSON.stringify({ embedded, ...context, sort })}`;
+let libraryScrollTop = 0;
+try {
+  libraryScrollTop = Math.max(0, Number(sessionStorage.getItem(libraryScrollKey)) || 0);
+} catch {}
+function rememberLibraryPosition() {
+  if (!libraryBody.hidden && libraryBody.getClientRects().length && $("draftList").childElementCount) {
+    libraryScrollTop = libraryBody.scrollTop;
+  }
+}
+function restoreLibraryPosition() {
+  if (!libraryBody.hidden) libraryBody.scrollTop = libraryScrollTop;
+}
+function syncLibraryToggle() {
+  const collapsed = !embedded && document.documentElement.classList.contains("library-collapsed");
+  libraryBody.hidden = collapsed;
+  libraryToggle.setAttribute("aria-expanded", String(!collapsed));
+  libraryToggle.setAttribute("aria-label", collapsed ? "Expand draft library" : "Collapse draft library");
+  libraryToggle.title = libraryToggle.getAttribute("aria-label");
+  restoreLibraryPosition();
+}
+libraryToggle.onclick = () => {
+  rememberLibraryPosition();
+  const collapsed = document.documentElement.classList.toggle("library-collapsed");
+  syncLibraryToggle();
+  try { localStorage.setItem("tmux-mobile-draft-library-collapsed", String(collapsed)); } catch {}
+};
+syncLibraryToggle();
 for (const link of document.querySelectorAll(".all-drafts")) {
   link.href = draftLibraryUrl({ embedded });
 }
@@ -181,6 +210,7 @@ async function load({ preserveFrame = false } = {}) {
       id ? request(`/api/drafts?id=${id}`, { signal }) : null,
     ]);
     if (current !== generation) return;
+    rememberLibraryPosition();
     const library = draftLibrary(list.drafts, { ...context, sort });
     $("machineFilter").replaceChildren(node("option", `All machines (${list.drafts.length})`));
     $("machineFilter").firstChild.value = "";
@@ -213,6 +243,7 @@ async function load({ preserveFrame = false } = {}) {
       }
     }
     if (!library.count) $("draftList").append(node("p", context.sessionId ? "No drafts for this session yet. Use All drafts to browse the full library." : context.machineId ? "No drafts for this machine yet." : "No drafts yet."));
+    restoreLibraryPosition();
     if (!selected) {
       $("empty").hidden = false;
       $("status").textContent = library.count
@@ -456,6 +487,8 @@ $("refresh").onclick = () => {
   load({ preserveFrame: true });
 };
 window.addEventListener("pagehide", () => {
+  rememberLibraryPosition();
+  try { sessionStorage.setItem(libraryScrollKey, String(libraryScrollTop)); } catch {}
   ++generation;
   controller?.abort();
   clearTimeout(reviseReset);
