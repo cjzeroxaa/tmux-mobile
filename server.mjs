@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import {
   currentBackend,
   findClaudeSessionFromBackend,
+  foregroundPaneProcesses,
   localBackend,
   processTreeFromSnapshot,
   readClaudeTranscriptFromSession,
@@ -2570,7 +2571,7 @@ async function safeAgentLastResponse(pane) {
   const backend = currentBackend();
   let exactClaudeSession = null;
   try {
-    const commands = [pane.command, ...(await backend.processTree(pane.pid)).map(p => p.command)];
+    const commands = [pane.command, ...foregroundPaneProcesses(await backend.processTree(pane.pid), pane.pid).map(p => p.command)];
     if (detectCommandCenterAgentType(commands) === "pi") throw new Error("Pi foreground");
     exactClaudeSession = await findClaudeSessionFromBackend(backend, {
       rootPid: pane.pid,
@@ -2618,7 +2619,7 @@ async function safeAgentTranscript(pane, processes = null, openFiles = null) {
   const backend = currentBackend();
   let exactClaudeSession = null;
   try {
-    const commands = [pane.command, ...(processes || await backend.processTree(pane.pid)).map(p => p.command)];
+    const commands = [pane.command, ...foregroundPaneProcesses(processes || await backend.processTree(pane.pid), pane.pid).map(p => p.command)];
     if (detectCommandCenterAgentType(commands) === "pi") throw new Error("Pi foreground");
     exactClaudeSession = await findClaudeSessionFromBackend(backend, {
       rootPid: pane.pid,
@@ -2688,7 +2689,7 @@ async function detectCommandCenterAgent(pane, processes = null) {
       Array.isArray(processes)
         ? processes
         : await currentBackend().processTree(pane.pid);
-    const commands = tree.map((processInfo) => processInfo.command || "");
+    const commands = foregroundPaneProcesses(tree, pane.pid).map((processInfo) => processInfo.command || "");
     return detectCommandCenterAgentType(commands) || "";
   } catch {
     return "";

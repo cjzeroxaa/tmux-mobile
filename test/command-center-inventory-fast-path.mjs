@@ -49,8 +49,8 @@ async function makeFakeCommands(dir) {
     path.join(binDir, "ps"),
     `${recordPrelude}
 process.stdout.write([
-  "100 1 codex",
-  "200 1 codex",
+  "100 1 100 100 S+ codex",
+  "200 1 200 200 S+ codex",
 ].join("\\n") + "\\n");
 `,
   );
@@ -252,7 +252,7 @@ async function runInventory(mode) {
     matching(
       calls,
       "ps",
-      (args) => args[0] === "-axo" && args.includes("pid=,ppid=,command="),
+      (args) => args[0] === "-axo" && args.includes("pid=,ppid=,pgid=,tpgid=,stat=,command="),
     ).length,
     1,
     "one inventory round takes one process snapshot",

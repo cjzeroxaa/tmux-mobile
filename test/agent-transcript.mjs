@@ -15,6 +15,7 @@ import {
   agentTranscriptSnapshotMetrics,
   findClaudeSessionFromBackend,
   findClaudeTranscriptFromSessionFile,
+  foregroundPaneProcesses,
   localBackend,
   processTreeFromSnapshot,
   readClaudeTranscriptFromSession,
@@ -127,6 +128,37 @@ try {
       openFiles: new Map([[303, [path.join(projectDir, `${second}.jsonl`)]]]),
     });
     assert.equal(openFile.sessionId, second, "process-owned open file remains a valid fallback");
+
+    const jobTree = (foreground, oldState = "T") => processTreeFromSnapshot([
+      { pid: 10, ppid: 1, command: "zsh", pgid: 10, tpgid: foreground, state: "Ss" },
+      { pid: 101, ppid: 10, command: "claude", pgid: 101, tpgid: foreground, state: oldState },
+      { pid: 202, ppid: 10, command: "claude", pgid: 202, tpgid: foreground, state: "S+" },
+    ], 10);
+    const pane = { ...waitingPane, rootPid: 10, processes: jobTree(202) };
+    assert.deepEqual(foregroundPaneProcesses(pane.processes, 10).map(p => p.pid), [202]);
+    assert.equal((await localBackend.agentTranscript(pane)).sessionId, second,
+      "suspended old Claude in the same pane cannot hide the foreground reply");
+    assert.equal((await localBackend.agentLastResponse(pane)).text, "second response",
+      "Read and transcript use the same foreground binding");
+    assert.equal((await findClaudeSessionFromBackend(localBackend, pane)).sessionId, second,
+      "server-side exact-session validation agrees with Connector selection");
+    assert.equal((await localBackend.agentTranscript({ ...pane, processes: jobTree(202, "S") })).sessionId, second,
+      "a running background job is also excluded");
+    assert.equal((await localBackend.agentTranscript({ ...pane, processes: jobTree(101, "S+") })).sessionId, first,
+      "foreground ownership follows fg, not PID ordering or transcript recency");
+    assert.equal(await localBackend.agentTranscript({ ...pane, processes: jobTree(10, "S") }), null,
+      "returning to the shell does not keep showing a background conversation");
+    const unregistered = { ...pane, processes: jobTree(303).map(p => p.pid === 202 ? { ...p, pid: 303, pgid: 303 } : p) };
+    assert.equal(await localBackend.agentTranscript(unregistered), null,
+      "a newly launched foreground Claude never borrows a retained old job's transcript");
+    // /clear and /resume keep the OS process but replace the exact session registry.
+    await writeFile(path.join(sessionsDir, "202.json"), JSON.stringify({ pid: 202, cwd, sessionId: first }));
+    assert.equal((await localBackend.agentTranscript(pane)).sessionId, first,
+      "same PID follows the updated Claude session registry without a restart");
+    assert.equal((await findClaudeSessionFromBackend(localBackend, pane)).sessionId, first);
+    await writeFile(path.join(sessionsDir, "202.json"), JSON.stringify({ pid: 202, cwd, sessionId: second }));
+    assert.equal((await localBackend.agentTranscript(pane)).sessionId, second,
+      "resuming another Claude conversation replaces the previous binding again");
   } finally {
     homeMock.mock.restore();
   }
@@ -336,6 +368,24 @@ try {
     mixedOpenFilesResult.turns.at(-1).text,
     "correct codex transcript",
   );
+
+  const codexJobs = {
+    rootPid: 10, foregroundCommand: "codex", cwd: mixedOpenFilesRoot,
+    processes: [
+      { pid: 10, ppid: 1, command: "zsh", pgid: 10, tpgid: 303, state: "Ss" },
+      { pid: 202, ppid: 10, command: "codex", pgid: 202, tpgid: 303, state: "T" },
+      { pid: 303, ppid: 10, command: "node /usr/bin/codex", pgid: 303, tpgid: 303, state: "S+" },
+      { pid: 304, ppid: 303, command: "codex", pgid: 303, tpgid: 303, state: "S+" },
+    ],
+    openFiles: new Map([[202, [mixedCodexSubagentPath]], [304, [mixedCodexPath]]]),
+  };
+  assert.equal((await localBackend.agentTranscript(codexJobs)).transcriptPath, mixedCodexPath,
+    "foreground Codex native child wins over a suspended old CLI and its newer rollout");
+  assert.equal((await localBackend.agentLastResponse(codexJobs)).text, "correct codex transcript");
+  assert.equal(await findClaudeSessionFromBackend(localBackend, {
+    ...codexJobs,
+    processes: [...codexJobs.processes, { pid: 101, ppid: 304, command: "claude", pgid: 303, tpgid: 303, state: "S+" }],
+  }), null, "a Claude helper inside foreground Codex does not override the pane's agent");
 
   const processSnapshot = [
     { pid: 10, ppid: 1, command: "zsh" },
