@@ -466,55 +466,32 @@
   }
 }
 
-.cc-feed {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.cc-jump-bar {
-  flex: 0 0 auto;
-  padding: 0 2px 8px;
-}
-
-.cc-jump-control {
+.cc-card-jump {
   position: relative;
-  width: min(100%, 360px);
-  color: var(--ink);
 }
 
+/* Keep the real select over the icon: mouse, touch and keyboard all open the
+ * platform picker without a second toolbar or a scripted synthetic click. */
 html:root #ccCardJump {
+  position: absolute;
+  inset: 0;
   appearance: none;
-  display: block;
   width: 100%;
-  min-height: 44px;
-  padding: 8px 36px 8px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--ink);
-  font: inherit;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  opacity: 0;
   font-size: 16px;
-  text-overflow: ellipsis;
   cursor: pointer;
 }
 
-#ccCardJump:focus-visible {
+.cc-card-jump:has(select:focus-visible) {
   outline: 2px solid var(--cc-focus);
   outline-offset: 2px;
 }
 
-#ccCardJump:disabled { opacity: 0.55; cursor: default; }
-.cc-jump-control svg {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
+.cc-card-jump:has(select:disabled) { opacity: 0.55; }
+#ccCardJump:disabled { cursor: default; }
 
 .cc-list {
   display: flex;
@@ -2463,19 +2440,12 @@ html:not([data-theme="kami"]) .command-center-body {
     font-size: 13px;
   }
 
-  .command-center-body .cc-feed {
+  .command-center-body .cc-list {
     grid-column: 2;
     grid-row: 1 / -1;
-  }
-
-  .command-center-body .cc-jump-bar {
-    padding: 20px clamp(28px, 4vw, 64px) 8px;
-  }
-
-  .command-center-body .cc-list {
     gap: 34px;
-    padding: 16px clamp(28px, 4vw, 64px) 80px;
-    scroll-padding-top: 16px;
+    padding: 38px clamp(28px, 4vw, 64px) 80px;
+    scroll-padding-top: 38px;
     scrollbar-gutter: stable;
   }
 
@@ -2540,6 +2510,12 @@ html:not([data-theme="kami"]) .command-center-body {
   .command-center-body .cc-card {
     border-radius: 15px;
   }
+}
+
+@media (max-width: 359px) {
+  html:root .command-center-body .cc-title { font-size: 18px; }
+  .command-center-body .cc-title-block { gap: 0; }
+  .command-center-body .cc-status { display: none; }
 }
 
 /* Phone Web follows the native iPhone overview: cards active in the last eight
