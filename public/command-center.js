@@ -94,6 +94,7 @@ const els = {
   sortSelect: document.querySelector("#ccSort"),
   moreMenu: document.querySelector("#ccMoreMenu"),
   cardSearchOpen: document.querySelector("#ccCardSearchOpen"),
+  cardJump: document.querySelector("#ccCardJump"),
   themeButtons: [...document.querySelectorAll("[data-cc-theme]")],
   fontDecrease: document.querySelector("#ccFontDecrease"),
   fontIncrease: document.querySelector("#ccFontIncrease"),
@@ -3295,7 +3296,36 @@ function selectCardSearchAgent(agent) {
   if (!agent) return;
   const key = readKeyForAgent(agent);
   closeCardSearch();
-  requestAnimationFrame(() => updateSelectedCard(key, { scroll: true, focus: true }));
+  jumpToCard(key);
+}
+
+function jumpToCard(key) {
+  const card = cardElementByKey(key);
+  if (!card) return;
+  if (state.mobileExpandedCardKey !== key) updatePhoneCardExpansion(key);
+  updateSelectedCard(key, { focus: true });
+  // Align the heading, including cards taller than the viewport. The feed alone
+  // scrolls, so the picker remains available for the next jump.
+  card.scrollIntoView({ block: "start", inline: "nearest" });
+}
+
+function renderCardJump(agents) {
+  if (!els.cardJump) return;
+  const options = agents.map((agent) => {
+    const machine = machineForAgent(agent);
+    const session = agent.sessionName || agent.sessionId || "Unnamed session";
+    const name = agent.windowName || "Unnamed window";
+    const window = agent.windowId || agent.windowIndex || "";
+    const host = machine ? machineLabel(machine) : agent.machineHostname || agentMachineKey(agent);
+    return [readKeyForAgent(agent), `${session} / ${name}${window ? ` (${window})` : ""} · ${host}`];
+  });
+  const fingerprint = JSON.stringify(options);
+  // Inventory refreshes must not replace an unchanged native picker while open.
+  if (els.cardJump.dataset.options === fingerprint) return;
+  els.cardJump.dataset.options = fingerprint;
+  els.cardJump.replaceChildren(new Option(options.length ? `Jump to card (${options.length})` : "No cards", ""));
+  for (const [value, label] of options) els.cardJump.add(new Option(label, value));
+  els.cardJump.disabled = options.length === 0;
 }
 
 function selectCardSearchIndex(delta) {
@@ -3822,6 +3852,7 @@ function renderAgents() {
   const scrollSnapshot = captureCommandCenterScroll();
   reconcileVisibleStarredCards();
   if (state.machines.length === 0 && state.agents.length === 0) {
+    renderCardJump([]);
     state.selectedCardKey = "";
     const loads = machineLoadCounts();
     if (loads.loading > 0) {
@@ -3860,6 +3891,7 @@ function renderAgents() {
     els.list.append(renderInventoryMachine(machine));
   }
   if (filtered.length === 0) {
+    renderCardJump([]);
     const note = document.createElement("div");
     note.className = "cc-empty";
     const loads = machineLoadCounts();
@@ -3889,6 +3921,7 @@ function renderAgents() {
     sortBy: state.sortBy,
   });
   for (const group of grouped.groups) els.list.append(renderSessionGroup(group));
+  renderCardJump(grouped.agents);
   syncSelectedCardDom();
   if (priorFocusedCardKey) restoreFocusedCard(priorFocusedCardKey);
   if (!els.cardSearchSheet?.hidden) renderCardSearchResults();
@@ -4453,6 +4486,11 @@ els.responseFullscreenClose?.addEventListener("click", closeResponseFullscreen);
 els.transcriptBackdrop?.addEventListener("click", closeAgentTranscript);
 els.transcriptClose?.addEventListener("click", closeAgentTranscript);
 els.cardSearchOpen?.addEventListener("click", openCardSearch);
+els.cardJump?.addEventListener("change", () => {
+  const key = els.cardJump.value;
+  els.cardJump.value = "";
+  jumpToCard(key);
+});
 els.cardSearchBackdrop?.addEventListener("click", closeCardSearch);
 els.cardSearchClose?.addEventListener("click", closeCardSearch);
 els.pinsOpen?.addEventListener("click", openPinsSheet);

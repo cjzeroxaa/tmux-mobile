@@ -1,6 +1,6 @@
 ---
 name: tmax-drafts
-description: Create and revise private, session-bound HTML deliverables in T-Max. Use for a reviewable PR explanation, interactive diagram, proposal or report, and when responding to selected-text comments on an existing Draft. Includes the PR Lens generation workflow for code diagrams.
+description: Create and revise private, session-bound HTML deliverables in T-Max. Use for a reviewable PR explanation, mathematical explanation, interactive diagram, proposal or report, and when responding to selected-text comments on an existing Draft. Includes PR Lens code diagrams and Manim math animations.
 ---
 
 # T-Max Drafts
@@ -14,7 +14,7 @@ Publish only to the user's T-Max Host, normally `https://eng.xyznot.com` (`https
 ## Generate
 
 1. Establish the target session. If the user opened Drafts from a session card, use the supplied `kind` and `sessionId`. Otherwise run the client’s `context` command. It uses this machine's existing Connector login and `TMUX_PANE` to identify the current session. If multiple sessions remain, match the working directory and conversation; ask only when the binding is still ambiguous. Never publish against a guessed session ID.
-2. Read the relevant source material. For a PR or code/system explanation, load [references/pr-lens.md](references/pr-lens.md), which includes the PR Lens generation workflow. For other tasks, generate ordinary HTML and use diagrams when they help explain the content.
+2. Read the relevant source material. For a PR or code/system explanation, load [references/pr-lens.md](references/pr-lens.md), which includes the PR Lens generation workflow. For mathematical explanations, load [references/manim.md](references/manim.md). Prefer Manim Community animations when motion makes a derivation, geometric relationship or changing quantity easier to understand; keep simple static formulas in selectable HTML. For other tasks, generate ordinary HTML and use diagrams when they help explain the content.
 3. Write one HTML entry file. Put the full explanation, diagrams and useful interactions in this page. Do not leave the essential explanation only in chat. Embed CSS, JavaScript, small icons and SVG diagrams. Upload video, audio, large images and downloadable files with the bundled asset helper and reference its returned URL. Never base64-embed audio/video or large binary files. No CDN scripts, remote fonts, fetch calls, or sibling asset paths. Include a meaningful `<title>`, `<body>` and closing `</html>`.
 4. Preserve selectable DOM text: headings, explanations, diagram captions, labels and any conclusions should be readable as text. Provide an ordinary text explanation beside canvas/WebGL graphics. Do not disable text selection or cover the reading surface with a drag handler. Use a small “drag to pan” control when a diagram needs panning.
 5. Use the [page starter](assets/page.html) when useful. Keep the existing Instant paper/forest style and automatic light/dark appearance. The Host supplies selected-text comments; do not build a competing comment UI in the generated file.

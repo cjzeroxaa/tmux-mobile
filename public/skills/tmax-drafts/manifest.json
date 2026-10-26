@@ -1,13 +1,15 @@
 {
   "name": "tmax-drafts",
   "files": {
+    "assets/manim-example.py": "9fec7d0bc42232ef34d47921ded06a9e3fe1bc99181adab88536a9327aa87b9f",
     "assets/page.html": "a39e026704c5322fda2ac679c56955f5770f67d72a8e65df68640d23fb669498",
+    "references/manim.md": "839afd5a46f7ed019056c3610e3401bf5c69705d9cbf75e8418366b349fd7017",
     "references/pr-lens/example.graph.json": "fbc097b34641b5d2d527aac73bd00d52bdfa98a204fb102ca0005c476bbb6e91",
     "references/pr-lens/graph-document.md": "dcd2bb17e092806f175d580d552419b5aec7c10a302ff954c1a3541ba7db0fda",
     "references/pr-lens/LICENSE": "f95e90af396c71c9a94648bd58e4f5bb2dcab4f6ac3ab7d3d2ca3f4e4f4a1ae7",
     "references/pr-lens.md": "698b1649758edc7a8ad508e9550e967814af8b3db7c4cc254921ffbd9e0491d5",
     "scripts/asset-contract.mjs": "b404e86d09d71b92c5e8fd63ed6caa61f39b71ca9e780aadcfd08e5d43b82639",
     "scripts/upload-asset.mjs": "bf95e0885407abd668432f44cb1fb6adf67403a1bf3419abd5e7b7716bd6cf26",
-    "SKILL.md": "a2c8aa1cafa2da894593877dc8eea5ad3547cc8fa97ae4e8cf648f94a48d4fc5"
+    "SKILL.md": "286689a6b906275722a7e76bf9b7b7b524f2594772df67a51b36f3f87d7b1d3b"
   }
 }

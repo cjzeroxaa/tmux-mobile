@@ -466,6 +466,56 @@
   }
 }
 
+.cc-feed {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.cc-jump-bar {
+  flex: 0 0 auto;
+  padding: 0 2px 8px;
+}
+
+.cc-jump-control {
+  position: relative;
+  width: min(100%, 360px);
+  color: var(--ink);
+}
+
+html:root #ccCardJump {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 36px 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+#ccCardJump:focus-visible {
+  outline: 2px solid var(--cc-focus);
+  outline-offset: 2px;
+}
+
+#ccCardJump:disabled { opacity: 0.55; cursor: default; }
+.cc-jump-control svg {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
 .cc-list {
   display: flex;
   flex-direction: column;
@@ -2413,12 +2463,19 @@ html:not([data-theme="kami"]) .command-center-body {
     font-size: 13px;
   }
 
-  .command-center-body .cc-list {
+  .command-center-body .cc-feed {
     grid-column: 2;
     grid-row: 1 / -1;
+  }
+
+  .command-center-body .cc-jump-bar {
+    padding: 20px clamp(28px, 4vw, 64px) 8px;
+  }
+
+  .command-center-body .cc-list {
     gap: 34px;
-    padding: 38px clamp(28px, 4vw, 64px) 80px;
-    scroll-padding-top: 38px;
+    padding: 16px clamp(28px, 4vw, 64px) 80px;
+    scroll-padding-top: 16px;
     scrollbar-gutter: stable;
   }
 

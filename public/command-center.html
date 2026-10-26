@@ -85,7 +85,17 @@
 
       </section>
 
-      <section id="ccList" class="cc-list" aria-label="Active agent sessions"></section>
+      <div class="cc-feed">
+        <div class="cc-jump-bar">
+          <div class="cc-jump-control">
+            <select id="ccCardJump" aria-label="Jump to card" disabled>
+              <option value="">Jump to card</option>
+            </select>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </div>
+        </div>
+        <section id="ccList" class="cc-list" aria-label="Active agent sessions"></section>
+      </div>
     </main>
 
     <div id="ccToast" class="cc-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
