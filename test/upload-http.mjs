@@ -73,6 +73,11 @@ try {
   const upload = (body, name = "clip.mov") => fetch(`${api}/api/upload?paneId=%253&name=${name}`, {
     method: "POST", headers: { cookie, "x-machine-id": machine.id, "content-type": "video/quicktime" }, body,
   });
+  assert.equal((await fetch(`${api}/api/uploads`, { method: "POST", body: "{}" })).status, 401);
+  const localDirect = await fetch(`${api}/api/uploads`, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ name: "x.txt", size: 1 }) });
+  assert.equal(localDirect.status, 501);
+  assert.equal((await localDirect.json()).code, "direct_upload_unavailable");
+  assert.equal((await fetch(`${api}/files/invalid/file.txt`, { redirect: "manual" })).status, 404, "invalid public file links must not redirect to login");
   assert.equal((await fetch(`${api}/api/upload?paneId=%253`, { method: "POST", body: "x" })).status, 401);
   assert.equal((await upload(Buffer.alloc(0))).status, 400);
   assert.equal((await fetch(`${api}/agent/file-upload`)).status, 401);

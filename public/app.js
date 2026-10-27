@@ -1,4 +1,5 @@
 import { confirmAction, promptValue } from "./dialogs.js";
+import { uploadComposerFile } from "./file-upload.js";
 import { setScreenAwake, syncInputWakeLock } from "./screen-awake.mjs";
 import { showTerminalShareDialog } from "./terminal-share.js";
 import { createReadScope, createRefreshLoop } from "./view-work.mjs";
@@ -2096,10 +2097,7 @@ function composerAppendText(text) {
   requestAnimationFrame(() => composerFocus());
 }
 
-// Upload the selected file(s) to a temp dir on the target machine and insert
-// each returned absolute path into the message box. Files go to /api/upload as
-// raw bytes; the server writes them via the backend seam (local or brokered to
-// the agent) and returns the path.
+// Upload directly to storage and insert the temporary download link.
 async function uploadFiles(fileList) {
   const files = Array.from(fileList || []);
   if (!files.length) return;
@@ -2111,13 +2109,8 @@ async function uploadFiles(fileList) {
   setStatus(files.length === 1 ? "Uploading…" : `Uploading ${files.length} files…`);
   try {
     for (const file of files) {
-      const params = new URLSearchParams({ paneId: state.paneId, name: file.name });
-      const data = await api(`/api/upload?${params}`, {
-        method: "POST",
-        headers: { "content-type": file.type || "application/octet-stream" },
-        body: file,
-      });
-      if (data.path) composerAppendText(data.path);
+      const data = await uploadComposerFile(file, { api, paneId: state.paneId });
+      if (data.url || data.path) composerAppendText(data.url || data.path);
     }
     setStatus("file uploaded");
   } catch (error) {

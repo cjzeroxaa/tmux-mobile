@@ -1,4 +1,5 @@
 import { confirmAction, promptValue } from "./dialogs.js";
+import { uploadComposerFile } from "./file-upload.js";
 import { renderCardActionBar } from "./card-action-bar.mjs";
 import { showTerminalShareDialog } from "./terminal-share.js";
 import { syncInputWakeLock } from "./screen-awake.mjs";
@@ -960,23 +961,18 @@ async function uploadInteractFiles(fileList) {
   setInteractStatus(files.length === 1 ? "Uploading..." : `Uploading ${files.length} files...`);
   try {
     for (const file of files) {
-      const params = new URLSearchParams({
-        paneId: agent.paneId,
-        name: file.name || "upload",
-      });
-      const data = await api(`/api/upload?${params}`, {
-        method: "POST",
+      const data = await uploadComposerFile(file, {
+        api, paneId: agent.paneId,
         machineId: agentMachineKey(agent),
         mux: agentMux(agent),
-        headers: { "content-type": file.type || "application/octet-stream" },
-        body: file,
       });
-      if (data.path) {
-        if (isCurrent()) interactAppendText(data.path);
+      const reference = data.url || data.path;
+      if (reference) {
+        if (isCurrent()) interactAppendText(reference);
         else {
           // The dialog may have closed or moved to another session while uploading.
           const draft = loadInteractDraft(agent);
-          saveInteractDraft(agent, draft + (draft && !/\s$/.test(draft) ? " " : "") + data.path);
+          saveInteractDraft(agent, draft + (draft && !/\s$/.test(draft) ? " " : "") + reference);
         }
       }
     }

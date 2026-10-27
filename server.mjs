@@ -1,4 +1,5 @@
 import { temporaryTerminals } from "./lib/temporary-terminals.mjs";
+import { createTemporaryUploads, handleTemporaryUploadHttp } from "./lib/temporary-uploads.mjs";
 import { createDraftStore } from "./lib/draft-store.mjs";
 import { createDrafts, DRAFT_UPLOAD_PATH, MAX_DRAFT_BYTES } from "./lib/drafts.mjs";
 import { handleDraftHttp, handlePublicDraftHttp } from "./lib/draft-http.mjs";
@@ -4862,10 +4863,8 @@ async function handleApi(req, res, url) {
     return;
   }
 
-  // Upload a file to a temp directory on the target machine; the client inserts
-  // the returned path into the composer. Body is the raw file bytes; the filename
-  // is the `name` query param. Routes through the backend seam, so a controller
-  // brokers it to the registered agent (file rides as base64 in the frame).
+  // Compatibility path for older clients and local-only servers. Current
+  // clients use /api/uploads for direct storage uploads and temporary links.
   if (req.method === "POST" && url.pathname === "/api/upload") {
     requireId(url.searchParams.get("paneId"), "pane");
     const backend = currentBackend();
@@ -5373,6 +5372,7 @@ try {
   );
   ARTIFACT_STORAGE = createLocalArtifactStorage();
 }
+const TEMPORARY_UPLOADS = createTemporaryUploads({ storage: ARTIFACT_STORAGE, secret: process.env.SESSION_SECRET });
 
 // Raw Claude/Codex transcript replication is an opt-in controller capability.
 // Keep its storage configuration separate from pinned artifacts: transcript
@@ -5720,6 +5720,9 @@ if (MODE.kind === "register") {
       }
 
       if (await handlePublicDraftHttp(req, res, url, { drafts, assetSessionSecret: process.env.SESSION_SECRET })) return;
+      if (url.pathname.startsWith("/files/") && await handleTemporaryUploadHttp(req, res, url, {
+        uploads: TEMPORARY_UPLOADS, sendJson,
+      })) return;
 
       if (url.pathname === "/draft-client.mjs" || url.pathname === "/skills/install.mjs" || url.pathname.startsWith("/skills/tmax-drafts/") || url.pathname.startsWith("/skills/tmax-start-agent/") || url.pathname.startsWith("/skills/tmax-config-agent/") || url.pathname.startsWith("/skills/tmax-assign-task/")) {
         if (["GET","HEAD"].includes(req.method)) { await serveStatic(req,res,url); return; }
@@ -5828,6 +5831,10 @@ if (MODE.kind === "register") {
       const viewer = REQUIRE_BROWSER_AUTH
         ? authenticatedUser
         : { userId, email: userId, hd: "" };
+
+      if (await handleTemporaryUploadHttp(req, res, url, {
+        uploads: TEMPORARY_UPLOADS, viewer, origin: requestOrigin(req), readJsonBody, sendJson,
+      })) return;
 
       if (await handleDraftHttp(req,res,url,{drafts,viewer,readJsonBody,sendJson,sendPrompt:sendDraftPrompt,origin:requestOrigin(req),assetSessionSecret:process.env.SESSION_SECRET})) return;
 
