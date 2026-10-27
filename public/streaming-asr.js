@@ -2,6 +2,7 @@ import {
   createStreamingAsrSession,
   createPcmResampler,
   dictationText,
+  streamingDictationControl,
 } from "./streaming-asr-session.js";
 
 // One explicit button; stopping adds text but never sends the Agent a message.
@@ -18,6 +19,7 @@ export function bindStreamingDictation({
   // An already open page may still have the previous HTML during a rollout.
   if (!button) return { cancel() {}, active: false };
   let current = null;
+  button.classList.add("streaming-dictation");
   const saved = new Map();
   const setActive = (active) => {
     if (active) {
@@ -40,12 +42,27 @@ export function bindStreamingDictation({
     onActive(active);
   };
   const render = () => {
-    button.classList.toggle("recording", !!current);
-    button.setAttribute("aria-pressed", String(!!current));
-    const label = current ? "Stop live dictation" : "Live dictation (Free ASR)";
-    button.title = label;
-    button.setAttribute("aria-label", label);
-    button.disabled = !!current?.finishing || !!current?.starting;
+    const mode = !current
+      ? "idle"
+      : current.starting
+        ? "connecting"
+        : current.finishing
+          ? "finishing"
+          : "recording";
+    const control = streamingDictationControl(mode);
+    button.dataset.streamingState = mode;
+    button.classList.toggle("recording", mode === "recording");
+    button.setAttribute("aria-pressed", String(mode === "recording"));
+    button.title = control.hint;
+    button.setAttribute("aria-label", control.hint);
+    button.disabled = control.disabled;
+    const icons = {
+      wave: '<path d="M2 10v4M6 6v12M10 3v18M14 8v8M18 5v14M22 10v4"/>',
+      stop: '<rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor" stroke="none"/>',
+      cancel: '<path d="m6 6 12 12M18 6 6 18"/>',
+      spinner: '<path d="M12 3a9 9 0 1 1-9 9"/>',
+    };
+    button.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">${icons[control.icon]}</svg><span>${control.label}</span>`;
   };
   const cleanup = async (state) => {
     state.closed = true;
@@ -111,8 +128,8 @@ export function bindStreamingDictation({
             setText(dictationText(state.base, text));
             setStatus(
               state.finishing
-                ? "Finishing live dictation…"
-                : "Listening · Free ASR",
+                ? "Microphone off · Finishing transcription…"
+                : "Listening · Tap Stop to finish",
             );
           }
         },
@@ -148,7 +165,7 @@ export function bindStreamingDictation({
       state.node.connect(silent).connect(state.context.destination);
       state.starting = false;
       render();
-      setStatus("Listening · Free ASR");
+      setStatus("Listening · Tap Stop to finish");
     } catch (error) {
       if (current === state) {
         cancel();
@@ -162,10 +179,16 @@ export function bindStreamingDictation({
   };
   button.addEventListener("click", () => {
     if (current) {
-      if (current.starting || current.finishing) return;
+      if (current.starting) {
+        cancel();
+        return;
+      }
+      if (current.finishing) return;
       current.finishing = true;
+      // Stop capture immediately; the worklet flushes only its buffered samples.
+      current.stream?.getTracks().forEach((track) => track.stop());
       render();
-      setStatus("Finishing live dictation…");
+      setStatus("Microphone off · Finishing transcription…");
       current.node.port.postMessage("finish");
     } else void start();
   });

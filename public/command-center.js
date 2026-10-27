@@ -1631,7 +1631,7 @@ function handleInteractVoiceShortcut(event) {
   ) {
     event.preventDefault();
     event.stopPropagation();
-    toggleInteractVoiceRecording();
+    document.querySelector("#ccInteractStreamingVoice")?.click();
   }
 }
 

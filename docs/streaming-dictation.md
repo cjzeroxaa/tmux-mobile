@@ -1,13 +1,12 @@
 # Live dictation (Free ASR)
 
 The waveform button next to the microphone streams speech into the composer.
-Start explicitly, speak while words appear, and press the same button to stop.
+The button says Start when idle, Cancel while connecting, and a red Stop while recording. Press Stop to turn off the microphone immediately. Wait indicates finalization with the microphone off.
 The final result replaces the interim text. The original draft stays before the
-new dictation. Send remains a separate action. The ordinary microphone retains
-its complete-recording transcription workflow as a fallback.
+new dictation. Send remains a separate action. The old complete-recording microphone button is hidden. Keyboard dictation shortcuts use the same streaming toggle.
 
 The input and send/edit controls are locked during capture and finalization.
-Errors retain the latest text. Closing the composer, switching sessions, leaving
+Errors retain the latest text. Vision Pro uses the same compact controls and text fields as the other native clients; old Vision-only preferences are ignored and its chooser/settings entry are removed. Closing the composer, switching sessions, leaving
 the page or backgrounding the mobile app stops capture and cancels the stream.
 Late results must never modify another session's draft.
 

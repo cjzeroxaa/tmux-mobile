@@ -3299,3 +3299,33 @@ html:not([data-theme="kami"]) .app-body {
 .cc-share-dialog [hidden] { display: none !important; }
 
 .cc-share-duration{display:flex;align-items:center;gap:12px;margin:16px 0}.cc-share-duration select{font:inherit;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px}
+
+/* One shared dictation toggle; preserve the compact action row. */
+.legacy-dictation[hidden] { display: none !important; }
+html:root .voice-button.streaming-dictation {
+  display: inline-flex;
+  flex: 0 0 76px;
+  width: 76px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+html:root .voice-button.streaming-dictation[data-streaming-state="recording"] {
+  background: #b3261e;
+  border-color: #b3261e;
+  color: #fff;
+}
+html:root .voice-button.streaming-dictation[data-streaming-state="finishing"] {
+  background: var(--surface-soft);
+  border-color: var(--line);
+  color: var(--muted);
+}
+.streaming-dictation[data-streaming-state="finishing"] svg {
+  animation: streaming-dictation-spin 1s linear infinite;
+}
+@keyframes streaming-dictation-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .streaming-dictation[data-streaming-state="finishing"] svg { animation: none; }
+}

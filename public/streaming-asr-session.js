@@ -1,4 +1,34 @@
 // Shared Web/native transport. Audio is sent only after explicit microphone start.
+export function streamingDictationControl(mode) {
+  const controls = {
+    idle: {
+      label: "Start",
+      hint: "Start live dictation",
+      icon: "wave",
+      disabled: false,
+    },
+    connecting: {
+      label: "Cancel",
+      hint: "Cancel live dictation connection",
+      icon: "cancel",
+      disabled: false,
+    },
+    recording: {
+      label: "Stop",
+      hint: "Stop live dictation",
+      icon: "stop",
+      disabled: false,
+    },
+    finishing: {
+      label: "Wait",
+      hint: "Microphone off. Finishing transcription",
+      icon: "spinner",
+      disabled: true,
+    },
+  };
+  return controls[mode] || controls.idle;
+}
+
 export function dictationText(base, text) {
   return base + (base && text && !/\s$/.test(base) ? " " : "") + text;
 }

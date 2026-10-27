@@ -2660,7 +2660,7 @@ function handleComposerVoiceShortcut(event) {
   ) {
     event.preventDefault();
     event.stopPropagation();
-    toggleVoiceRecording();
+    document.querySelector("#streamingVoiceButton")?.click();
   }
 }
 
