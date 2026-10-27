@@ -8,7 +8,7 @@ const source = (await readFile(new URL('../src/worker.ts', import.meta.url), 'ut
   .replace("import { TTYSession } from './session-do';", 'class TTYSession {}')
   .replace("'./auth'", JSON.stringify(auth));
 const { default: worker } = await import(url(stripTypeScriptTypes(source)));
-const { verifyCapability } = await import(auth);
+const { verifyCapability, signCapability } = await import(auth);
 function fixture() {
   const calls = [];
   const env = { CREATE_KEY: 'test-only', TTY_SESSION: {
@@ -57,4 +57,30 @@ test('temporary renewals allow bounded additive durations and bind expiry', asyn
   for (const ttlSeconds of [0, 599, 600.5, 604801, '600']) {
     assert.equal((await create({temporary: true, ttlSeconds})).status, 400);
   }
+});
+
+test('ASR upgrades require the viewer capability and exact share origin', async () => {
+  const id=crypto.randomUUID(), secret='test-only';
+  const token=await signCapability(secret,{sessionId:id,role:'viewer',exp:Date.now()+60000});
+  const calls=[];
+  const env={CREATE_KEY:secret,TTY_SESSION:{idFromName:id=>id,get:()=>({fetch:async req=>{calls.push(req);return new Response('allowed')}})}};
+  const url=`https://share.xyznot.com/api/session/${id}/asr?token=${token}&viewerToken=active-viewer`;
+  for(const origin of [undefined,'https://attacker.invalid']) {
+    const headers={upgrade:'websocket',...(origin?{origin}:{})};
+    assert.equal((await worker.fetch(new Request(url,{headers}),env)).status,403);
+  }
+  const headers={upgrade:'websocket',origin:'https://share.xyznot.com'};
+  assert.equal((await worker.fetch(new Request(url.replace(token,'invalid'),{headers}),env)).status,403);
+  assert.equal((await worker.fetch(new Request(url,{headers}),env)).status,200);
+  assert.equal(calls.length,1);
+  assert.equal(new URL(calls[0].url).pathname,'/asr');
+  assert.equal(new URL(calls[0].url).searchParams.get('viewerToken'),'active-viewer');
+});
+
+test('share ASR ownership stays in private session state', async () => {
+  const { create, calls } = fixture();
+  const response = await create({allowControl:true,asrUserId:'owner@example.test'});
+  const publicConfig = await response.json();
+  assert.equal(calls[0].body.asrUserId,'owner@example.test');
+  assert.equal(publicConfig.asrUserId,undefined);
 });

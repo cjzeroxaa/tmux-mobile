@@ -53,6 +53,27 @@ agent binaries, analytics, or tunnel service is used.
   Changing the expiry requires stopping the existing share and creating a new link.
 - RMUX retains its existing share implementation.
 
+### Live dictation
+
+Controllable browser shares and Temporary Terminals include the same compact
+Start/Cancel/Stop/Wait control as the main app. Speech appears in an editable
+draft. **Insert** pastes the text; **Enter remains a separate action**. Newlines
+and terminal control characters are removed before inserting. Recording never
+sends terminal input. Lock, loss of control, disconnect, hidden tab or share expiry
+stops recording and keeps the latest local draft. Read-only viewers cannot use ASR.
+
+The viewer uses a separate same-origin ASR WebSocket. The Worker validates the
+share capability and Origin; its Durable Object also requires the active viewer
+to hold control for the stream's lifetime. The relay authenticates to the
+Controller with a one-minute HMAC assertion derived from existing CREATE_KEY.
+Neither service credentials nor assertions reach the browser. Audio and transcripts
+are not stored in Durable Objects or mixed into terminal frames. New shares use
+the owner's stable ASR identity and existing limits; older shares use one shared
+legacy identity, not a rotating session identity. No Connector update is needed.
+
+Deploy the Controller's ASR assertion verifier before publishing this Worker.
+The build bundles the shared browser recorder and copies its AudioWorklet.
+
 ## Checks
 
 ```sh

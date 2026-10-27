@@ -4,6 +4,8 @@ import { createViewportFollow } from './viewport';
 import { installHistoryFill } from './history-fill';
 import { installMobileInput } from './mobile-input';
 import { InputControl } from './input-control';
+import { bindStreamingDictation } from '../../../public/streaming-asr.js';
+import { dictationTerminalText } from './dictation-input';
 const status = document.querySelector<HTMLElement>('#status')!;
 const note = document.querySelector<HTMLElement>('#note')!;
 const control = document.querySelector<HTMLButtonElement>('#control')!;
@@ -21,6 +23,12 @@ const uploadStatus = document.querySelector<HTMLElement>('#upload-status')!;
 const attachment = document.querySelector<HTMLElement>('#attachment')!;
 const filePaths = document.querySelector<HTMLTextAreaElement>('#file-paths')!;
 const insertPaths = document.querySelector<HTMLButtonElement>('#insert-paths')!;
+const dictationPanel = document.querySelector<HTMLElement>('#dictation')!;
+const dictationInput = document.querySelector<HTMLTextAreaElement>('#dictation-input')!;
+const dictationButton = document.querySelector<HTMLButtonElement>('#dictation-toggle')!;
+const dictationInsert = document.querySelector<HTMLButtonElement>('#dictation-insert')!;
+const dictationClear = document.querySelector<HTMLButtonElement>('#dictation-clear')!;
+const dictationStatus = document.querySelector<HTMLElement>('#dictation-status')!;
 let uploading = false;
 const uploads = new Map<string, { resolve: (value: any) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 const dark = matchMedia('(prefers-color-scheme: dark)');
@@ -199,6 +207,8 @@ function renderControl() {
 }
 function setWritable(value: boolean) {
   canWrite = value;
+  if (!value) dictation.cancel();
+  renderDictation();
   terminal.options.disableStdin = !value;
   // Prevent mobile keyboards/dictation from opening on a read-only terminal.
   // Keep focus available for selection and local history keyboard shortcuts.
@@ -325,6 +335,34 @@ document.addEventListener('paste', event => {
   event.preventDefault(); event.stopImmediatePropagation();
   void uploadFiles(Array.from(event.clipboardData.files));
 }, true);
+const dictation = bindStreamingDictation({
+  button: dictationButton, input: dictationInput, controls: [dictationInsert, dictationClear],
+  getText: () => dictationInput.value,
+  setText: (text: string) => { dictationInput.value = text; },
+  setStatus: (text: string) => { dictationStatus.textContent = text; },
+  isBlocked: () => !canWrite,
+  disableWhenBlocked: true,
+  onActive: () => renderDictation(),
+  getStreamUrl: () => `/api/session/${sessionId}/asr?${new URLSearchParams({ token: capability, viewerToken })}`,
+});
+function renderDictation() {
+  dictationPanel.hidden = !inputControl.status?.allowControl;
+  dictationInput.readOnly = !canWrite || dictation.active;
+  dictationInsert.disabled = !canWrite || dictation.active || !dictationTerminalText(dictationInput.value).trim();
+  dictationClear.disabled = dictation.active || !dictationInput.value;
+  dictation.refresh();
+}
+dictationInput.addEventListener('input', renderDictation);
+dictationClear.onclick = () => { dictationInput.value = ''; dictationStatus.textContent = ''; renderDictation(); };
+dictationInsert.onclick = () => {
+  if (!canWrite || dictation.active) return;
+  const text = dictationTerminalText(dictationInput.value);
+  if (!text.trim()) return;
+  terminal.paste(text);
+  dictationInput.value = '';
+  dictationStatus.textContent = 'Text inserted · Press Enter separately to submit';
+  renderDictation();
+};
 reconnect.onclick = () => { attempts = 0; void connect(); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) { stop(); status.textContent = 'Paused'; } else { attempts = 0; void connect(); } });
 window.addEventListener('pagehide', stop);

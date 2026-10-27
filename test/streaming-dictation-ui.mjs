@@ -163,6 +163,18 @@ await tick();
 assert.equal(track.readyState, "ended");
 assert.equal(Socket.instances.length, 1);
 assert.equal(text, "Keep my draft. Final words.");
+// Existing composers can bind before their pane is selected. Their existing
+// caller-owned enablement must not become permanently disabled on first render.
+const existingButton = new Element();
+bindStreamingDictation({ button: existingButton, getText: () => '', setText() {}, setStatus() {}, isBlocked: () => true });
+assert.equal(existingButton.disabled, false);
+let writable = false;
+const sharedButton = new Element();
+const shared = bindStreamingDictation({ button: sharedButton, getText: () => '', setText() {}, setStatus() {}, isBlocked: () => !writable, disableWhenBlocked: true });
+assert.equal(sharedButton.disabled, true);
+writable = true;
+shared.refresh();
+assert.equal(sharedButton.disabled, false);
 console.log(
   "Streaming UI: visible Start/Stop, immediate microphone stop, separate finalization, final correction and pending-start cancellation passed.",
 );

@@ -1,5 +1,6 @@
 // Adapted from jiayx/shello at 17366a2. See README.md for provenance.
 import { DurableObject } from "cloudflare:workers";
+import { ShareAsrRelay } from './asr-relay';
 import {
   BinaryMessageType,
   binaryMessageType,
@@ -28,6 +29,7 @@ type TerminalProfile = {
 };
 type SessionRecord = {
   allowControl?: boolean;
+  asrUserId?: string;
   state: SessionState;
   currentControllerId: string | null;
   controlLeaseExpiresAt: number | null;
@@ -88,9 +90,16 @@ export class TTYSession extends DurableObject {
   private hostTerminalProfile: TerminalProfile | null = null;
   private record: SessionRecord = createInitialSessionRecord();
   private persistQueue: Promise<void> = Promise.resolve();
+  private asr: ShareAsrRelay;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.asr = new ShareAsrRelay({
+      secret: () => String(env.CREATE_KEY || ''),
+      userId: () => this.record.asrUserId || 'shared-terminal-legacy',
+      writable: viewer => Boolean(this.record.allowControl && this.canWrite(viewer) &&
+        this.record.sessionExpiresAt > Date.now() && (this.record.controlLeaseExpiresAt || 0) > Date.now()),
+    });
     this.ctx.blockConcurrencyWhile(async () => {
       await this.restoreSessionRecord();
       if (this.restoreSockets()) {
@@ -107,13 +116,14 @@ export class TTYSession extends DurableObject {
       if (this.record.state !== "idle" && this.record.state !== "closed") {
         return new Response("session id already exists", { status: 409 });
       }
-      const options = await request.json() as { allowControl?: boolean; expiresAt?: number };
+      const options = await request.json() as { allowControl?: boolean; expiresAt?: number; asrUserId?: string };
       const expiresAt = options.expiresAt ?? Date.now() + SESSION_IDLE_TTL_MS;
       if (!Number.isFinite(expiresAt) || expiresAt <= Date.now() || expiresAt > Date.now() + SESSION_MAX_TTL_MS) {
         return new Response("Invalid expiry", { status: 400 });
       }
       this.record = createInitialSessionRecord("ready");
       this.record.allowControl = options.allowControl === true;
+      this.record.asrUserId = options.asrUserId;
       this.record.maxExpiresAt = this.record.sessionExpiresAt = expiresAt;
       await this.persistRecord();
       await this.scheduleNextAlarm();
@@ -139,6 +149,14 @@ export class TTYSession extends DurableObject {
 
     if (url.pathname === "/connect/viewer") {
       return this.acceptSocket("viewer", request);
+    }
+
+    if (url.pathname === '/asr') {
+      await this.advanceRecordAndPersist();
+      const token = url.searchParams.get('viewerToken');
+      const viewer = [...this.viewers.values()].find(value => value.token === token);
+      if (!viewer) return new Response('Active terminal viewer required', { status: 403 });
+      return this.asr.accept(viewer.socket);
     }
 
     return new Response("Not Found", { status: 404 });
@@ -748,6 +766,7 @@ export class TTYSession extends DurableObject {
   }
 
   private broadcastStatus() {
+    this.asr.reconcile();
     if (this.host) {
       this.sendHost(
         JSON.stringify({
@@ -822,6 +841,7 @@ export class TTYSession extends DurableObject {
   private async removeViewer(socket: WebSocket) {
     const viewer = this.viewers.get(socket);
     this.viewers.delete(socket);
+    this.asr.reconcile();
 
     if (viewer?.id === this.record.currentControllerId) {
       await this.handleControlRevoke();

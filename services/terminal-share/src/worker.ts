@@ -10,7 +10,7 @@ export default {
     if (!env.CREATE_KEY) return new Response('Sharing is not configured', { status: 503 });
     if (url.pathname === '/api/session' && request.method === 'POST') {
       if (request.headers.get('authorization') !== `Bearer ${env.CREATE_KEY}`) return new Response('Unauthorized', { status: 401 });
-      let options: { allowControl?: boolean; ttlSeconds?: number; temporary?: boolean };
+      let options: { allowControl?: boolean; ttlSeconds?: number; temporary?: boolean; asrUserId?: string };
       try { options = JSON.parse(await request.text()); } catch { return new Response('Invalid JSON', { status: 400 }); }
       const ttlSeconds = options?.ttlSeconds ?? 86400;
       const validDuration = options?.temporary === true
@@ -20,7 +20,8 @@ export default {
       const sessionId = crypto.randomUUID();
       const exp = Date.now() + ttlSeconds * 1000;
       const stub = env.TTY_SESSION.get(env.TTY_SESSION.idFromName(sessionId));
-      const response = await stub.fetch('https://session.internal/init', { method: 'POST', body: JSON.stringify({ allowControl: options.allowControl === true, expiresAt: exp }) });
+      const asrUserId = typeof options.asrUserId === 'string' && options.asrUserId.length <= 254 ? options.asrUserId : undefined;
+      const response = await stub.fetch('https://session.internal/init', { method: 'POST', body: JSON.stringify({ allowControl: options.allowControl === true, expiresAt: exp, asrUserId }) });
       if (!response.ok) return new Response('Could not create share', { status: 502 });
       const hostToken = await signCapability(env.CREATE_KEY, { sessionId, role: 'host', exp });
       const viewerToken = await signCapability(env.CREATE_KEY, { sessionId, role: 'viewer', exp });
@@ -30,17 +31,18 @@ export default {
         stopUrl: `${url.origin}/api/session/${sessionId}/end?token=${hostToken}`,
       }, { headers: { 'cache-control': 'no-store' } });
     }
-    const match = url.pathname.match(/^\/api\/session\/([0-9a-f-]{36})\/(host|viewer|status|end)$/);
+    const match = url.pathname.match(/^\/api\/session\/([0-9a-f-]{36})\/(host|viewer|status|end|asr)$/);
     if (!match) return new Response('Not Found', { status: 404 });
     const [, sessionId, action] = match;
     const role = action === 'host' || action === 'end' ? 'host' : 'viewer';
     if (!await verifyCapability(env.CREATE_KEY, url.searchParams.get('token') || '', sessionId, role)) return new Response('Invalid or expired share link', { status: 403 });
     if (action === 'end' && request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
-    if (action === 'host' || action === 'viewer') {
+    if (action === 'host' || action === 'viewer' || action === 'asr') {
       if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return new Response('WebSocket required', { status: 426 });
     }
+    if (action === 'asr' && request.headers.get('origin') !== url.origin) return new Response('Invalid origin', { status: 403 });
     const stub = env.TTY_SESSION.get(env.TTY_SESSION.idFromName(sessionId));
-    const target = action === 'status' || action === 'end' ? action : `connect/${action}`;
+    const target = ['status', 'end', 'asr'].includes(action) ? action : `connect/${action}`;
     const query = new URLSearchParams();
     if (url.searchParams.has('viewerToken')) query.set('viewerToken', url.searchParams.get('viewerToken')!);
     if (url.searchParams.has('lines')) query.set('lines', url.searchParams.get('lines')!);

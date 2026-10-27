@@ -1,4 +1,5 @@
 import { attachStreamingAsr } from "./lib/streaming-asr.mjs";
+import { authenticateShareAsr } from "./lib/terminal-share-asr-auth.mjs";
 import { temporaryTerminals } from "./lib/temporary-terminals.mjs";
 import { createTemporaryUploads, handleTemporaryUploadHttp } from "./lib/temporary-uploads.mjs";
 import { createDraftStore } from "./lib/draft-store.mjs";
@@ -4296,13 +4297,13 @@ async function submitPaneText(body) {
   };
 }
 
-async function startTerminalShare(backend, { target, allowControl, ttlSeconds, temporary = false }) {
+async function startTerminalShare(backend, { target, allowControl, ttlSeconds, temporary = false, asrUserId }) {
   if (!process.env.SESSION_SECRET) throw Object.assign(new Error("Terminal sharing is not configured"), { status: 503 });
   const createKey = createHmac("sha256", process.env.SESSION_SECRET).update("tmax-terminal-share-v1").digest("hex");
   const response = await fetch("https://share.xyznot.com/api/session", {
     method: "POST",
     headers: { authorization: `Bearer ${createKey}`, "content-type": "application/json" },
-    body: JSON.stringify({ allowControl, ttlSeconds, temporary }),
+    body: JSON.stringify({ allowControl, ttlSeconds, temporary, asrUserId }),
     signal: AbortSignal.timeout(10000),
   });
   if (!response.ok) throw Object.assign(new Error("Could not create terminal share"), { status: 502 });
@@ -4551,7 +4552,9 @@ async function handleApi(req, res, url) {
     if (typeof backend.terminalShare !== "function" || (backend.supportsOp && !backend.supportsOp(OP.TERMINAL_SHARE))) {
       sendJson(res, 501, { error: "Update this machine's Connector to enable terminal sharing" }); return;
     }
-    const manager = temporaryTerminals(backend, options => startTerminalShare(backend, options));
+    const manager = temporaryTerminals(backend, options => startTerminalShare(backend, {
+      ...options, asrUserId: authenticateBrowser(req)?.userId || String(process.env.TMUX_MOBILE_USER || "default"),
+    }));
     res.setHeader("cache-control", "no-store");
     if (req.method === "GET") sendJson(res, 200, { terminals: await manager.list() });
     else {
@@ -4592,7 +4595,9 @@ async function handleApi(req, res, url) {
       sendJson(res, 200, existing);
       return;
     }
-    sendJson(res, 200, await startTerminalShare(backend, { target, allowControl: body.allowControl === true, ttlSeconds }));
+    sendJson(res, 200, await startTerminalShare(backend, { target, allowControl: body.allowControl === true, ttlSeconds,
+      asrUserId: authenticateBrowser(req)?.userId || String(process.env.TMUX_MOBILE_USER || "default"),
+    }));
     return;
   }
 
@@ -6505,7 +6510,8 @@ if (MODE.kind === "register") {
   stopAgentRoundWatcher = startAgentRoundNtfyWatcher({ hub });
 
   attachStreamingAsr(server, {
-    authenticate: req => REQUIRE_BROWSER_AUTH ? authenticateBrowser(req) : { userId: String(process.env.TMUX_MOBILE_USER || "default") },
+    authenticate: req => authenticateShareAsr(req, process.env.SESSION_SECRET) ||
+      (REQUIRE_BROWSER_AUTH ? authenticateBrowser(req) : { userId: String(process.env.TMUX_MOBILE_USER || "default") }),
     origin: requestOrigin, secret: process.env.SESSION_SECRET,
   });
 

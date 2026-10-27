@@ -3,3 +3,4 @@ node_modules/
 public/app.js
 public/xterm.css
 .dev.vars
+public/streaming-asr-worklet.js

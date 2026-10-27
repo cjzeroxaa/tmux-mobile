@@ -7,8 +7,10 @@ import { test } from 'node:test';
 // attachments; only the Cloudflare runtime boundary is replaced.
 const moduleURL = source => 'data:text/javascript;base64,' + Buffer.from(source).toString('base64');
 const protocolURL = moduleURL(stripTypeScriptTypes(await readFile(new URL('../src/protocol.ts', import.meta.url), 'utf8')));
+const asrURL = moduleURL(stripTypeScriptTypes(await readFile(new URL('../src/asr-relay.ts', import.meta.url), 'utf8')));
 const source = stripTypeScriptTypes((await readFile(new URL('../src/session-do.ts', import.meta.url), 'utf8'))
   .replace('import { DurableObject } from "cloudflare:workers";', 'class DurableObject { constructor(ctx) { this.ctx = ctx; } }')
+  .replace("'./asr-relay'", JSON.stringify(asrURL))
   .replace('"./protocol"', JSON.stringify(protocolURL)));
 const { TTYSession } = await import(moduleURL(source));
 const frame = (type, payload = {}) => JSON.stringify({ type, payload });
@@ -40,6 +42,24 @@ async function fixture(record) {
   await initialized;
   return { session, host, viewer, store };
 }
+
+test('ASR requires an active viewer holding an unexpired writable lease', async () => {
+  const { session } = await fixture();
+  const request = token => new Request(`https://session.internal/asr?viewerToken=${token}`);
+  assert.equal((await session.fetch(request('unknown'))).status, 403);
+  assert.equal((await session.fetch(request('token-1'))).status, 403);
+  session.record.allowControl = true;
+  session.record.currentControllerId = 'viewer-1';
+  session.record.controlLeaseExpiresAt = Date.now() + 60000;
+  // Authenticated ownership passed; this isolated fixture deliberately has no
+  // service secret, so it must stop before any outbound request.
+  assert.equal((await session.fetch(request('token-1'))).status, 503);
+  session.record.currentControllerId = 'someone-else';
+  assert.equal((await session.fetch(request('token-1'))).status, 403);
+  session.record.currentControllerId = 'viewer-1';
+  session.record.controlLeaseExpiresAt = Date.now() - 1;
+  assert.equal((await session.fetch(request('token-1'))).status, 403);
+});
 
 test('explicit host exit ends this sharing run and keeps viewers connected to the pairing code', async () => {
   const { session, host, viewer, store } = await fixture();

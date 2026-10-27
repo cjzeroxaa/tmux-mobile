@@ -15,12 +15,15 @@ export function bindStreamingDictation({
   onActive = () => {},
   controls = [],
   input,
+  getStreamUrl = () => "/api/asr/stream",
+  disableWhenBlocked = false,
 }) {
   // An already open page may still have the previous HTML during a rollout.
-  if (!button) return { cancel() {}, active: false };
+  if (!button) return { cancel() {}, refresh() {}, active: false };
   let current = null;
   button.classList.add("streaming-dictation");
   const saved = new Map();
+  let savedReadOnly;
   const setActive = (active) => {
     if (active) {
       for (const el of controls.filter(Boolean)) {
@@ -28,6 +31,7 @@ export function bindStreamingDictation({
         el.disabled = true;
       }
       if (input) {
+        if ("readOnly" in input) { savedReadOnly = input.readOnly; input.readOnly = true; }
         input.contentEditable = "false";
         input.setAttribute("aria-busy", "true");
       }
@@ -35,6 +39,7 @@ export function bindStreamingDictation({
       for (const [el, disabled] of saved) el.disabled = disabled;
       saved.clear();
       if (input) {
+        if ("readOnly" in input) input.readOnly = savedReadOnly;
         input.contentEditable = "true";
         input.removeAttribute("aria-busy");
       }
@@ -55,7 +60,7 @@ export function bindStreamingDictation({
     button.setAttribute("aria-pressed", String(mode === "recording"));
     button.title = control.hint;
     button.setAttribute("aria-label", control.hint);
-    button.disabled = control.disabled;
+    button.disabled = control.disabled || (disableWhenBlocked && !current && isBlocked());
     const icons = {
       wave: '<path d="M2 10v4M6 6v12M10 3v18M14 8v8M18 5v14M22 10v4"/>',
       stop: '<rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor" stroke="none"/>',
@@ -86,7 +91,7 @@ export function bindStreamingDictation({
     if (isBlocked()) return;
     if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) {
       setStatus(
-        "Live dictation is unavailable in this browser. Use the regular microphone.",
+        "Live dictation is unavailable in this browser. You can still type.",
       );
       return;
     }
@@ -119,7 +124,7 @@ export function bindStreamingDictation({
         await cleanup(state);
         return;
       }
-      const url = new URL("/api/asr/stream", location.href);
+      const url = new URL(getStreamUrl(), location.href);
       url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
       state.session = createStreamingAsrSession({
         url: url.href,
@@ -199,6 +204,7 @@ export function bindStreamingDictation({
   render();
   return {
     cancel,
+    refresh: render,
     get active() {
       return !!current;
     },

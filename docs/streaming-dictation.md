@@ -1,6 +1,6 @@
 # Live dictation (Free ASR)
 
-The waveform button next to the microphone streams speech into the composer.
+The waveform button streams speech into the composer.
 The button says Start when idle, Cancel while connecting, and a red Stop while recording. Press Stop to turn off the microphone immediately. Wait indicates finalization with the microphone off.
 The final result replaces the interim text. The original draft stays before the
 new dictation. Send remains a separate action. The old complete-recording microphone button is hidden. Keyboard dictation shortcuts use the same streaming toggle.
@@ -44,6 +44,12 @@ output is mono 16 kHz PCM. Limits are 64 KiB per frame, 20 MiB audio, ten minute
 30 seconds without audio, 15 seconds to connect/finalize, two streams per user,
 and 16 streams per Controller process. Client/provider queues are bounded.
 Disconnects terminate both the provider socket and decoder process.
+
+The shared terminal viewer also uses this recorder through its same-origin
+share-scoped ASR relay. It requires active terminal control. Transcription stays
+in a local draft until Insert; Enter is separate. The Worker sends a short-lived
+service assertion only to the Controller, retaining the owner's stable ASR identity
+and limits. Main-app browser cookies and native Bearer authentication are unchanged.
 
 No Connector protocol or native module changed. Publish Web before runtime 7
 (iOS/Android) and the runtime 6 Android OTA, using each runtime's own dependencies.
