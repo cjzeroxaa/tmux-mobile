@@ -6,10 +6,10 @@ const moduleUrl=source=>'data:text/javascript;base64,'+Buffer.from(source).toStr
 const {ShareAsrRelay}=await import(moduleUrl(stripTypeScriptTypes(await readFile(new URL('../src/asr-relay.ts',import.meta.url),'utf8'))));
 const {dictationTerminalText}=await import(moduleUrl(stripTypeScriptTypes(await readFile(new URL('../src/dictation-input.ts',import.meta.url),'utf8'))));
 class Socket extends EventTarget{
-  readyState=1;messages=[];closed=false;
+  readyState=1;messages=[];closed=false;binaryType='blob';
   accept(){}
   send(data){this.messages.push(data);}
-  receive(data){this.dispatchEvent(new MessageEvent('message',{data}));}
+  receive(data){if(data instanceof ArrayBuffer&&this.binaryType==='blob')data=new Blob([data]);this.dispatchEvent(new MessageEvent('message',{data}));}
   close(){if(this.closed)return;this.closed=true;this.readyState=3;this.dispatchEvent(new Event('close'));}
 }
 let pair;

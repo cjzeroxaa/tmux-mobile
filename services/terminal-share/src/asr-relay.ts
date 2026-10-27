@@ -49,6 +49,7 @@ export class ShareAsrRelay {
       const upstream = response.webSocket;
       if (!upstream) throw Error('Speech service unavailable');
       stream.upstream = upstream;
+      upstream.binaryType = 'arraybuffer';
       upstream.accept();
       if (stream.closed || !this.options.writable(viewer)) {
         try { upstream.close(1000, 'Terminal control ended'); } catch {}
@@ -58,6 +59,9 @@ export class ShareAsrRelay {
       const pair = new WebSocketPair();
       const [client, browser] = Object.values(pair);
       stream.browser = browser;
+      // Current Workers deliver binary frames as Blob by default. Keep PCM
+      // frames as bytes so forwarding cannot coerce them into "[object Blob]".
+      browser.binaryType = 'arraybuffer';
       browser.accept();
       clearTimeout(stream.timer);
       stream.timer = setTimeout(() => this.close(viewer, stream, 'Dictation time limit reached'), 610_000);
