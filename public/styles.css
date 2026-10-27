@@ -3302,7 +3302,7 @@ html:not([data-theme="kami"]) .app-body {
 
 /* One shared dictation toggle; preserve the compact action row. */
 .legacy-dictation[hidden] { display: none !important; }
-html:root .voice-button.streaming-dictation {
+html:root .voice-button.streaming-dictation[data-streaming-state] {
   display: inline-flex;
   flex: 0 0 76px;
   width: 76px;
@@ -3311,6 +3311,10 @@ html:root .voice-button.streaming-dictation {
   gap: 4px;
   font-size: 12px;
   font-weight: 600;
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink);
+  box-shadow: none;
 }
 html:root .voice-button.streaming-dictation[data-streaming-state="recording"] {
   background: #b3261e;
@@ -3318,9 +3322,10 @@ html:root .voice-button.streaming-dictation[data-streaming-state="recording"] {
   color: #fff;
 }
 html:root .voice-button.streaming-dictation[data-streaming-state="finishing"] {
-  background: var(--surface-soft);
+  background: var(--surface);
   border-color: var(--line);
   color: var(--muted);
+  opacity: 1;
 }
 .streaming-dictation[data-streaming-state="finishing"] svg {
   animation: streaming-dictation-spin 1s linear infinite;
