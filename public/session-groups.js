@@ -2,13 +2,16 @@ export const CARD_SORT_KEY = "tmux-mobile-card-sort";
 export function normalizeCardSort(value) {
   return value === "recent" ? "recent" : "current";
 }
-export function compareRecentActivity(left, right) {
-  const time = (agent) => [agent.lastActivityAt, agent.lastAssistantAt, agent.lastUserAt]
+export function latestActivityTime(agent) {
+  return [agent.lastActivityAt, agent.lastAssistantAt, agent.lastUserAt]
     .reduce((latest, value) => {
       const parsed = Date.parse(String(value || ""));
       return Number.isFinite(parsed) ? Math.max(latest, parsed) : latest;
     }, 0);
-  return time(right) - time(left);
+}
+
+export function compareRecentActivity(left, right) {
+  return latestActivityTime(right) - latestActivityTime(left);
 }
 
 function clean(value) {

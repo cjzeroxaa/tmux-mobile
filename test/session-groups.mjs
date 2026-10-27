@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { normalizeCardSort, groupAgentSessions } from "../public/session-groups.js";
+import { normalizeCardSort, latestActivityTime, compareRecentActivity, groupAgentSessions } from "../public/session-groups.js";
 
 const agents = [
   { id: "recent", machineId: "mac", sessionName: "alpha", windowIndex: 2, mux: "tmux" },
@@ -38,3 +38,19 @@ assert.equal(recent.sessionCount, 3);
 assert.equal(normalizeCardSort("recent"), "recent");
 for (const value of [null, "invalid", "current"]) assert.equal(normalizeCardSort(value), "current");
 assert.deepEqual(timeline.map(a => a.id), ["new", "old", "middle", "star", "missing"]);
+
+// Pickers ignore feed order and stars, and use the newest available timestamp.
+const pickerSource = [
+  { id: "old-star", lastActivityAt: "2026-09-10T12:00:00Z" },
+  { id: "missing", lastActivityAt: "invalid" },
+  { id: "assistant", lastActivityAt: "invalid", lastAssistantAt: "2026-09-13T12:00:00Z" },
+  { id: "user", lastActivityAt: "2026-09-12T12:00:00Z", lastUserAt: "2026-09-14T12:00:00Z" },
+];
+for (const sortBy of ["current", "recent"]) {
+  const feed = groupAgentSessions(pickerSource, { ...options, isStarred: a => a.id === "old-star", sortBy }).agents;
+  assert.deepEqual([...feed].sort(compareRecentActivity).map(a => a.id), ["user", "assistant", "old-star", "missing"]);
+  assert.equal(feed[0].id, "old-star", "sorting the picker must not mutate the feed");
+}
+assert.equal(latestActivityTime(pickerSource[3]), Date.parse("2026-09-14T12:00:00Z"));
+assert.equal(latestActivityTime(pickerSource[1]), 0);
+assert.equal(compareRecentActivity(pickerSource[0], { ...pickerSource[0], windowIndex: 99 }), 0);

@@ -25,7 +25,7 @@ import {
 } from "./machine-filter.js";
 import { compareMachinesByOwnerAndName } from "./machine-order.js";
 import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
-import { CARD_SORT_KEY, normalizeCardSort, compareRecentActivity, groupAgentSessions } from "./session-groups.js";
+import { CARD_SORT_KEY, normalizeCardSort, latestActivityTime, compareRecentActivity, groupAgentSessions } from "./session-groups.js";
 import { openViewerUrl } from "./viewer-navigation.js";
 import {
   getSnippets as getStoredSnippets,
@@ -558,6 +558,7 @@ function refreshRelativeTimeLabels() {
     if (relative) time.textContent = relative;
     time.title = exactTimeLabel(time.dateTime);
   }
+  refreshCardJumpTimes();
 }
 
 function setStatus(text) {
@@ -3047,7 +3048,9 @@ function cardSearchMatches(agent, terms) {
 
 function cardSearchAgents() {
   const terms = cardSearchTerms(state.cardSearchQuery);
-  return filterAndSort(state.agents).filter((agent) => cardSearchMatches(agent, terms));
+  return filterAndSort(state.agents)
+    .filter((agent) => cardSearchMatches(agent, terms))
+    .sort(compareRecentActivity);
 }
 
 function renderCardSearchResults() {
@@ -3075,7 +3078,7 @@ function renderCardSearchResults() {
 
     const title = document.createElement("span");
     title.className = "cc-card-search-result-title";
-    title.textContent = cardSearchTitle(agent);
+    title.textContent = `${cardSearchTitle(agent)} · ${relativeTimeLabel(latestActivityTime(agent)) || "No activity"}`;
 
     const meta = document.createElement("span");
     meta.className = "cc-card-search-result-meta";
@@ -3311,21 +3314,42 @@ function jumpToCard(key) {
 
 function renderCardJump(agents) {
   if (!els.cardJump) return;
-  const options = agents.map((agent) => {
+  // The picker has one timeline, independent of feed grouping and stars.
+  const options = [...agents].sort(compareRecentActivity).map((agent) => {
     const machine = machineForAgent(agent);
     const session = agent.sessionName || agent.sessionId || "Unnamed session";
     const name = agent.windowName || "Unnamed window";
     const window = agent.windowId || agent.windowIndex || "";
     const host = machine ? machineLabel(machine) : agent.machineHostname || agentMachineKey(agent);
-    return [readKeyForAgent(agent), `${session} / ${name}${window ? ` (${window})` : ""} · ${host}`];
+    return [readKeyForAgent(agent), `${session} / ${name}${window ? ` (${window})` : ""}`, host, latestActivityTime(agent)];
   });
   const fingerprint = JSON.stringify(options);
   // Inventory refreshes must not replace an unchanged native picker while open.
-  if (els.cardJump.dataset.options === fingerprint) return;
+  if (els.cardJump.dataset.options === fingerprint) {
+    refreshCardJumpTimes();
+    return;
+  }
   els.cardJump.dataset.options = fingerprint;
   els.cardJump.replaceChildren(new Option(options.length ? `Jump to card (${options.length})` : "No cards", ""));
-  for (const [value, label] of options) els.cardJump.add(new Option(label, value));
+  for (const [value, label, host, timestamp] of options) {
+    const option = new Option(label, value);
+    option.dataset.label = label;
+    option.dataset.host = host;
+    option.dataset.activityTime = String(timestamp);
+    els.cardJump.add(option);
+  }
   els.cardJump.disabled = options.length === 0;
+  refreshCardJumpTimes();
+}
+
+function refreshCardJumpTimes() {
+  if (!els.cardJump) return;
+  for (const option of els.cardJump.options) {
+    if (!option.value) continue;
+    const age = relativeTimeLabel(Number(option.dataset.activityTime)) || "No activity";
+    const label = `${option.dataset.label} · ${age} · ${option.dataset.host}`;
+    if (option.textContent !== label) option.textContent = label;
+  }
 }
 
 function selectCardSearchIndex(delta) {
@@ -4486,6 +4510,8 @@ els.responseFullscreenClose?.addEventListener("click", closeResponseFullscreen);
 els.transcriptBackdrop?.addEventListener("click", closeAgentTranscript);
 els.transcriptClose?.addEventListener("click", closeAgentTranscript);
 els.cardSearchOpen?.addEventListener("click", openCardSearch);
+els.cardJump?.addEventListener("pointerdown", refreshCardJumpTimes);
+els.cardJump?.addEventListener("focus", refreshCardJumpTimes);
 els.cardJump?.addEventListener("change", () => {
   const key = els.cardJump.value;
   els.cardJump.value = "";
