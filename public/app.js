@@ -6082,7 +6082,11 @@ liveDictation = bindStreamingDictation({
   button: document.querySelector('#streamingVoiceButton'),
   input: els.textInput,
   controls: [els.voiceButton, els.submitText, els.clearText, els.attachButton],
-  getText: composerGetText, setText: composerSetText, setStatus,
+  getText: composerGetText, setText: composerSetText,
+  setStatus: text => {
+    const status = document.querySelector('#streamingVoiceStatus');
+    if (status) { status.textContent = text; status.hidden = !text; }
+  },
   isBlocked: () => !state.paneId || state.voice.status !== 'idle' || els.attachButton?.disabled || els.submitText.disabled,
 });
 
