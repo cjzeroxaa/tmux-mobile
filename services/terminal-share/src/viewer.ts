@@ -27,7 +27,7 @@ const dark = matchMedia('(prefers-color-scheme: dark)');
 const theme = () => {
   const colors = getComputedStyle(document.documentElement);
   return {
-    background: dark.matches ? '#002b36' : '#fdf6e3', foreground: dark.matches ? '#93a1a1' : '#586e75', cursor: '#268bd2',
+    background: colors.getPropertyValue('--bg').trim(), foreground: colors.getPropertyValue('--fg').trim(), cursor: '#268bd2',
     selectionBackground: colors.getPropertyValue('--selection-bg').trim(),
     selectionForeground: colors.getPropertyValue('--selection-fg').trim(),
     selectionInactiveBackground: colors.getPropertyValue('--selection-inactive-bg').trim(),

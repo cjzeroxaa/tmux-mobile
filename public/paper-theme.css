@@ -1,4 +1,4 @@
-/* Solarized palette (ethanschoonover.com/solarized), shared by every AMUX page.
+/* Solarized surfaces with brighter dark-mode text, shared by every AMUX page.
  * Keep the existing `kami` storage value for light mode compatibility. */
 :root, html[data-theme="kami"] {
   color-scheme: light;
@@ -15,8 +15,8 @@
 html[data-theme="dark"], html[data-theme=""] {
   color-scheme: dark;
   --paper-bg: #002b36; --paper-surface: #002b36; --paper-rail: #073642;
-  --paper-soft: #073642; --paper-ink: #93a1a1; --paper-muted: #839496;
-  --paper-line: #586e75; --paper-accent: #93a1a1; --paper-orange: #cb4b16;
+  --paper-soft: #073642; --paper-ink: #eee8d5; --paper-muted: #c0cdcd;
+  --paper-line: #586e75; --paper-accent: #eee8d5; --paper-orange: #cb4b16;
   --paper-selection: #073642; --paper-on-accent: #002b36;
   --paper-text-selection-bg: #28627c; --paper-text-selection-ink: #fdf6e3;
   --paper-glass: #002b36ed; --paper-shadow: 0 2px 0 #002b3655;
@@ -25,8 +25,8 @@ html[data-theme="dark"], html[data-theme=""] {
   html:not([data-theme]) {
     color-scheme: dark;
     --paper-bg: #002b36; --paper-surface: #002b36; --paper-rail: #073642;
-    --paper-soft: #073642; --paper-ink: #93a1a1; --paper-muted: #839496;
-    --paper-line: #586e75; --paper-accent: #93a1a1; --paper-orange: #cb4b16;
+    --paper-soft: #073642; --paper-ink: #eee8d5; --paper-muted: #c0cdcd;
+    --paper-line: #586e75; --paper-accent: #eee8d5; --paper-orange: #cb4b16;
     --paper-selection: #073642; --paper-on-accent: #002b36;
     --paper-text-selection-bg: #28627c; --paper-text-selection-ink: #fdf6e3;
     --paper-glass: #002b36ed; --paper-shadow: 0 2px 0 #002b3655;

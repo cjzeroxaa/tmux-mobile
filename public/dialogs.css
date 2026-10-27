@@ -17,6 +17,6 @@
 .tmax-dialog :focus-visible { outline: 2px solid #268bd2; outline-offset: 3px; }
 .tmax-dialog [hidden] { display: none !important; }
 @media (prefers-color-scheme: dark) {
-  .tmax-dialog { --dialog-bg: var(--paper-bg, #002b36); --dialog-ink: var(--paper-ink, #93a1a1); --dialog-line: var(--paper-line, #586e75); }
+  .tmax-dialog { --dialog-bg: var(--paper-bg, #002b36); --dialog-ink: var(--paper-ink, #eee8d5); --dialog-line: var(--paper-line, #586e75); }
 }
 @media (max-width: 480px) { .tmax-dialog { padding: 20px; } .tmax-dialog-actions button { flex: 1; } }
