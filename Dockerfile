@@ -3,6 +3,8 @@
 # the user's Mac is Apple Silicon so the image builds natively without QEMU.
 FROM node:22-slim
 
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 ARG TMUX_MOBILE_REVISION=dev
 ENV HOST=0.0.0.0

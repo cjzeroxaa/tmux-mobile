@@ -1,3 +1,5 @@
+import { bindStreamingDictation } from "./streaming-asr.js";
+let liveDictation = null;
 import { confirmAction, promptValue } from "./dialogs.js";
 import { uploadComposerFile } from "./file-upload.js";
 import { setScreenAwake, syncInputWakeLock } from "./screen-awake.mjs";
@@ -969,6 +971,7 @@ function machineLabelFor(routeId) {
 // ({ session, windowIndex }) — used by cross-machine quick-switch so the hop
 // goes straight to the intended window instead of the machine's default.
 async function selectMachine(machineId, target = null) {
+  liveDictation?.cancel();
   if (machineId === state.machineId && !target) return;
   viewReads.invalidate();
   detailRefresh.stop();
@@ -1476,6 +1479,7 @@ function resetDirectoryNavigator(message = "No window selected") {
 }
 
 function clearPaneViewForWindowSwitch(message = "Loading window...") {
+  liveDictation?.cancel();
   viewReads.invalidate();
   detailRefresh.stop();
   paneSnapshotRefreshTimer = null;
@@ -2089,6 +2093,7 @@ function composerSetText(text) {
 // box is non-empty and not already ending in whitespace), caret to end, focus.
 // This is how snippets, dictation, and recall all land in the box.
 function composerAppendText(text) {
+  if (liveDictation?.active) return;
   const add = String(text || "");
   if (!add) return;
   const current = composerGetText();
@@ -2099,6 +2104,7 @@ function composerAppendText(text) {
 
 // Upload directly to storage and insert the temporary download link.
 async function uploadFiles(fileList) {
+  if (liveDictation?.active) return;
   const files = Array.from(fileList || []);
   if (!files.length) return;
   if (!state.paneId) {
@@ -2188,6 +2194,7 @@ function clearPendingVoiceAudio() {
 
 async function submitTextComposer(event, { keepFocus = true } = {}) {
   event?.preventDefault();
+  if (liveDictation?.active) return;
   const text = composerGetText();
   if (!text.trim()) {
     composerFocus();
@@ -2387,6 +2394,7 @@ function stopVoiceStream() {
 }
 
 async function startVoiceRecording() {
+  if (liveDictation?.active) return;
   if (!state.paneId) {
     addChat("system", "Select a window first.", "system");
     return;
@@ -3805,6 +3813,7 @@ function refreshPickerActivity() {
 }
 
 async function selectWindow(windowId) {
+  liveDictation?.cancel();
   const win = state.windows.find((item) => item.id === windowId);
   const previousWindowId = state.windowId;
   // Record the window we're switching to as most-recent, so it surfaces in the
@@ -4369,6 +4378,7 @@ async function loadPanesOnce() {
   const paneChanged = state.paneId !== previousPaneId;
 
   if (paneChanged) {
+    liveDictation?.cancel();
     loadChat();
     renderChat();
     void loadWindowMetadata();
@@ -5987,6 +5997,7 @@ els.autoRefresh.checked = true;
 
 let viewActive = false;
 export function deactivateView() {
+  liveDictation?.cancel();
   viewActive = false;
   void setScreenAwake("terminal-audio", false);
   queueMicrotask(syncInputWakeLock);
@@ -6066,4 +6077,13 @@ window.addEventListener("pagehide", deactivateView);
 window.addEventListener("popstate", () => {
   if (!document.getElementById("viewRoot")) { deactivateView(); activateView(); }
 });
+
+liveDictation = bindStreamingDictation({
+  button: document.querySelector('#streamingVoiceButton'),
+  input: els.textInput,
+  controls: [els.voiceButton, els.submitText, els.clearText, els.attachButton],
+  getText: composerGetText, setText: composerSetText, setStatus,
+  isBlocked: () => !state.paneId || state.voice.status !== 'idle' || els.attachButton?.disabled || els.submitText.disabled,
+});
+
 if (!document.getElementById("viewRoot")) activateView();

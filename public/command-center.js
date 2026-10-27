@@ -1,3 +1,5 @@
+import { bindStreamingDictation } from "./streaming-asr.js";
+let liveDictation = null;
 import { confirmAction, promptValue } from "./dialogs.js";
 import { uploadComposerFile } from "./file-upload.js";
 import { renderCardActionBar } from "./card-action-bar.mjs";
@@ -934,6 +936,7 @@ function interactFocus() {
 }
 
 function interactAppendText(text) {
+  if (liveDictation?.active) return;
   const add = String(text || "");
   if (!add) return;
   const current = interactGetText();
@@ -944,6 +947,7 @@ function interactAppendText(text) {
 }
 
 async function uploadInteractFiles(fileList) {
+  if (liveDictation?.active) return;
   const files = Array.from(fileList || []);
   if (!files.length) return;
   if (state.interactUploading || state.interactSending) return;
@@ -1182,6 +1186,7 @@ function closeInteract() {
 }
 
 async function sendInteractText({ keepFocus = true } = {}) {
+  if (liveDictation?.active) return;
   if (state.interactSending || state.interactUploading) return;
   const agent = state.interactAgent;
   const text = interactGetText();
@@ -1466,6 +1471,7 @@ function stopInteractVoiceStream() {
 }
 
 function resetInteractVoice() {
+  liveDictation?.cancel();
   const recorder = state.interactVoice.mediaRecorder;
   if (recorder && recorder.state === "recording") {
     state.interactVoice.cancelRequested = true;
@@ -1482,6 +1488,7 @@ function resetInteractVoice() {
 }
 
 async function startInteractVoiceRecording() {
+  if (liveDictation?.active) return;
   if (!state.interactAgent?.paneId) {
     setInteractStatus("No target");
     return;
@@ -4645,6 +4652,7 @@ renderInteractSnippets();
 
 let viewActive = false;
 export function deactivateView() {
+  liveDictation?.cancel();
   viewActive = false;
   queueMicrotask(syncInputWakeLock);
   viewReads.stop();
@@ -4669,4 +4677,15 @@ function syncViewVisibility() {
 document.addEventListener("visibilitychange", syncViewVisibility);
 window.addEventListener("pageshow", syncViewVisibility);
 window.addEventListener("pagehide", deactivateView);
+
+liveDictation = bindStreamingDictation({
+  button: document.querySelector('#ccInteractStreamingVoice'),
+  input: els.interactInput,
+  controls: [els.interactVoiceButton, els.interactSend, els.interactClear, els.interactAttachButton, els.interactKeysToggle],
+  getText: interactGetText,
+  setText: text => { interactSetText(text); saveInteractDraft(state.interactAgent, text); },
+  setStatus: setInteractStatus,
+  isBlocked: () => !state.interactAgent || state.interactSending || state.interactUploading || state.interactVoice.status !== 'idle',
+});
+
 if (!document.getElementById("viewRoot")) activateView();

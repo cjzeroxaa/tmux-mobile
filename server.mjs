@@ -1,3 +1,4 @@
+import { attachStreamingAsr } from "./lib/streaming-asr.mjs";
 import { temporaryTerminals } from "./lib/temporary-terminals.mjs";
 import { createTemporaryUploads, handleTemporaryUploadHttp } from "./lib/temporary-uploads.mjs";
 import { createDraftStore } from "./lib/draft-store.mjs";
@@ -6502,6 +6503,11 @@ if (MODE.kind === "register") {
   }
   reportInventories = () => hub?.listAllCommandCenterInventories() || [];
   stopAgentRoundWatcher = startAgentRoundNtfyWatcher({ hub });
+
+  attachStreamingAsr(server, {
+    authenticate: req => REQUIRE_BROWSER_AUTH ? authenticateBrowser(req) : { userId: String(process.env.TMUX_MOBILE_USER || "default") },
+    origin: requestOrigin, secret: process.env.SESSION_SECRET,
+  });
 
   server.listen(PORT, HOST, () => {
     console.log(`tmux ${MODE.kind} listening at http://${HOST}:${PORT}`);
