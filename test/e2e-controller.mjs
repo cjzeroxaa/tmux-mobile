@@ -446,6 +446,7 @@ try {
     GOOGLE_DEVICE_CLIENT_ID: DEVICE_CLIENT_ID,
     GOOGLE_DEVICE_CLIENT_SECRET: DEVICE_CLIENT_SECRET,
     OPENAI_API_KEY: "test-openai-key",
+    TMUX_MOBILE_ACCESS_CONTROL_FILE: new URL("./fixtures/multi-user-access.json", import.meta.url).pathname,
     SESSION_SECRET: `session-secret-${process.pid}`,
     ALLOW_ALL_GOOGLE_USERS: "1",
     TMUX_MOBILE_EXPECTED_REVISION: "test-revision",

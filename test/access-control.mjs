@@ -11,20 +11,11 @@ assert.deepEqual(config, {
   version: 1,
   machineVisibility: "owner-only",
   superAdminEmails: ["sonicgg@gmail.com"],
-  machineShares: [
-    {
-      ownerEmail: "sonicgg@gmail.com",
-      agentId: "00ef8f6b-3fce-47b0-9e4e-c7b97cbbff8c",
-      emails: [],
-      domains: ["srp.one"],
-    },
-    {
-      ownerEmail: "engineering-agent@srp.one",
-      agentId: "b99a2a70-1160-49b2-82f1-9b38f1734761",
-      emails: [],
-      domains: ["srp.one"],
-    },
-  ],
+  machineShares: [],
+  privateAccess: {
+    ownerEmail: "sonicgg@gmail.com",
+    existingConnectors: [{ ownerEmail: "cj@rebyte.ai", agentId: "4503e6cd-795a-4f59-9592-d6c4a5df764f" }],
+  },
 });
 
 const dir = mkdtempSync(path.join(os.tmpdir(), "tmux-mobile-access-control-"));

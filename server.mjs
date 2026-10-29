@@ -1,5 +1,6 @@
 import { attachStreamingAsr } from "./lib/streaming-asr.mjs";
 import { authenticateShareAsr } from "./lib/terminal-share-asr-auth.mjs";
+import { controllerLoginAllowed, controllerTokenAllowed, controllerMachineAllowed } from "./lib/controller-access.mjs";
 import { temporaryTerminals } from "./lib/temporary-terminals.mjs";
 import { createTemporaryUploads, handleTemporaryUploadHttp } from "./lib/temporary-uploads.mjs";
 import { createDraftStore } from "./lib/draft-store.mjs";
@@ -3715,6 +3716,7 @@ function verifySignedToken(token, expectedType) {
   if (!Number.isFinite(payload.exp) || payload.exp < Math.floor(Date.now() / 1000)) {
     return null;
   }
+  if (!controllerTokenAllowed(ACCESS_CONTROL.privateAccess, payload, expectedType)) return null;
   return payload;
 }
 
@@ -3794,6 +3796,7 @@ function bearerToken(req) {
 function authenticateAgent(req) {
   const tokenUser = verifySignedToken(bearerToken(req), "agent");
   if (tokenUser) return tokenUser;
+  if (ACCESS_CONTROL.privateAccess) return null;
   if (process.env.TMUX_MOBILE_ENABLE_LEGACY_AUTH !== "1") return null;
 
   const legacySecret = process.env.AGENT_SECRET || "";
@@ -3825,6 +3828,10 @@ function readAllowedGoogleConfig() {
 }
 
 function assertGoogleUserAllowed(user) {
+  if (ACCESS_CONTROL.privateAccess) {
+    if (controllerLoginAllowed(ACCESS_CONTROL.privateAccess, user)) return;
+    throw Object.assign(new Error("This controller is private. Registration is closed for this Google account."), { status: 403 });
+  }
   const allowed = readAllowedGoogleConfig();
   if (allowed.allowAll) return;
   const email = String(user.email || "").toLowerCase();
@@ -5585,6 +5592,7 @@ function validateStartupConfig() {
     if (!process.env[key]) missing.push(key);
   }
   if (
+    !ACCESS_CONTROL.privateAccess &&
     process.env.ALLOW_ALL_GOOGLE_USERS === "0" &&
     !process.env.ALLOWED_GOOGLE_EMAILS &&
     !process.env.ALLOWED_GOOGLE_DOMAINS
@@ -5740,6 +5748,8 @@ if (MODE.kind === "register") {
         try {
           const agentId = String(req.headers["x-agent-id"] || "");
           if (!/^[a-zA-Z0-9_-]{1,128}$/.test(agentId)) throw Object.assign(new Error("Invalid machine identity"),{status:400});
+          if (!controllerMachineAllowed(ACCESS_CONTROL.privateAccess, { owner, agentId }))
+            throw Object.assign(new Error("Machine registration is not allowed"), { status: 403 });
           const machineId = `m:${Buffer.from(owner.userId).toString("base64url")}:${Buffer.from(agentId).toString("base64url")}`;
           if (req.method === "POST") {
             const metadata = JSON.parse(Buffer.from(String(req.headers["x-draft-metadata"] || ""),"base64url").toString("utf8"));
@@ -6405,6 +6415,7 @@ if (MODE.kind === "register") {
         : () => String(process.env.TMUX_MOBILE_USER || "default"),
       superAdminEmails: ACCESS_CONTROL.superAdminEmails,
       machineShares: ACCESS_CONTROL.machineShares,
+      allowMachine: machine => controllerMachineAllowed(ACCESS_CONTROL.privateAccess, machine),
       currentRevision: APP_REVISION,
       expectedRevision: CONNECTOR_EXPECTED_REVISION,
       updateRef: CONNECTOR_UPDATE_REF,
@@ -6510,8 +6521,11 @@ if (MODE.kind === "register") {
   stopAgentRoundWatcher = startAgentRoundNtfyWatcher({ hub });
 
   attachStreamingAsr(server, {
-    authenticate: req => authenticateShareAsr(req, process.env.SESSION_SECRET) ||
-      (REQUIRE_BROWSER_AUTH ? authenticateBrowser(req) : { userId: String(process.env.TMUX_MOBILE_USER || "default") }),
+    authenticate: req => {
+      const shared = authenticateShareAsr(req, process.env.SESSION_SECRET);
+      if (shared && controllerLoginAllowed(ACCESS_CONTROL.privateAccess, shared)) return shared;
+      return REQUIRE_BROWSER_AUTH ? authenticateBrowser(req) : { userId: String(process.env.TMUX_MOBILE_USER || "default") };
+    },
     origin: requestOrigin, secret: process.env.SESSION_SECRET,
   });
 

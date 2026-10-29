@@ -26,7 +26,8 @@ process.env.TMUX_MOBILE_UPLOAD_DIR = path.join(temp, "uploads");
 process.env.AGENT_TOKEN = token("agent");
 process.env.AGENT_MACHINE = "upload-test";
 const child = spawn(process.execPath, ["server.mjs", "--controller"], {
-  env: { ...process.env, PORT: String(port), HOST: "127.0.0.1", SESSION_SECRET: secret,
+  env: { ...process.env, PORT: String(port), HOST: "127.0.0.1", TMUX_MOBILE_ACCESS_CONTROL_FILE: new URL("./fixtures/multi-user-access.json", import.meta.url).pathname,
+      SESSION_SECRET: secret,
     GOOGLE_OAUTH_CLIENT_ID: "test", GOOGLE_OAUTH_CLIENT_SECRET: "test",
     GOOGLE_DEVICE_CLIENT_ID: "test", GOOGLE_DEVICE_CLIENT_SECRET: "test", OPENAI_API_KEY: "test",
     ALLOW_ALL_GOOGLE_USERS: "1", TMUX_MOBILE_TRANSCRIPT_ARCHIVE_ENABLED: "0",

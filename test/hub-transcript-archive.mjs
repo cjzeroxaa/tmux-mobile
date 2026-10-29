@@ -232,6 +232,7 @@ async function controllerTranscriptFeature({
       ...process.env,
       HOST: "127.0.0.1",
       PORT: String(port),
+      TMUX_MOBILE_ACCESS_CONTROL_FILE: new URL("./fixtures/multi-user-access.json", import.meta.url).pathname,
       SESSION_SECRET: `archive-session-${process.pid}`,
       GOOGLE_OAUTH_CLIENT_ID: "archive-test-client",
       GOOGLE_OAUTH_CLIENT_SECRET: "archive-test-secret",

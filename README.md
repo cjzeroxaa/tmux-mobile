@@ -59,19 +59,29 @@ export GOOGLE_OAUTH_CLIENT_SECRET='...'
 export GOOGLE_DEVICE_CLIENT_ID='...apps.googleusercontent.com'
 export GOOGLE_DEVICE_CLIENT_SECRET='...'
 export GOOGLE_OAUTH_REDIRECT_URI='https://YOUR-CLOUD-RUN-URL/auth/google/callback'
-export ALLOW_ALL_GOOGLE_USERS='1'
+export ALLOW_ALL_GOOGLE_USERS='0'
 export OPENAI_API_KEY='sk-...'
 export OPENAI_SECRET_NAME='tmux-mobile-openai-api-key'
 export SESSION_SECRET="$(openssl rand -hex 32)"
 ```
 
-By default, any verified Google account can sign in (`ALLOW_ALL_GOOGLE_USERS=1`).
-Machine visibility is separate from login permission and is defined in
-`config/access-control.json`: `sonicgg@gmail.com` is the sole super-admin and
-sees every machine; every other account sees only machines registered by that
-same account. Hosted Google Workspace domains do not create shared machine
-pools. Set `ALLOW_ALL_GOOGLE_USERS=0` with
-`ALLOWED_GOOGLE_EMAILS` and/or `ALLOWED_GOOGLE_DOMAINS` for a closed controller.
+This deployment is private. `config/access-control.json` permits only
+`sonicgg@gmail.com` to sign in, obtain a native session or register a Connector.
+The policy is checked again for every signed session/agent token, including old
+cookies, native Bearer tokens and browser handoff tickets. Domain allowlists,
+`ALLOW_ALL_GOOGLE_USERS=1` and legacy shared secrets cannot override it. Machine
+shares to `srp.one` have been removed.
+
+The owner's existing `mini` Connector retains its `cj@rebyte.ai` archive identity,
+restricted to its exact stable agent UUID. This exception grants neither browser
+login nor new device authorization/registration. Other accounts, including the
+retired Huang Yuxi and huige Connectors, cannot reconnect. The online machine
+registry is held in memory; there is no independent database registration row to
+delete. Historical content is not erased by an access-policy change.
+
+The controller can still be tested with a separate, explicitly selected access
+file; multi-user tests use `test/fixtures/multi-user-access.json`. Production uses
+the checked-in private policy and fails startup on invalid policy configuration.
 
 Controller mode requires `OPENAI_API_KEY` because voice transcription, target
 summaries, and realtime audio reads all call OpenAI from the controller. Store
