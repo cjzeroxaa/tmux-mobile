@@ -5,7 +5,7 @@ import {
   streamingDictationControl,
 } from "./streaming-asr-session.js";
 
-// One explicit button; stopping adds text but never sends the Agent a message.
+// Stop keeps the draft. Submit waits for final ASR text and sends at most once.
 export function bindStreamingDictation({
   button,
   getText,
@@ -15,12 +15,15 @@ export function bindStreamingDictation({
   onActive = () => {},
   controls = [],
   input,
+  submitButton,
   getStreamUrl = () => "/api/asr/stream",
   disableWhenBlocked = false,
 }) {
   // An already open page may still have the previous HTML during a rollout.
-  if (!button) return { cancel() {}, refresh() {}, active: false };
+  if (!button) return { cancel() {}, refresh() {}, submit: async send => { await send(getText()); }, active: false };
   let current = null;
+  let generation = 0;
+  let submitting = false;
   button.classList.add("streaming-dictation");
   const saved = new Map();
   let savedReadOnly;
@@ -47,6 +50,7 @@ export function bindStreamingDictation({
     onActive(active);
   };
   const render = () => {
+    if (submitting && submitButton) submitButton.disabled = true;
     const mode = !current
       ? "idle"
       : current.starting
@@ -60,7 +64,7 @@ export function bindStreamingDictation({
     button.setAttribute("aria-pressed", String(mode === "recording"));
     button.title = control.hint;
     button.setAttribute("aria-label", control.hint);
-    button.disabled = control.disabled || (disableWhenBlocked && !current && isBlocked());
+    button.disabled = submitting || control.disabled || (disableWhenBlocked && !current && isBlocked());
     const icons = {
       wave: '<path d="M2 10v4M6 6v12M10 3v18M14 8v8M18 5v14M22 10v4"/>',
       stop: '<rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor" stroke="none"/>',
@@ -71,15 +75,18 @@ export function bindStreamingDictation({
   };
   const cleanup = async (state) => {
     state.closed = true;
+    clearTimeout(state.flushTimer);
     state.stream?.getTracks().forEach((track) => track.stop());
     state.node?.disconnect();
     state.source?.disconnect();
     await state.context?.close().catch(() => {});
   };
   const cancel = () => {
+    generation += 1;
     const state = current;
     if (!state) return;
     current = null;
+    state.complete(null);
     state.closed = true;
     state.session?.cancel();
     void cleanup(state);
@@ -95,8 +102,11 @@ export function bindStreamingDictation({
       );
       return;
     }
+    let complete;
+    const result = new Promise(resolve => { complete = resolve; });
     const state = {
       base: getText(),
+      text: getText(), result, complete,
       starting: true,
       closed: false,
       finishing: false,
@@ -130,11 +140,12 @@ export function bindStreamingDictation({
         url: url.href,
         onTranscript: (text) => {
           if (current === state) {
-            setText(dictationText(state.base, text));
+            state.text = dictationText(state.base, text);
+            setText(state.text);
             setStatus(
               state.finishing
                 ? "Microphone off · Finishing transcription…"
-                : "Listening · Tap Stop to finish",
+                : "Listening · Stop to finish, or Send",
             );
           }
         },
@@ -145,6 +156,7 @@ export function bindStreamingDictation({
           setActive(false);
           render();
           setStatus(error || "Voice added");
+          state.complete(error ? null : state.text);
         },
       });
       await state.session.start();
@@ -170,7 +182,7 @@ export function bindStreamingDictation({
       state.node.connect(silent).connect(state.context.destination);
       state.starting = false;
       render();
-      setStatus("Listening · Tap Stop to finish");
+      setStatus("Listening · Stop to finish, or Send");
     } catch (error) {
       if (current === state) {
         cancel();
@@ -182,20 +194,53 @@ export function bindStreamingDictation({
       } else await cleanup(state);
     }
   };
-  button.addEventListener("click", () => {
-    if (current) {
-      if (current.starting) {
-        cancel();
-        return;
-      }
-      if (current.finishing) return;
-      current.finishing = true;
+  const finish = () => {
+    const state = current;
+    if (!state) return Promise.resolve(getText());
+    if (state.starting) {
+      cancel();
+      return Promise.resolve(null);
+    }
+    if (!state.finishing) {
+      state.finishing = true;
       // Stop capture immediately; the worklet flushes only its buffered samples.
-      current.stream?.getTracks().forEach((track) => track.stop());
+      state.stream?.getTracks().forEach((track) => track.stop());
       render();
       setStatus("Microphone off · Finishing transcription…");
-      current.node.port.postMessage("finish");
-    } else void start();
+      state.flushTimer = setTimeout(() => {
+        if (current === state) state.session.cancel("Could not finish microphone audio. Your current text was kept.");
+      }, 2000);
+      state.node.port.postMessage("finish");
+    }
+    return state.result;
+  };
+  const submit = async (send) => {
+    if (submitting) return;
+    submitting = true;
+    const requestGeneration = generation;
+    const wasDisabled = submitButton?.disabled;
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.setAttribute("aria-busy", "true");
+    }
+    render();
+    try {
+      const text = await finish();
+      if (text === null || requestGeneration !== generation) return;
+      if (!text.trim()) { setStatus("No text to send"); return; }
+      await send(text);
+    } finally {
+      submitting = false;
+      if (submitButton) {
+        submitButton.disabled = wasDisabled;
+        submitButton.removeAttribute("aria-busy");
+      }
+      render();
+    }
+  };
+  button.addEventListener("click", () => {
+    if (current) void finish();
+    else if (!submitting) void start();
   });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) cancel();
@@ -204,6 +249,7 @@ export function bindStreamingDictation({
   render();
   return {
     cancel,
+    submit,
     refresh: render,
     get active() {
       return !!current;

@@ -1,3 +1,4 @@
+import { isVisionDevice, visionTextPreview } from '../../../public/vision-input.js';
 import { Terminal } from '@xterm/xterm';
 import { installTextSelection } from './text-selection';
 import { createViewportFollow } from './viewport';
@@ -6,6 +7,7 @@ import { installMobileInput } from './mobile-input';
 import { InputControl } from './input-control';
 import { bindStreamingDictation } from '../../../public/streaming-asr.js';
 import { dictationTerminalText } from './dictation-input';
+const vision = isVisionDevice();
 const status = document.querySelector<HTMLElement>('#status')!;
 const note = document.querySelector<HTMLElement>('#note')!;
 const control = document.querySelector<HTMLButtonElement>('#control')!;
@@ -29,6 +31,8 @@ const dictationButton = document.querySelector<HTMLButtonElement>('#dictation-to
 const dictationInsert = document.querySelector<HTMLButtonElement>('#dictation-insert')!;
 const dictationClear = document.querySelector<HTMLButtonElement>('#dictation-clear')!;
 const dictationStatus = document.querySelector<HTMLElement>('#dictation-status')!;
+visionTextPreview(dictationInput);
+visionTextPreview(filePaths);
 let uploading = false;
 const uploads = new Map<string, { resolve: (value: any) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 const dark = matchMedia('(prefers-color-scheme: dark)');
@@ -67,6 +71,7 @@ new ResizeObserver(follow.changed).observe(document.querySelector<HTMLElement>('
 terminal.textarea!.readOnly = true;
 terminal.textarea!.setAttribute('inputmode', 'text');
 terminal.textarea!.setAttribute('enterkeyhint', 'enter');
+if (vision) { terminal.textarea!.disabled = true; terminal.textarea!.hidden = true; }
 dark.addEventListener('change', () => { terminal.options.theme = theme(); historyFill.refresh(); });
 const sessionId = location.pathname.match(/^\/s\/([0-9a-f-]{36})$/)?.[1];
 const capability = location.hash.slice(1);
@@ -184,7 +189,7 @@ function sendInput(value: string) {
 }
 terminal.onData(sendInput);
 const mobileInput = navigator.maxTouchPoints > 0
-  ? installMobileInput(terminal.textarea!, terminal.element!, sendInput, () => canWrite)
+  && !vision ? installMobileInput(terminal.textarea!, terminal.element!, sendInput, () => canWrite)
   : null;
 function updateControlNotice() {
   controlNotice.hidden = canWrite || (!inputControl.status && !ended && !inputControl.locked);
@@ -214,7 +219,8 @@ function setWritable(value: boolean) {
   // Keep focus available for selection and local history keyboard shortcuts.
   terminal.textarea!.readOnly = !value;
   terminal.textarea!.setAttribute('aria-label', value ? 'Terminal input' : inputControl.locked ? 'Locked terminal — unlock to type' : 'Read-only terminal');
-  keyboard.hidden = keys.hidden = !value;
+  keyboard.hidden = !value || vision;
+  keys.hidden = !value;
   uploadButton.hidden = !value;
   uploadButton.disabled = !value || uploading;
   insertPaths.disabled = !value;
@@ -229,7 +235,7 @@ function setWritable(value: boolean) {
   updateControlNotice();
 }
 function focusKeyboard() {
-  if (textSelection.open || !canWrite) return;
+  if (vision || textSelection.open || !canWrite) return;
   if (document.activeElement === terminal.textarea) return;
   // iOS needs focus inside the tap, after the textarea is writable. Refocus
   // also handles a textarea previously focused while control was pending.
@@ -336,7 +342,7 @@ document.addEventListener('paste', event => {
   void uploadFiles(Array.from(event.clipboardData.files));
 }, true);
 const dictation = bindStreamingDictation({
-  button: dictationButton, input: dictationInput, controls: [dictationInsert, dictationClear],
+  button: dictationButton, input: dictationInput, controls: [dictationClear], submitButton: dictationInsert,
   getText: () => dictationInput.value,
   setText: (text: string) => { dictationInput.value = text; },
   setStatus: (text: string) => { dictationStatus.textContent = text; },
@@ -348,20 +354,22 @@ const dictation = bindStreamingDictation({
 function renderDictation() {
   dictationPanel.hidden = !inputControl.status?.allowControl;
   dictationInput.readOnly = !canWrite || dictation.active;
-  dictationInsert.disabled = !canWrite || dictation.active || !dictationTerminalText(dictationInput.value).trim();
+  dictationInsert.disabled = !canWrite || (!dictation.active && !dictationTerminalText(dictationInput.value).trim());
   dictationClear.disabled = dictation.active || !dictationInput.value;
   dictation.refresh();
 }
 dictationInput.addEventListener('input', renderDictation);
 dictationClear.onclick = () => { dictationInput.value = ''; dictationStatus.textContent = ''; renderDictation(); };
 dictationInsert.onclick = () => {
-  if (!canWrite || dictation.active) return;
-  const text = dictationTerminalText(dictationInput.value);
-  if (!text.trim()) return;
-  terminal.paste(text);
-  dictationInput.value = '';
-  dictationStatus.textContent = 'Text inserted · Press Enter separately to submit';
-  renderDictation();
+  if (!canWrite) return;
+  void dictation.submit(async (value: string) => {
+    if (!canWrite) return;
+    const text = dictationTerminalText(value);
+    if (!text.trim()) return;
+    terminal.paste(text);
+    dictationInput.value = '';
+    dictationStatus.textContent = 'Text inserted · Press Enter separately to submit';
+  }).finally(renderDictation);
 };
 reconnect.onclick = () => { attempts = 0; void connect(); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) { stop(); status.textContent = 'Paused'; } else { attempts = 0; void connect(); } });

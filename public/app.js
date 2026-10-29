@@ -2194,39 +2194,35 @@ function clearPendingVoiceAudio() {
 
 async function submitTextComposer(event, { keepFocus = true } = {}) {
   event?.preventDefault();
-  if (liveDictation?.active) return;
-  const text = composerGetText();
-  if (!text.trim()) {
-    composerFocus();
-    return;
-  }
-  if (!state.paneId) {
-    addChat("system", "Select a window first.", "system");
-    return;
-  }
+  return liveDictation.submit(async (text) => {
+    if (!state.paneId) {
+      addChat("system", "Select a window first.", "system");
+      return;
+    }
 
-  // Clear the box. Enter-to-send keeps focus (you're mid-flow typing); tapping
-  // the Send button is an explicit "done" → blur so the virtual keyboard hides.
-  composerClear();
-  if (keepFocus) composerFocus();
-  else composerBlur();
-  els.submitText.disabled = true;
-  // Remember what was sent so it shows under "Recent" in the Insert picker.
-  pushComposerHistory(text);
-  try {
-    await sendMessage(text, true);
-  } catch (error) {
-    // Optimistic clear is great on the happy path, but if the send actually
-    // failed the user has lost their text. Put it back in the composer so
-    // they can fix-and-retry without re-typing, and re-focus so the keyboard
-    // pops back up on mobile. The error chat row + box-still-has-the-text
-    // is the unambiguous "submit didn't go through" signal.
-    composerSetText(text);
-    composerFocus();
-    addChat("system", `Send failed: ${error.message}`, "send error");
-  } finally {
-    els.submitText.disabled = false;
-  }
+    // Clear the box. Enter-to-send keeps focus (you're mid-flow typing); tapping
+    // the Send button is an explicit "done" → blur so the virtual keyboard hides.
+    composerClear();
+    if (keepFocus) composerFocus();
+    else composerBlur();
+    els.submitText.disabled = true;
+    // Remember what was sent so it shows under "Recent" in the Insert picker.
+    pushComposerHistory(text);
+    try {
+      await sendMessage(text, true);
+    } catch (error) {
+      // Optimistic clear is great on the happy path, but if the send actually
+      // failed the user has lost their text. Put it back in the composer so
+      // they can fix-and-retry without re-typing, and re-focus so the keyboard
+      // pops back up on mobile. The error chat row + box-still-has-the-text
+      // is the unambiguous "submit didn't go through" signal.
+      composerSetText(text);
+      composerFocus();
+      addChat("system", `Send failed: ${error.message}`, "send error");
+    } finally {
+      els.submitText.disabled = false;
+    }
+  });
 }
 
 // Render the auto-collected history (newest first) as tap-to-insert rows in the
@@ -6081,7 +6077,8 @@ window.addEventListener("popstate", () => {
 liveDictation = bindStreamingDictation({
   button: document.querySelector('#streamingVoiceButton'),
   input: els.textInput,
-  controls: [els.voiceButton, els.submitText, els.clearText, els.attachButton],
+  controls: [els.voiceButton, els.clearText, els.attachButton],
+  submitButton: els.submitText,
   getText: composerGetText, setText: composerSetText,
   setStatus: text => {
     const status = document.querySelector('#streamingVoiceStatus');

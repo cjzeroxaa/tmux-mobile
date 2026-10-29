@@ -107,7 +107,8 @@ let text = "Keep my draft.",
 const controller = bindStreamingDictation({
   button,
   input,
-  controls: [send],
+  controls: [],
+  submitButton: send,
   getText: () => text,
   setText: (value) => (text = value),
   setStatus: (value) => (status = value),
@@ -123,7 +124,7 @@ ws.message({ type: "ready" });
 await tick();
 assert.equal(button.dataset.streamingState, "recording");
 assert.match(button.innerHTML, />Stop</);
-assert.equal(send.disabled, true);
+assert.equal(send.disabled, false);
 ws.message({ type: "transcript", text: "partial", final: false });
 assert.equal(text, "Keep my draft. partial");
 button.click();
@@ -178,3 +179,68 @@ assert.equal(sharedButton.disabled, false);
 console.log(
   "Streaming UI: visible Start/Stop, immediate microphone stop, separate finalization, final correction and pending-start cancellation passed.",
 );
+
+pendingMicrophone = undefined;
+const startRecording = async () => {
+  button.click(); await tick();
+  const socket = Socket.instances.at(-1);
+  socket.message({ type: "ready" }); await tick();
+  assert.equal(button.dataset.streamingState, "recording");
+  assert.equal(send.disabled, false, "Send is enabled before the first partial");
+  return socket;
+};
+const flush = async () => {
+  assert.equal(track.readyState, "ended", "Send stops the mic immediately");
+  AudioWorkletNode.instance.port.onmessage({ data: { done: true } });
+  await tick();
+};
+const sent = [];
+let sending = await startRecording();
+sending.message({ type: 'transcript', text: 'uncorrected', final: false });
+const submission = controller.submit(async value => { sent.push(value); });
+const duplicate = controller.submit(async value => { sent.push(value); });
+assert.equal(send.disabled, true);
+assert.equal(sent.length, 0);
+await flush();
+sending.message({ type: 'transcript', text: 'Corrected final sentence.', final: true });
+sending.message({ type: 'done' });
+await Promise.all([submission, duplicate]);
+assert.deepEqual(sent, ['Keep my draft. Final words. Corrected final sentence.']);
+assert.equal(send.disabled, false);
+
+text = '';
+sending = await startRecording();
+button.click(); // Stop first, then Send while the final transcript is pending.
+const afterStop = controller.submit(async value => { sent.push(value); });
+await flush();
+sending.message({ type: 'transcript', text: 'Late sentence.', final: true });
+sending.message({ type: 'done' });
+await afterStop;
+assert.equal(sent.at(-1), 'Late sentence.');
+
+for (const failure of ['cancel', 'background', 'error', 'empty']) {
+  text = '';
+  sending = await startRecording();
+  const before = sent.length;
+  const pending = controller.submit(async value => { sent.push(value); });
+  await flush();
+  if (failure === 'cancel') controller.cancel();
+  if (failure === 'background') {
+    document.hidden = true; document.dispatchEvent(new Event('visibilitychange')); document.hidden = false;
+  }
+  if (failure === 'error') sending.message({ type: 'error', message: 'ASR unavailable' });
+  if (failure === 'empty') sending.message({ type: 'done' });
+  sending.message({ type: 'transcript', text: 'Must not send', final: true });
+  sending.message({ type: 'done' });
+  await pending;
+  assert.equal(sent.length, before, failure + ' must not send');
+  assert.equal(send.disabled, false);
+}
+text = 'Typed text';
+let releaseSend;
+const idleSubmit = controller.submit(async value => { sent.push(value); await new Promise(r => { releaseSend = r; }); });
+await tick();
+await controller.submit(async value => { sent.push(value); });
+releaseSend(); await idleSubmit;
+assert.equal(sent.filter(value => value === 'Typed text').length, 1);
+console.log('Streaming submit: final correction, single send, Stop then Send, empty speech, cancellation, background and errors passed.');

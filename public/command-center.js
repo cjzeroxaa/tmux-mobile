@@ -1186,40 +1186,37 @@ function closeInteract() {
 }
 
 async function sendInteractText({ keepFocus = true } = {}) {
-  if (liveDictation?.active) return;
   if (state.interactSending || state.interactUploading) return;
   const agent = state.interactAgent;
-  const text = interactGetText();
-  if (!text.trim()) {
-    interactFocus();
-    return;
-  }
-  if (!agent?.paneId) {
-    setInteractStatus("No target");
-    return;
-  }
+  return liveDictation.submit(async (text) => {
+    if (agent !== state.interactAgent) return;
+    if (!agent?.paneId) {
+      setInteractStatus("No target");
+      return;
+    }
 
-  state.interactSending = true;
-  setInteractVoiceStatus(state.interactVoice.status, "");
-  setInteractStatus("Sending...");
-  interactClear();
-  if (keepFocus) interactFocus();
-  else els.interactInput?.blur();
-  pushComposerHistory(text);
-  try {
-    await sendTextToAgent(agent, text);
-    clearInteractDraft(agent);
-    setInteractStatus("Sent");
-    viewReads.delay(() => loadAgents({ after: true }), 700);
-  } catch (error) {
-    interactSetText(text);
-    saveInteractDraft(agent, text);
-    setInteractStatus(`Send failed: ${error.message}`);
-    interactFocus();
-  } finally {
-    state.interactSending = false;
+    state.interactSending = true;
     setInteractVoiceStatus(state.interactVoice.status, "");
-  }
+    setInteractStatus("Sending...");
+    interactClear();
+    if (keepFocus) interactFocus();
+    else els.interactInput?.blur();
+    pushComposerHistory(text);
+    try {
+      await sendTextToAgent(agent, text);
+      clearInteractDraft(agent);
+      setInteractStatus("Sent");
+      viewReads.delay(() => loadAgents({ after: true }), 700);
+    } catch (error) {
+      interactSetText(text);
+      saveInteractDraft(agent, text);
+      setInteractStatus(`Send failed: ${error.message}`);
+      interactFocus();
+    } finally {
+      state.interactSending = false;
+      setInteractVoiceStatus(state.interactVoice.status, "");
+    }
+  });
 }
 
 async function sendInteractKey(key) {
@@ -4681,7 +4678,8 @@ window.addEventListener("pagehide", deactivateView);
 liveDictation = bindStreamingDictation({
   button: document.querySelector('#ccInteractStreamingVoice'),
   input: els.interactInput,
-  controls: [els.interactVoiceButton, els.interactSend, els.interactClear, els.interactAttachButton, els.interactKeysToggle],
+  controls: [els.interactVoiceButton, els.interactClear, els.interactAttachButton, els.interactKeysToggle],
+  submitButton: els.interactSend,
   getText: interactGetText,
   setText: text => { interactSetText(text); saveInteractDraft(state.interactAgent, text); },
   setStatus: setInteractStatus,

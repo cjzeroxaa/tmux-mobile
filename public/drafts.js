@@ -1,3 +1,6 @@
+import { isVisionDevice, visionTextPreview } from "./vision-input.js";
+import { bindStreamingDictation } from "./streaming-asr.js";
+let cancelVisionDictation = () => {};
 import { syncInputWakeLock } from "./screen-awake.mjs";
 import { draftLibrary, draftLibraryUrl, draftMachineName } from "./draft-library.mjs";
 const $ = (id) => document.getElementById(id),
@@ -198,6 +201,7 @@ async function reloadDetail() {
   renderSharing();
 }
 async function load({ preserveFrame = false } = {}) {
+  cancelVisionDictation();
   const current = ++generation;
   controller?.abort();
   controller = new AbortController();
@@ -506,3 +510,47 @@ if (context.machineId && context.sessionId) {
 syncInputWakeLock();
 syncReviewActions();
 load();
+
+// Draft forms inside the Vision Pro app use explicit voice/clear buttons.
+if (isVisionDevice()) {
+  let activeField = null;
+  let activeDictation = null;
+  cancelVisionDictation = () => activeDictation?.cancel();
+  for (const form of document.querySelectorAll("form")) {
+    form.noValidate = true;
+    form.addEventListener("submit", event => {
+      if (activeField && form.contains(activeField)) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        void activeDictation.submit(async () => { form.requestSubmit(event.submitter); });
+        return;
+      }
+      const invalid = Array.from(form.elements).find(field => field.willValidate && !field.checkValidity());
+      if (invalid) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        $("status").textContent = invalid.validationMessage;
+      }
+    }, true);
+  }
+  for (const input of document.querySelectorAll('textarea, input:not([type]), input[type="text"]')) {
+    const preview = visionTextPreview(input);
+    if (!preview || input.readOnly) continue;
+    const controls = document.createElement('div');
+    const voice = document.createElement('button');
+    const clear = document.createElement('button');
+    const status = document.createElement('span');
+    voice.type = clear.type = 'button';
+    clear.textContent = 'Clear';
+    status.setAttribute('role', 'status');
+    controls.append(voice, clear, status);
+    preview.after(controls);
+    const change = text => { input.value = text; input.dispatchEvent(new Event('input', { bubbles: true })); };
+    const dictation = bindStreamingDictation({
+      button: voice, input, controls: [clear],
+      getText: () => input.value, setText: change,
+      setStatus: text => { status.textContent = text; },
+      isBlocked: () => input.disabled || (activeField && activeField !== input),
+      onActive: active => { activeField = active ? input : null; activeDictation = active ? dictation : null; },
+    });
+    clear.onclick = () => { if (!dictation.active) change(''); };
+  }
+}
