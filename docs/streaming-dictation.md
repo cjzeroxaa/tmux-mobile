@@ -23,12 +23,25 @@ Responses are `transcript` (`text`, `final`), `done`, or `error` (`message`).
 
 The Controller implements the protocol documented in the owner's
 [nomoat/free-asr](https://github.com/nomoat/free-asr), source revision
-`80efa236954bbc265a0d59a19815e76268250972`. Audio is forwarded to the Doubao IME ASR
-service, which supplies interim and final transcripts. This is the project's
-reverse-engineered consumer interface; availability can change. Keep the regular
-microphone working independently. Do not rotate device identifiers to evade
-provider limits: the Controller derives one stable identifier per user from its
-session secret. It never logs or stores audio or recognition text.
+`8e0a8b0ed73b27949e3a3d98f3706e394c3d5a98`. Doubao is the default primary;
+WeChat Input Method (WeType) is the automatic backup. An authenticated start
+request may select `provider:"wetype"` to reverse that order. Each provider is
+attempted at most once per recording. Connection errors, disconnects and final
+response timeouts trigger the other provider. The Controller retains at most
+20 MiB of PCM in memory for replay, then releases it on completion/cancellation.
+Backup partials replace the current dictation only after catching up in length;
+the final corrected text always replaces it. Both providers failing returns an
+error and preserves the latest draft. Existing client deadlines still apply,
+so an unusually long/slow replay may time out instead of recovering.
+
+WeType uses OpenSSL-backed Node crypto for ECDH/AES and the existing FFmpeg
+installation (`libopus`, 20 ms frames) for live PCM-to-Opus encoding. It works on
+Linux and macOS; no Apple audio tools are used on the Controller. Anonymous
+WeType identity/key state is cached in process memory and refreshed on expiry.
+Device codes are stable per user, derived from the existing HMAC device ID.
+Neither provider's identifiers are rotated to evade limits. Audio and text are
+never written to disk or logs. These reverse-engineered consumer interfaces can
+change independently.
 
 Web uses an AudioWorklet and continuous resampling. Current native binaries use
 Expo AudioStream directly, with conversion from the actual hardware sample rate.
@@ -53,6 +66,13 @@ and limits. Main-app browser cookies and native Bearer authentication are unchan
 
 No Connector protocol or native module changed. Publish Web before runtime 7
 (iOS/Android) and the runtime 6 Android OTA, using each runtime's own dependencies.
-Tests: `node test/streaming-asr.mjs`, native `streaming-asr.test.ts`, full suites,
+Tests: `node test/asr-failover.mjs`, `node test/streaming-asr.mjs`, native `streaming-asr.test.ts`, full suites,
 and synthetic live PCM/WAV/AAC plus actual browser-button canaries. A microphone
 must never be activated automatically for a test; use synthetic audio instead.
+
+Live provider/failover canary (synthetic audio only):
+`node test/asr-live.mjs /path/to/synthetic-16k-mono.pcm`.
+The fixture sentence is documented in that script. It tests both services,
+startup failure and forced midstream socket failures in both directions.
+This backend-only change needs a Controller release; existing Web, iOS,
+Android, Vision Pro and shared-terminal clients use it without an OTA.
