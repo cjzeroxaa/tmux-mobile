@@ -1,3 +1,4 @@
+import { ASR_OPTIONS, readAsrMode, saveAsrMode } from '../../../public/asr-provider.js';
 import { isVisionDevice, visionTextPreview } from '../../../public/vision-input.js';
 import { Terminal } from '@xterm/xterm';
 import { installTextSelection } from './text-selection';
@@ -7,6 +8,22 @@ import { installMobileInput } from './mobile-input';
 import { InputControl } from './input-control';
 import { bindStreamingDictation } from '../../../public/streaming-asr.js';
 import { dictationTerminalText } from './dictation-input';
+const speechDialog = document.querySelector<HTMLDialogElement>('#speech-settings-dialog')!;
+const speechService = document.querySelector<HTMLSelectElement>('#speech-service')!;
+const speechDescription = document.querySelector<HTMLElement>('#speech-service-description')!;
+const speechStatus = document.querySelector<HTMLElement>('#speech-service-status')!;
+for (const option of ASR_OPTIONS) speechService.add(new Option(option.label, option.value));
+const refreshSpeech = () => {
+  speechService.value = readAsrMode();
+  speechDescription.textContent = ASR_OPTIONS.find(option => option.value === speechService.value)?.description || '';
+};
+document.querySelector('#speech-settings-open')!.addEventListener('click', () => { refreshSpeech(); speechStatus.textContent = ''; speechDialog.showModal(); });
+document.querySelector('#speech-settings-close')!.addEventListener('click', () => speechDialog.close());
+speechService.addEventListener('change', () => {
+  try { saveAsrMode(speechService.value); speechStatus.textContent = 'Saved · Applies to the next recording'; }
+  catch { speechStatus.textContent = 'Could not save. Please try again.'; }
+  refreshSpeech();
+});
 const vision = isVisionDevice();
 const status = document.querySelector<HTMLElement>('#status')!;
 const note = document.querySelector<HTMLElement>('#note')!;

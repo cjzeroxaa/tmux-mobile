@@ -1,3 +1,4 @@
+import { readAsrMode, asrStatus } from "./asr-provider.js";
 import {
   createStreamingAsrSession,
   createPcmResampler,
@@ -17,6 +18,7 @@ export function bindStreamingDictation({
   input,
   submitButton,
   getStreamUrl = () => "/api/asr/stream",
+  getProviderMode = readAsrMode,
   disableWhenBlocked = false,
 }) {
   // An already open page may still have the previous HTML during a rollout.
@@ -110,6 +112,8 @@ export function bindStreamingDictation({
       starting: true,
       closed: false,
       finishing: false,
+      providerMode: getProviderMode(),
+      provider: "",
     };
     current = state;
     render();
@@ -138,14 +142,18 @@ export function bindStreamingDictation({
       url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
       state.session = createStreamingAsrSession({
         url: url.href,
+        providerMode: state.providerMode,
+        onProvider: provider => {
+          if (current !== state) return;
+          state.provider = provider;
+          if (!state.starting) setStatus(asrStatus(state.finishing ? "finishing" : "recording", provider));
+        },
         onTranscript: (text) => {
           if (current === state) {
             state.text = dictationText(state.base, text);
             setText(state.text);
             setStatus(
-              state.finishing
-                ? "Microphone off · Finishing transcription…"
-                : "Listening · Stop to finish, or Send",
+              asrStatus(state.finishing ? "finishing" : "recording", state.provider),
             );
           }
         },
@@ -155,7 +163,7 @@ export function bindStreamingDictation({
           void cleanup(state);
           setActive(false);
           render();
-          setStatus(error || "Voice added");
+          setStatus(error || asrStatus("done", state.provider));
           state.complete(error ? null : state.text);
         },
       });
@@ -182,7 +190,7 @@ export function bindStreamingDictation({
       state.node.connect(silent).connect(state.context.destination);
       state.starting = false;
       render();
-      setStatus("Listening · Stop to finish, or Send");
+      setStatus(asrStatus("recording", state.provider));
     } catch (error) {
       if (current === state) {
         cancel();
@@ -206,7 +214,7 @@ export function bindStreamingDictation({
       // Stop capture immediately; the worklet flushes only its buffered samples.
       state.stream?.getTracks().forEach((track) => track.stop());
       render();
-      setStatus("Microphone off · Finishing transcription…");
+      setStatus(asrStatus("finishing", state.provider));
       state.flushTimer = setTimeout(() => {
         if (current === state) state.session.cancel("Could not finish microphone audio. Your current text was kept.");
       }, 2000);

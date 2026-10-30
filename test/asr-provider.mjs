@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import { ASR_PREFERENCE_KEY, createAsrPreference, normalizeAsrMode, asrStatus } from '../public/asr-provider.js';
+
+assert.equal(normalizeAsrMode('invalid'), 'auto');
+assert.equal(asrStatus('recording', 'wetype'), 'Listening · WeChat · Stop to finish, or Send');
+let stored = 'wetype', fail = false;
+const storage = { async getItem(key) { assert.equal(key, ASR_PREFERENCE_KEY); return stored; }, async setItem(key, value) { assert.equal(key, ASR_PREFERENCE_KEY); if (fail) throw new Error('full'); stored = value; } };
+const preference = createAsrPreference(storage);
+await preference.load(); assert.equal(preference.getSnapshot(), 'wetype');
+await preference.setMode('doubao');
+const restarted = createAsrPreference(storage); await restarted.load(); assert.equal(restarted.getSnapshot(), 'doubao');
+fail = true; await assert.rejects(preference.setMode('wetype')); assert.equal(preference.getSnapshot(), 'doubao');
+fail = false; await preference.setMode('auto'); assert.equal(stored, 'auto');
+await assert.rejects(preference.setMode('unknown')); assert.equal(stored, 'auto');
+let finishRead;
+const raced = createAsrPreference({ ...storage, getItem: () => new Promise(resolve => { finishRead = resolve; }) });
+const pending = raced.load(); await raced.setMode('wetype'); finishRead('doubao'); await pending;
+assert.equal(raced.getSnapshot(), 'wetype');
+await Promise.all([preference.setMode('doubao'), preference.setMode('wetype')]); assert.equal(stored, 'wetype');
+console.log('Speech preferences: persistence, invalid values, failed writes, overlapping saves and late reads passed.');

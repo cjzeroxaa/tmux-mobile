@@ -72,8 +72,10 @@ export function createPcmResampler(sampleRate, channels = 1) {
 export function createStreamingAsrSession({
   url,
   format = "pcm16",
+  providerMode,
   createSocket = (url) => new WebSocket(url),
   onTranscript = () => {},
+  onProvider = () => {},
   onEnd = () => {},
 }) {
   let socket,
@@ -110,7 +112,7 @@ export function createStreamingAsrSession({
           20000,
         );
         socket.onopen = () => {
-          if (!ended) socket.send(JSON.stringify({ type: "start", format }));
+          if (!ended) socket.send(JSON.stringify({ type: "start", format, ...(providerMode ? { providerMode } : {}) }));
         };
         socket.onmessage = (event) => {
           if (ended) return;
@@ -120,11 +122,15 @@ export function createStreamingAsrSession({
               ready = true;
               clearTimeout(timer);
               resolveReady();
+            } else if (value.type === "provider" && ["doubao", "wetype"].includes(value.provider)) {
+              onProvider(value.provider);
             } else if (
               value.type === "transcript" &&
               typeof value.text === "string"
-            )
+            ) {
+              if (["doubao", "wetype"].includes(value.provider)) onProvider(value.provider);
               onTranscript(value.text, value.final === true);
+            }
             else if (value.type === "done") end();
             else if (value.type === "error")
               end(

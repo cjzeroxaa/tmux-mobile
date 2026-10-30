@@ -85,3 +85,19 @@ for (const order of [["doubao", "wetype"], ["wetype", "doubao"]]) {
   assert.equal(created.length, 1); assert.equal(session.audioChunks.length, 0);
 }
 console.log("ASR: real FFmpeg Opus framing, bounded codecs, startup/midstream/final timeout failover both directions, replay, cancellation and backpressure passed.");
+
+// A manual selection must never use the other service, including final timeouts.
+for (const provider of ["doubao", "wetype"]) {
+  for (const stage of ["start", "finish"]) {
+    const { session, created } = setup({ providers: [provider], configure(p) {
+      if (stage === "start") p.start = () => p.emit("error", new Error("offline"));
+      else p.finish = () => {};
+    }});
+    const failure = once(session, "error");
+    if (stage === "finish") {
+      const ready = once(session, "ready"); session.start(); await ready; session.finish();
+    } else session.start();
+    assert.match((await failure)[0].message, provider === "wetype" ? /WeChat speech is unavailable/ : /Doubao speech is unavailable/);
+    assert.equal(created.length, 1);
+  }
+}

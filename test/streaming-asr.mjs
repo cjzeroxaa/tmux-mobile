@@ -7,6 +7,7 @@ import {
   attachStreamingAsr,
   ASR_PATH,
   decoderArguments,
+  asrProviderOrder,
 } from "../lib/streaming-asr.mjs";
 import { decodeAsrResponse, encodeAsrRequest } from "../lib/free-asr.mjs";
 import {
@@ -50,9 +51,14 @@ assert.ok(
 );
 assert.throws(() => decoderArguments("http"));
 assert.ok(decoderArguments("wav").includes("-ignore_length"));
+for (const mode of ["auto", "doubao", "wetype"]) assert.deepEqual(asrProviderOrder({ providerMode: mode }), mode === "auto" ? ["doubao", "wetype"] : [mode]);
+assert.deepEqual(asrProviderOrder({}), ["doubao", "wetype"]);
+assert.deepEqual(asrProviderOrder({ provider: "wetype" }), ["wetype", "doubao"]);
+for (const providerMode of [null, "unknown", 1]) assert.throws(() => asrProviderOrder({ providerMode }));
+let requestedProviders;
 class FakeSession extends EventEmitter {
   start() {
-    queueMicrotask(() => this.emit("ready"));
+    queueMicrotask(() => { this.emit("provider", { provider: requestedProviders[0] }); this.emit("ready"); });
   }
   audio(bytes) {
     this.emit("transcript", { text: "live " + bytes.length, final: false });
@@ -70,7 +76,7 @@ const wss = attachStreamingAsr(server, {
     req.headers.authorization === "Bearer valid" ? { userId: "owner" } : null,
   origin: () => `http://127.0.0.1:${server.address().port}`,
   secret: "test",
-  createSession: () => new FakeSession(),
+  createSession: ({ providers }) => { requestedProviders = providers; return new FakeSession(); },
 });
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
@@ -95,16 +101,21 @@ try {
     }),
     403,
   );
+  const providers = [];
   const updates = [],
     ends = [];
   const client = createStreamingAsrSession({
     url: base,
+    providerMode: "wetype",
+    onProvider: provider => providers.push(provider),
     createSocket: (url) =>
       new WebSocket(url, { headers: { authorization: "Bearer valid" } }),
     onTranscript: (text, final) => updates.push({ text, final }),
     onEnd: (error) => ends.push(error),
   });
   await client.start();
+  assert.deepEqual(requestedProviders, ["wetype"]);
+  assert.deepEqual(providers, ["wetype"]);
   // Engine.IO's other upgrade listener must not close this separate connection.
   await new Promise((resolve) => setTimeout(resolve, 1100));
   client.audio(new Uint8Array([1, 0, 2, 0]).buffer);
