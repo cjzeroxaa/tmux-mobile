@@ -11,6 +11,28 @@ const context = {
   sessionId: params.get("sessionId") || "",
 };
 const embedded = params.get("embedded") === "1";
+const compactViewport = matchMedia("(max-width: 680px), (max-height: 600px)");
+document.documentElement.classList.toggle("vision-drafts", isVisionDevice());
+function setToolsOpen(open, { restoreFocus = false } = {}) {
+  $("draftTools").classList.toggle("is-open", open);
+  $("toggleTools").setAttribute("aria-expanded", String(open));
+  if (restoreFocus) $("toggleTools").focus();
+}
+function syncCompactToolbar() {
+  document.documentElement.classList.toggle("compact-drafts", embedded || compactViewport.matches || isVisionDevice());
+  setToolsOpen(false);
+}
+compactViewport.addEventListener("change", syncCompactToolbar);
+syncCompactToolbar();
+$("toggleTools").onclick = () => setToolsOpen($("toggleTools").getAttribute("aria-expanded") !== "true");
+document.addEventListener("click", event => {
+  if (!$("draftTools").contains(event.target) && !$("toggleTools").contains(event.target)) setToolsOpen(false);
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && $("toggleTools").getAttribute("aria-expanded") === "true") {
+    setToolsOpen(false, { restoreFocus: true });
+  }
+});
 const sort = params.get("sort") === "machine" ? "machine" : "newest";
 const libraryBody = $("libraryBody"), libraryToggle = $("toggleLibrary");
 const libraryScrollKey = `tmux-mobile-draft-library-scroll:${JSON.stringify({ embedded, ...context, sort })}`;
@@ -128,12 +150,13 @@ function renderSharing() {
   $("copyPublicLink").disabled = sharingBusy || !enabled;
 }
 function setSharingOpen(open) {
+  if (open) setToolsOpen(false);
   $("sharePanel").hidden = !open;
   $("share").setAttribute("aria-expanded", String(open));
   if (open) {
     renderSharing();
     $("sharePanel").scrollIntoView({ block: "nearest" });
-  } else $("share").focus();
+  } else (document.documentElement.classList.contains("compact-drafts") ? $("toggleTools") : $("share")).focus();
 }
 function setFeedbackOpen(open, { reveal = false } = {}) {
   feedbackOpen = !!open;
@@ -273,8 +296,10 @@ async function load({ preserveFrame = false } = {}) {
     const changed = version !== desired;
     version = desired;
     $("title").textContent = detail.draft.title;
+    $("compactTitle").textContent = detail.draft.title;
     $("updated").textContent =
       `${detail.draft.kind} · ${date(detail.draft.updatedAt)}`;
+    $("compactUpdated").textContent = $("updated").textContent;
     $("versions").replaceChildren(
       ...detail.versions.map((v) => {
         const o = node("option", `v${v.version} · ${date(v.createdAt)}`);

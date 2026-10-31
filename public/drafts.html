@@ -14,8 +14,10 @@
       const embeddedParams = new URLSearchParams(location.search);
       if (embeddedParams.get("embedded") === "1") {
         document.documentElement.classList.add("is-embedded");
-        if (embeddedParams.get("id")) document.documentElement.classList.add("has-draft");
       }
+      if (embeddedParams.get("id")) document.documentElement.classList.add("has-draft");
+      if (embeddedParams.get("embedded") === "1" || matchMedia("(max-width: 680px), (max-height: 600px)").matches)
+        document.documentElement.classList.add("compact-drafts");
       try {
         if (embeddedParams.get("embedded") !== "1" &&
             localStorage.getItem("tmux-mobile-draft-library-collapsed") === "true") {
@@ -105,7 +107,7 @@
       </aside>
       <section class="document" aria-label="Draft content">
         <div class="document-toolbar">
-          <div>
+          <div class="document-heading">
             <a class="library-button all-drafts" href="/drafts">← All drafts</a>
             <h2 id="title">Select a draft</h2>
             <p id="updated"></p>
@@ -114,10 +116,21 @@
             <button id="toggleFeedback" type="button" aria-expanded="false" aria-controls="feedback" hidden>
               Comments <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
             </button>
-            <label for="versions" class="sr-only">Version</label
-            ><select id="versions" aria-label="Version" hidden></select
-            ><a id="download" hidden>Download HTML</a
+            <button id="toggleTools" class="compact-only" type="button" aria-expanded="false" aria-controls="draftTools" aria-label="More draft actions">More</button>
+            <div id="draftTools" class="draft-tools">
+            <div class="compact-only draft-details">
+              <strong id="compactTitle">Select a draft</strong>
+              <p id="compactUpdated"></p>
+              <a class="library-button all-drafts" href="/drafts">All drafts</a>
+            </div>
+            <div class="library-select draft-version">
+              <label for="versions" class="sr-only">Version</label>
+              <select id="versions" aria-label="Version" hidden></select>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6" /></svg>
+            </div>
+            <a id="download" hidden>Download HTML</a
             ><button id="share" type="button" aria-expanded="false" aria-controls="sharePanel" hidden>Share</button>
+            </div>
           </div>
         </div>
         <section id="sharePanel" class="share-panel" aria-labelledby="shareTitle" hidden>
