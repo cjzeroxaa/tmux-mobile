@@ -234,6 +234,40 @@ try {
   assert.equal(secondTranscript.turns.at(-1).text, "second response");
   assert.equal(firstTranscript.agentSessionTitle, "First investigation");
 
+  // Claude's on-disk project key replaces punctuation, not just separators.
+  // Named T-MAX workers commonly run in hidden .worktrees-* directories.
+  const projectCases = [
+    ["/Users/test/src/.worktrees-media-studio/a-api", "-Users-test-src--worktrees-media-studio-a-api"],
+    ["/home/test/Studio v2/api_tools.v1/设计", "-home-test-Studio-v2-api-tools-v1---"],
+    ["/home/test/" + "a".repeat(205), "-home-test-" + "a".repeat(189) + "-hzi48r"],
+  ];
+  for (const [workerCwd, encodedDirectory] of projectCases) {
+    const workerDir = path.join(tmp, ".claude", "projects", encodedDirectory);
+    const workerPath = path.join(workerDir, `${first}.jsonl`);
+    await mkdir(workerDir, { recursive: true });
+    await writeFile(workerPath, await readFile(path.join(projectDir, `${first}.jsonl`)));
+    await writeFile(path.join(workerDir, "sessions-index.json"),
+      JSON.stringify({ entries: [{ sessionId: first, summary: "Worktree worker" }] }));
+    await writeFile(path.join(sessionsDir, "501.json"),
+      JSON.stringify({ pid: 501, sessionId: first, cwd: workerCwd }));
+    assert.equal(await findClaudeTranscriptFromSessionFile(501, workerCwd, { homeDir: tmp }), workerPath);
+    const worker = { rootPid: 501, cwd: workerCwd, foregroundCommand: "claude",
+      processes: [{ pid: 501, ppid: 1, command: "claude" }], openFiles: new Map() };
+    const remoteSession = await findClaudeSessionFromBackend(fakeRemoteBackend, worker);
+    assert.equal(remoteSession.transcriptPath, `~/.claude/projects/${encodedDirectory}/${first}.jsonl`);
+    assert.equal((await readClaudeTranscriptFromSession(fakeRemoteBackend, remoteSession)).turns.at(-1).text, "first response");
+    assert.equal((await resolveAgentSessionTitle(fakeRemoteBackend, remoteSession)).title, "Worktree worker");
+    const workerHome = mock.method(os, "homedir", () => tmp);
+    try {
+      assert.equal((await localBackend.agentTranscript(worker)).turns.at(-1).text, "first response");
+      assert.equal((await localBackend.agentLastResponse(worker)).text, "first response");
+      const session = await findClaudeSessionFromBackend(localBackend, worker);
+      assert.equal((await readClaudeTranscriptFromSession(localBackend, session)).turns.at(-1).text, "first response");
+    } finally { workerHome.mock.restore(); }
+    assert.equal(await findClaudeTranscriptFromSessionFile(501, workerCwd.replace("test", "other"), { homeDir: tmp }), "",
+      "project-key encoding must not weaken exact process/cwd ownership");
+  }
+
   const codexTitles = parseCodexSessionTitles([
     JSON.stringify({ id: first, thread_name: "Old title" }),
     "not json",
