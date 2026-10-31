@@ -92,6 +92,9 @@ try {
   const coordination = await fetch(api + "/skills/tmax-multi-agent/references/coordination.md", { redirect: 'error' });
   assert.equal(coordination.status, 200);
   assert.match(coordination.headers.get('content-type'), /text\/plain/);
+  const replacement = await fetch(api + '/skills/tmax-multi-agent/references/replacement.md', { redirect: 'error' });
+  assert.equal(replacement.status, 200);
+  assert.match(replacement.headers.get('content-type'), /text\/plain/);
   const skills = JSON.parse((await exec(process.execPath, ["public/skills/install.mjs", "--api", api], {
     env: { ...process.env, CODEX_HOME: path.join(temp, 'codex'), CLAUDE_CONFIG_DIR: path.join(temp, 'claude'), PI_CODING_AGENT_DIR: path.join(temp, 'pi') },
   })).stdout);

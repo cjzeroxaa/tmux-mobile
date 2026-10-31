@@ -35,11 +35,11 @@ As of 2026-10-31, the inventory is:
 
 | Skill | Purpose |
 | --- | --- |
-| `tmax-start-agent` | Create an agent in a named T-MAX session/window and chosen directory |
+| `tmax-start-agent` | Create Claude, Codex or Pi in a named T-MAX session/window and chosen directory |
 | `tmax-config-agent` | Configure models/settings or complete interactive login |
 | `tmax-assign-task` | Clarify and deliver a task to a verified existing agent window |
 | `tmax-drafts` | Create and revise private session-bound deliverables |
-| `tmax-multi-agent` | Coordinate visible worker sessions, isolated worktrees, progress and integration |
+| `tmax-multi-agent` | Coordinate visible workers, model/effort checks, monitoring, history handoffs and integration |
 
 Install every maintained Skill for **Codex, Claude Code and Pi**, even when only
 one agent is used first. The installer checks source and installed-file hashes,

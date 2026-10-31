@@ -260,14 +260,15 @@ offline machines explicitly instead of reporting setup complete.
 The authoritative Skills are checked in under `public/skills/tmax-drafts/`,
 `public/skills/tmax-start-agent/`, `public/skills/tmax-config-agent/`, and
 `public/skills/tmax-assign-task/`, and `public/skills/tmax-multi-agent/`.
-`tmax-start-agent` creates named Claude/Codex sessions,
+`tmax-start-agent` creates named Claude/Codex/Pi sessions,
 preserves shell aliases, handles folder trust and verifies readiness using tmux only.
 `tmax-config-agent` operates an existing Claude/Codex/Pi terminal to change models
 or settings and complete user-assisted login through observed menus.
 `tmax-assign-task` clarifies user-authorized work, verifies a specific existing
 agent window, delivers the handoff once and checks submission/acknowledgment.
 `tmax-multi-agent` coordinates visible T-MAX worker sessions, isolated worktrees,
-progress, dependency handoffs and integration.
+window-output monitoring, verified model/effort, history-preserving runtime
+replacement, dependency handoffs and integration.
 After changing any Skill, run `npm run build:skills` and commit the manifest with the
 source. `npm run test:skills` checks it and tests the installer.
 

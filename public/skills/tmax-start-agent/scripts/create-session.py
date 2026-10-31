@@ -10,6 +10,8 @@ import subprocess
 
 
 def create(agent, name, cwd, window_name=None):
+    if agent not in ('claude', 'codex', 'pi'):
+        raise ValueError('Unsupported agent')
     window_name = window_name or name
     for label, value in [('session name', name), ('window name', window_name)]:
         if not value or value.startswith('-') or any(ord(c) < 32 or ord(c) == 127 for c in value):
@@ -46,7 +48,7 @@ def create(agent, name, cwd, window_name=None):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--agent', choices=['claude', 'codex'], required=True)
+    parser.add_argument('--agent', choices=['claude', 'codex', 'pi'], required=True)
     parser.add_argument('--name', required=True)
     parser.add_argument('--window-name')
     parser.add_argument('--cwd', required=True)

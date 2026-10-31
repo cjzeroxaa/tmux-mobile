@@ -11,6 +11,8 @@ and unrelated session transcripts.
 - Coordinator session and integration branch:
 - Shared interface owner and integration order:
 - Shared browser/resource owner:
+- Default/replacement runtime choices and any explicit cost/concurrency limit:
+- Coordinator owns monitoring/integration; workers own implementation:
 
 | Stream | Task / owned paths | Agent | Machine / session / window / pane IDs | Worktree / branch | Dependencies | Observed state / timestamp |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -20,6 +22,12 @@ and unrelated session transcripts.
 Record each stream's ports, database, queue and output prefix if used. Allocate
 only resources the project needs. A smaller team may share a read-only contract;
 a larger one needs explicit ownership of shared files.
+
+For each worker also record these fields (use a separate table/file if wider):
+- Agent conversation ID, original history address and readable export/checkpoint.
+- Provider, exact model ID, effective reasoning/thinking effort, verified time/source.
+- Current writer, last observed output/time, blockers, and handoff acknowledgment.
+- Predecessor/successor IDs and replacement reason, including superseded windows.
 
 ## Worker handoff
 
@@ -33,6 +41,8 @@ Check <observable acceptance criteria and relevant tests>.
 Commit milestones and update <status file> with commit, tests, blockers and next step.
 Do not merge into the integration branch or start more agents without assignment.
 The user may inspect or continue this T-MAX session directly.
+Report your actual model and effort if visible; the coordinator verifies them
+before implementation. Stop and report if the runtime falls back to a weaker model.
 ```
 
 ## Worker status — for example `plan/lanes/<stream>.md`
@@ -44,6 +54,7 @@ The user may inspect or continue this T-MAX session directly.
 - Blocked by / requested interface change:
 - Remaining acceptance checks:
 - Next step / request to coordinator:
+- Conversation ID/history reference; active writer or replacement lineage:
 
 Record failures and unverified behavior explicitly. “Idle”, “committed” and
 “accepted by the coordinator” are different states.

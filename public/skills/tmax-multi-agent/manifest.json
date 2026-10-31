@@ -1,7 +1,8 @@
 {
   "name": "tmax-multi-agent",
   "files": {
-    "references/coordination.md": "84e540ef1e47ce69c4d3c3be2525711a2f487cb8b33f3fc6c7ea29e770eca1b0",
-    "SKILL.md": "ae27737ba1a20e94b7d8a493d008fcc3b6af87ca4266bdbe2705084903a281a8"
+    "references/coordination.md": "d48af635498aabcfed2cb6398ce965079802b3bd2090c22ce7d0c75f642f5901",
+    "references/replacement.md": "b60dcc9e9a0c610e28bb5c39964231a0ed8a8d1f7ef7d18e198c91be82776f8d",
+    "SKILL.md": "e00e209d6080a7e4e6cc6fff28a1b667b819fb73b3f4b799a54503386dfbc0db"
   }
 }

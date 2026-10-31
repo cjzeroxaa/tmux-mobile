@@ -1,6 +1,6 @@
 ---
 name: tmax-start-agent
-description: Start Claude Code or Codex in a new named T-MAX session and window at the user's chosen directory, handle startup trust prompts, and verify that the agent is ready for input. Use when the user asks to create or open a coding agent.
+description: Start Claude Code, Codex or Pi in a new named T-MAX session and window at the user's chosen directory, handle startup trust prompts, and verify that the agent is ready for input. Use when the user asks to create or open a coding agent.
 ---
 
 # Start an Agent in T-MAX
@@ -8,13 +8,13 @@ description: Start Claude Code or Codex in a new named T-MAX session and window 
 Create a new session containing one named window. Use T-MAX's **tmux** backend
 only. Do not use Rmax/Rmux, create a separate tmux socket, or replace an existing
 session. This Skill can be used by Codex, Claude Code or Pi; the agent being
-started is Claude Code or Codex.
+started can be Claude Code, Codex or Pi.
 
 ## Establish the request
 
 Require these three inputs before creating anything:
 
-1. **Agent:** `claude` or `codex`.
+1. **Agent:** `claude`, `codex` or `pi`.
 2. **Name:** session and window names. If the user gives one name, use it for both.
 3. **Directory:** the exact working directory on the target machine.
 
@@ -65,12 +65,12 @@ tmux send-keys -t '%PANE_ID' Enter
 Substitute the actual pane ID and use proper shell quoting. Prefer argument
 arrays in scripts; never interpolate untrusted paths into shell source. The
 helper's `launchCommand` already quotes the directory. For Codex, the command
-ends in `codex`. Run the bare command in the interactive shell so the user's
+ends in `codex`; for Pi it ends in `pi`. Run the bare command in the interactive shell so the user's
 existing aliases/functions apply. Do not use an absolute executable, `exec`, a
 noninteractive shell, or add permission-bypass flags. Do not send the command
 into an existing user pane.
 
-With MCP, `send_prompt` sends the quoted `cd ... && claude` / `codex` line to the
+With MCP, `send_prompt` sends the quoted `cd ... && claude` / `codex` / `pi` line to the
 new pane; `read_terminal` and `send_key` handle the following steps. Always use
 the exact machine/pane IDs and `mux: tmux`.
 
@@ -96,6 +96,12 @@ A successful send, a running process, or a generic `>` alone is insufficient.
   After about two minutes without reaching readiness, report the observed
   blocker and leave the new session available for inspection. Never claim it
   is ready while a dialog remains.
+
+Pi's normal interactive startup is the bare `pi` command, not `--print`, JSON/RPC
+mode or `--no-session`. Its model/provider readiness is separate from shell
+readiness; an authentication or provider error is a blocker, not a ready worker.
+For multi-agent work, follow `tmax-multi-agent`'s model/effort preflight after
+startup and before assigning implementation work.
 
 Check the final state twice briefly apart; use `tmux display-message` / process
 inspection as needed to confirm the cwd and that the agent has not exited back
