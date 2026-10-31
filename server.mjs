@@ -2655,6 +2655,7 @@ async function safeAgentTranscript(pane, processes = null, openFiles = null) {
       // The pane's foreground command breaks codex/claude ties so a backgrounded
       // codex doesn't shadow the foreground agent (see locateAgentTranscript).
       foregroundCommand: pane.command || "",
+      paneTitle: pane.title || "",
       ...(Array.isArray(processes) ? { processes } : {}),
       ...(openFiles instanceof Map ? { openFiles } : {}),
     });
@@ -2913,7 +2914,7 @@ async function listAgentSessionsForRuntime(
       } catch {
         turn = null;
       }
-      if (info.kind === "pi" && ["working", "idle"].includes(info.liveState)) turn = { state: info.liveState, confidence: "high" };
+      if (["pi", "codex"].includes(info.kind) && ["working", "idle"].includes(info.liveState)) turn = { state: info.liveState, confidence: "high" };
       const turnState = turn?.state || "unverified";
       const status = waitingForInput
         ? "waiting"

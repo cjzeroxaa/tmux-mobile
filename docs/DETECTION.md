@@ -244,3 +244,30 @@ Recommended fix (next iteration, not yet done): strip the volatile status line
 feeds `contentHash`, so unread reflects real output change, not animation. Lives
 in the controller's `getSessionWindowMetadata` contentHash computation —
 parallel to, but separate from, detection.
+
+## Codex shared daemon and paginated history (2026-10-31)
+
+Codex 0.166 TUIs can run without owning a rollout file. The shared app-server
+writes their history, and `historyMode: paginated` no longer puts dialogue in
+legacy rollout JSONL. A recognized Codex window can therefore have an empty
+Response despite a working terminal.
+
+`lib/codex-app-server.mjs` reads the existing local Unix WebSocket only. It never
+starts/restarts a daemon, resumes threads, sends prompts or changes settings.
+Known rollout/resume UUIDs remain the preferred binding. Without an owned file,
+it matches the complete live TUI title against a unique thread name in the same
+cwd; duplicate names, partial titles, child threads and unloaded matches fail
+closed. Working-directory or timestamp proximity alone never selects a thread.
+A title change invalidates the lookup cache. The daemon may report a TUI's source
+as `vscode`, because its originator is independent of its currently attached TUI.
+
+Read `thread/items/list` in descending order, following cursors until the bounded
+recent dialogue is collected. Only `userMessage` and `agentMessage` become turns;
+reasoning, tools and child activity are excluded. The daemon's live status is
+used when available. Legacy Codex and Claude/Pi readers retain their existing
+paths. Connector protocol 34 carries `paneTitle` for remote reads.
+
+Verification: `node test/codex-app-server.mjs`, including a real Unix WebSocket
+and symlink socket, ambiguity rejection, dialogue pagination, caching, and
+assertions that every RPC is read-only. Compare live inventory against the named
+pane without typing into or restarting its agent.
