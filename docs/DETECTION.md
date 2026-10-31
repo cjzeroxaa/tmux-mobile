@@ -247,6 +247,13 @@ parallel to, but separate from, detection.
 
 ## Codex shared daemon and paginated history (2026-10-31)
 
+The supported Codex runtime is the latest stable release, verified as 0.166.0
+on 2026-10-31. Upgrade the fleet before diagnosing differences between older
+runtime versions; do not add version-specific compatibility for old executables.
+Keep reading saved history from earlier sessions. Updating the installed CLI
+does not change an already-running process: preserve active work and distinguish
+installed CLI, running daemon, and existing TUI versions when reporting upgrades.
+
 Codex 0.166 TUIs can run without owning a rollout file. The shared app-server
 writes their history, and `historyMode: paginated` no longer puts dialogue in
 legacy rollout JSONL. A recognized Codex window can therefore have an empty
