@@ -1,4 +1,4 @@
-# T-Max MCP
+# T-MAX MCP
 
 Connect an external Agent to `https://eng.xyznot.com/mcp` using **Streamable
 HTTP** and an `Authorization: Bearer <API_KEY>` header. The permanent alternative
@@ -62,7 +62,7 @@ tool that reads the S3 archive, and it reuses the existing conversation cache.
 | `read_conversation` | Archived dialogue, paginated by whole turns |
 | `send_prompt` | Paste text and optionally press Enter |
 | `send_key` | Enter, interrupt, navigation and other supported terminal keys |
-| `create_agent_session` | Start Claude, Codex or Pi using existing T-Max launch settings |
+| `create_agent_session` | Start Claude, Codex or Pi using existing T-MAX launch settings |
 | `create_terminal_session` | Create a detached shell session |
 | `rename_window` | Rename a card/window |
 | `close_window` | Destroy a window and its processes |

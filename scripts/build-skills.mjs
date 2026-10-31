@@ -2,7 +2,8 @@
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-for (const skill of ['tmax-drafts', 'tmax-start-agent', 'tmax-config-agent', 'tmax-assign-task']) {
+import { supportedSkills } from '../public/skills/install.mjs';
+for (const skill of supportedSkills) {
   const root = new URL(`../public/skills/${skill}/`, import.meta.url);
   const files = {};
   async function walk(relative = '') {

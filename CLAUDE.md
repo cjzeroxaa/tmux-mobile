@@ -235,7 +235,7 @@ this is independent of MCP and requires no Connector compatibility bump.
 
 `public/skills/tmax-drafts/` is the generation Skill, including a PR Lens
 generation guide, graph contract and example. Its publishing destination is
-T-Max only; do not inherit PR Lens's public publication steps. `/drafts` is the
+T-MAX only; do not inherit PR Lens's public publication steps. `/drafts` is the
 Host UI and is available from the top bar and individual session cards.
 Selected quotes retain their version and context. Missing/ambiguous quotes
 must not be silently reattached. Idle pages never poll.
@@ -246,26 +246,28 @@ The content iframe uses CSP sandboxing without same-origin capability.
 
 ### New-machine initialization is a complete configuration task
 
-For every new or reinstalled T-Max machine, follow
+For every new or reinstalled T-MAX machine, follow
 [`docs/new-machine-setup.md`](docs/new-machine-setup.md). A connected Connector or
-installed agent CLI is not sufficient. Install all maintained T-Max Skills for
+installed agent CLI is not sufficient. Install all maintained T-MAX Skills for
 Codex, Claude Code and Pi; install the owner-approved private global document;
 create all three instruction symlinks; verify source hashes, link targets and
 Connector health. Use `cj-setup` for baseline workstation preparation when
-available, then complete the T-Max checklist. Record missing authentication or
+available, then complete the T-MAX checklist. Record missing authentication or
 offline machines explicitly instead of reporting setup complete.
 
-### Install the T-Max Skills on machines
+### Install the T-MAX Skills on machines
 
 The authoritative Skills are checked in under `public/skills/tmax-drafts/`,
 `public/skills/tmax-start-agent/`, `public/skills/tmax-config-agent/`, and
-`public/skills/tmax-assign-task/`.
+`public/skills/tmax-assign-task/`, and `public/skills/tmax-multi-agent/`.
 `tmax-start-agent` creates named Claude/Codex sessions,
 preserves shell aliases, handles folder trust and verifies readiness using tmux only.
 `tmax-config-agent` operates an existing Claude/Codex/Pi terminal to change models
 or settings and complete user-assisted login through observed menus.
 `tmax-assign-task` clarifies user-authorized work, verifies a specific existing
 agent window, delivers the handoff once and checks submission/acknowledgment.
+`tmax-multi-agent` coordinates visible T-MAX worker sessions, isolated worktrees,
+progress, dependency handoffs and integration.
 After changing any Skill, run `npm run build:skills` and commit the manifest with the
 source. `npm run test:skills` checks it and tests the installer.
 
@@ -281,7 +283,7 @@ The installer verifies every source hash before writing, then reads the installe
 files back. It installs to `~/.codex/skills`, `~/.claude/skills`, and
 `~/.pi/agent/skills`, honoring `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and
 `PI_CODING_AGENT_DIR`. `--skill tmax-start-agent --source public/skills/tmax-start-agent` installs one
-Skill from a checkout; without `--skill`, the hosted installer installs all four.
+Skill from a checkout; without `--skill`, the hosted installer installs every maintained Skill.
 `--api` chooses a different Host. Existing unrelated files are preserved.
 Codex can discover the Skill on its next turn; start a new Claude session if it
 has not refreshed its Skill list, and use `/reload` in an existing Pi session.
@@ -300,6 +302,7 @@ files when reporting fleet configuration:
 | `tmax-start-agent` Skill and its session helper | `public/skills/tmax-start-agent/` in this repository | Codex, Claude Code and Pi Skill directories |
 | `tmax-config-agent` Skill | `public/skills/tmax-config-agent/` in this repository | Codex, Claude Code and Pi Skill directories |
 | `tmax-assign-task` Skill | `public/skills/tmax-assign-task/` in this repository | Codex, Claude Code and Pi Skill directories |
+| `tmax-multi-agent` Skill | `public/skills/tmax-multi-agent/` in this repository | Codex, Claude Code and Pi Skill directories |
 | Shared global Agent instructions | `~/.config/agent-instructions/AGENTS.md` on the machine where the owner requests the edit | `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`, `~/.pi/agent/AGENTS.md` must be symlinks to each machine's copy of the canonical file |
 
 Honor `CODEX_HOME`, `CLAUDE_CONFIG_DIR` and `PI_CODING_AGENT_DIR`. A change to the
@@ -320,8 +323,8 @@ these file-only changes. New Agent sessions reliably load updated instructions.
 
 ### Skill publication procedure
 
-The owner explicitly requires every future change to any repository-owned T-Max Skill to be
-published to **all T-Max machines and all three coding agents: Codex, Claude
+The owner explicitly requires every future change to any repository-owned T-MAX Skill to be
+published to **all T-MAX machines and all three coding agents: Codex, Claude
 Code and Pi**. A local install, Git push, or Web release alone is not completion.
 This fleet installation is authorized as part of each Skill change; do not ask
 for the same approval again.

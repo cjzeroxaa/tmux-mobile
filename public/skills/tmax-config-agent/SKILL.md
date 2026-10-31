@@ -1,12 +1,12 @@
 ---
 name: tmax-config-agent
-description: Configure or sign in to an existing Claude Code, Codex or Pi agent through its T-Max terminal window. Use when asked to change an agent's model, settings or interactive mode, complete login, or operate an agent-specific menu. For a new agent, use tmax-start-agent first.
+description: Configure or sign in to an existing Claude Code, Codex or Pi agent through its T-MAX terminal window. Use when asked to change an agent's model, settings or interactive mode, complete login, or operate an agent-specific menu. For a new agent, use tmax-start-agent first.
 ---
 
-# Configure an Agent in T-Max
+# Configure an Agent in T-MAX
 
 Operate the existing agent's terminal UI to reach the user's requested state.
-Use T-Max's **tmux** backend only, on the target machine's normal tmux server.
+Use T-MAX's **tmux** backend only, on the target machine's normal tmux server.
 Do not create an Rmax/Rmux session or a separate socket. This Skill works when
 invoked by Claude Code, Codex or Pi and can operate any of those three agents.
 
@@ -18,13 +18,13 @@ all actions. If several windows match, present the candidates and ask which
 one. Do not pick the first result, infer identity from a shared cwd or last
 response, or merge windows because they display the same conversation text.
 
-Locally, list the current T-Max terminals with:
+Locally, list the current T-MAX terminals with:
 
 ```sh
 tmux list-panes -a -F '#{session_id}\t#{session_name}\t#{window_id}\t#{window_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}'
 ```
 
-On another machine, run through authorized SSH or use the available T-Max
+On another machine, run through authorized SSH or use the available T-MAX
 terminal tools. With MCP, discover the current schemas and use `list_terminals`,
 `list_panes` and `read_terminal`, then `send_prompt` / `send_key` as appropriate;
 include the exact machine ID and `mux: tmux`. Do not assume the local machine is

@@ -1,8 +1,8 @@
-# T-Max terminal sharing
+# T-MAX terminal sharing
 
 Production viewer and relay: **https://share.xyznot.com**.
 
-The T-Max Controller authenticates the owner and creates a share. The Connector
+The T-MAX Controller authenticates the owner and creates a share. The Connector
 opens an outbound WebSocket directly to our Cloudflare Worker. The Worker routes
 each random session ID to its own `TTYSession` Durable Object. A browser connects
 to that same object. Terminal traffic does not pass through the AWS Controller.
@@ -99,7 +99,7 @@ use a dedicated temporary shell, never a user's active Agent session.
 Cloudflare account `34431cd51da281ed3590ab6ce5141d09`; Worker
 `tmax-terminal-share`; Durable Object binding `TTY_SESSION`, class `TTYSession`.
 The custom domain is provisioned through the account's Workers Domains API.
-`wrangler.jsonc` records it; do not change either T-Max Controller domain.
+`wrangler.jsonc` records it; do not change either T-MAX Controller domain.
 
 Set Worker secret `CREATE_KEY` to hex HMAC-SHA256 with the Controller's
 `SESSION_SECRET` as key and `tmax-terminal-share-v1` as message. Never store either

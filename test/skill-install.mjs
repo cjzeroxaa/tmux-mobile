@@ -46,6 +46,17 @@ try {
   for (const previous of [options, startOptions, configOptions]) {
     assert.ok((await installSkills({ ...previous, verify: true })).installations.every(x => x.status === 'verified'), 'assignment skill preserves every existing skill');
   }
+  const teamOptions = { ...options, source: fileURLToPath(new URL('../public/skills/tmax-multi-agent', import.meta.url)), skill: 'tmax-multi-agent' };
+  const team = await installSkills(teamOptions);
+  assert.ok(team.installations.every(x => x.status === 'installed' && x.files === 2));
+  assert.ok((await installSkills({ ...teamOptions, verify: true })).installations.every(x => x.status === 'verified'));
+  await writeFile(path.join(team.installations[1].directory, 'references/coordination.md'), 'stale');
+  await assert.rejects(installSkills({ ...teamOptions, verify: true }), /differs/);
+  await installSkills(teamOptions);
+  assert.equal((await installSkills({ ...teamOptions, verify: true })).sha256, team.sha256);
+  for (const previous of [options, startOptions, configOptions, assignOptions]) {
+    assert.ok((await installSkills({ ...previous, verify: true })).installations.every(x => x.status === 'verified'), 'team skill preserves its dependencies and existing skills');
+  }
   const entry = first.installations[0].directory;
   await writeFile(path.join(entry, 'personal-note.txt'), 'keep');
   const again = await installSkills(options);

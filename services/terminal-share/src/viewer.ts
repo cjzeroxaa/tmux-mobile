@@ -121,7 +121,7 @@ function send(type: string, payload: unknown = {}) {
 async function connect() {
   stop();
   if (document.hidden || ended) return;
-  if (!sessionId || !capability) { status.textContent = 'Open a share link from T-Max'; return; }
+  if (!sessionId || !capability) { status.textContent = 'Open a share link from T-MAX'; return; }
   const current = generation;
   status.textContent = 'Connecting…';
   reconnect.hidden = true;

@@ -1,11 +1,11 @@
 ---
 name: tmax-start-agent
-description: Start Claude Code or Codex in a new named T-Max session and window at the user's chosen directory, handle startup trust prompts, and verify that the agent is ready for input. Use when the user asks to create or open a coding agent.
+description: Start Claude Code or Codex in a new named T-MAX session and window at the user's chosen directory, handle startup trust prompts, and verify that the agent is ready for input. Use when the user asks to create or open a coding agent.
 ---
 
-# Start an Agent in T-Max
+# Start an Agent in T-MAX
 
-Create a new session containing one named window. Use T-Max's **tmux** backend
+Create a new session containing one named window. Use T-MAX's **tmux** backend
 only. Do not use Rmax/Rmux, create a separate tmux socket, or replace an existing
 session. This Skill can be used by Codex, Claude Code or Pi; the agent being
 started is Claude Code or Codex.
@@ -28,7 +28,7 @@ directory exists. Do not create a directory or clone a repository implicitly.
 ## Create the shell
 
 Run the bundled helper **on the target machine**, using the normal tmux server
-that its T-Max Connector observes:
+that its T-MAX Connector observes:
 
 ```sh
 python3 /absolute/path/to/tmax-start-agent/scripts/create-session.py \
@@ -43,8 +43,8 @@ inspect the session list before retrying; never create a second session blindly.
 If the name already exists, ask for a different name. Do not take over or kill it.
 
 If working remotely, execute through an existing authorized SSH connection or
-T-Max terminal tools. Do not run the local helper and describe the result as a
-remote session. With T-Max MCP, use `create_terminal_session` with `mux: tmux`,
+T-MAX terminal tools. Do not run the local helper and describe the result as a
+remote session. With T-MAX MCP, use `create_terminal_session` with `mux: tmux`,
 then `list_terminals` and `list_panes` to obtain exact IDs; rename its window
 with `rename_window`. Validate the directory in that new shell before launching.
 Do not use `create_agent_session` here: its generated launch flags may bypass

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// Install the repository-owned T-Max Skills for Codex, Claude Code and Pi.
+// Install the repository-owned T-MAX Skills for Codex, Claude Code and Pi.
 import { readFile, writeFile, mkdir, lstat, rename, rm, mkdtemp, cp, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 const hash = value => createHash('sha256').update(value).digest('hex');
-export const supportedSkills = ['tmax-drafts', 'tmax-start-agent', 'tmax-config-agent', 'tmax-assign-task'];
+export const supportedSkills = ['tmax-drafts', 'tmax-start-agent', 'tmax-config-agent', 'tmax-assign-task', 'tmax-multi-agent'];
 export async function installSkills({ source, skill = 'tmax-drafts', api = 'https://eng.xyznot.com', verify = false, env = process.env, home = os.homedir() } = {}) {
   if (!supportedSkills.includes(skill)) throw new Error('Unknown Skill: ' + skill);
   const base = new URL(`/skills/${skill}/`, api);
@@ -87,7 +87,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(await realpath(process.
       const key = args.shift();
       if (key === '--verify') options.verify = true;
       else if ((key === '--source' || key === '--api' || key === '--skill') && args[0]) options[key.slice(2)] = args.shift();
-      else throw new Error('Usage: node install.mjs [--api https://eng.xyznot.com | --source DIRECTORY] [--skill tmax-drafts|tmax-start-agent|tmax-config-agent|tmax-assign-task|all] [--verify]');
+      else throw new Error('Usage: node install.mjs [--api https://eng.xyznot.com | --source DIRECTORY] [--skill tmax-drafts|tmax-start-agent|tmax-config-agent|tmax-assign-task|tmax-multi-agent|all] [--verify]');
     }
     if (options.skill === 'all' || (!options.skill && !options.source)) {
       if (options.source) throw new Error('--source requires one explicit Skill, not all');

@@ -143,7 +143,7 @@ const PORT = Number(process.env.PORT || 3737);
 // Browser tab / PWA name. Defaults to a clean product name rather than the host
 // name (which on Cloud Run / local shows unhelpful values like "localhost").
 // Override with TMUX_MOBILE_APP_TITLE.
-const APP_TITLE = process.env.TMUX_MOBILE_APP_TITLE || "tmux Mobile";
+const APP_TITLE = process.env.TMUX_MOBILE_APP_TITLE || "T-MAX";
 const APP_REVISION = appRevision(__dirname);
 // The clone-free Connector bundle is a single-file artifact and never serves
 // browser/controller traffic, so it must not depend on the controller's
@@ -5739,7 +5739,7 @@ if (MODE.kind === "register") {
         uploads: TEMPORARY_UPLOADS, sendJson,
       })) return;
 
-      if (url.pathname === "/draft-client.mjs" || url.pathname === "/skills/install.mjs" || url.pathname.startsWith("/skills/tmax-drafts/") || url.pathname.startsWith("/skills/tmax-start-agent/") || url.pathname.startsWith("/skills/tmax-config-agent/") || url.pathname.startsWith("/skills/tmax-assign-task/")) {
+      if (url.pathname === "/draft-client.mjs" || url.pathname === "/skills/install.mjs" || url.pathname.startsWith("/skills/tmax-drafts/") || url.pathname.startsWith("/skills/tmax-start-agent/") || url.pathname.startsWith("/skills/tmax-config-agent/") || url.pathname.startsWith("/skills/tmax-assign-task/") || url.pathname.startsWith("/skills/tmax-multi-agent/")) {
         if (["GET","HEAD"].includes(req.method)) { await serveStatic(req,res,url); return; }
       }
       if (url.pathname === DRAFT_UPLOAD_PATH) {

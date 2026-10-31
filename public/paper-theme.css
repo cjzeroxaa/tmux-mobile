@@ -1,4 +1,4 @@
-/* Solarized surfaces with brighter dark-mode text, shared by every AMUX page.
+/* Solarized surfaces with brighter dark-mode text, shared by every T-MAX page.
  * Keep the existing `kami` storage value for light mode compatibility. */
 :root, html[data-theme="kami"] {
   color-scheme: light;

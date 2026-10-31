@@ -1,4 +1,4 @@
-# tmux Chat Web
+# T-MAX
 
 A mobile browser UI for selecting tmux sessions and windows, then reading snapshots or sending voice commands without a terminal emulator.
 

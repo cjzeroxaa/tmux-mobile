@@ -45,7 +45,7 @@ if(!entry?.token||!entry?.agentId)throw Error('No Connector identity for upload 
 const response=await fetch('https://eng.xyznot.com/agent/drafts?context=1',{headers:{authorization:`Bearer ${entry.token}`,'x-agent-id':entry.agentId},redirect:'error',signal:AbortSignal.timeout(30000)});
 if(!response.ok)throw Error('Could not identify upload machine');
 const context=await response.json();
-const testFile=receiptFile+'.txt';await writeFile(testFile,'T-Max Draft asset fleet verification\n',{mode:0o600});
+const testFile=receiptFile+'.txt';await writeFile(testFile,'T-MAX Draft asset fleet verification\n',{mode:0o600});
 const uploaded=await uploadFile(testFile,context.machineId,(...args)=>sendR2(credentials,...args));await unlink(testFile);
 const skills=[];
 for(const [agent,root] of roots) for(const [name,files] of Object.entries(expected.skills)) {

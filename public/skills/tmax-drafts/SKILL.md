@@ -1,15 +1,15 @@
 ---
 name: tmax-drafts
-description: Create and revise private, session-bound HTML deliverables in T-Max. Use for a reviewable PR explanation, mathematical explanation, interactive diagram, proposal or report, and when responding to selected-text comments on an existing Draft. Includes PR Lens code diagrams and Manim math animations.
+description: Create and revise private, session-bound HTML deliverables in T-MAX. Use for a reviewable PR explanation, mathematical explanation, interactive diagram, proposal or report, and when responding to selected-text comments on an existing Draft. Includes PR Lens code diagrams and Manim math animations.
 ---
 
-# T-Max Drafts
+# T-MAX Drafts
 
-Turn an explanation into one complete HTML page that the user can read, select text in, comment on, and revise with the same Agent. T-Max is the private Host. The Agent is the generator.
+Turn an explanation into one complete HTML page that the user can read, select text in, comment on, and revise with the same Agent. T-MAX is the private Host. The Agent is the generator.
 
 ## Publishing boundary
 
-Publish only to the user's T-Max Host, normally `https://eng.xyznot.com` (`https://eng.impo.ai` is the same service). The Host inherits the linked session's machine permissions. Do not publish to prlens.dev, the public impo.ai PR Lens site, GitHub PR comments, a public bucket, or any other hosting service unless the user separately asks for that destination. The dedicated private `tmax-draft-assets` R2 bucket is the approved destination for this workflow’s static media, using the bundled uploader below. PR Lens is used for generation and rendering here; its normal public-sharing steps are replaced by the T-Max publish command below. This workflow does not use MCP.
+Publish only to the user's T-MAX Host, normally `https://eng.xyznot.com` (`https://eng.impo.ai` is the same service). The Host inherits the linked session's machine permissions. Do not publish to prlens.dev, the public impo.ai PR Lens site, GitHub PR comments, a public bucket, or any other hosting service unless the user separately asks for that destination. The dedicated private `tmax-draft-assets` R2 bucket is the approved destination for this workflow’s static media, using the bundled uploader below. PR Lens is used for generation and rendering here; its normal public-sharing steps are replaced by the T-MAX publish command below. This workflow does not use MCP.
 
 ## Generate
 
@@ -47,7 +47,7 @@ node ~/.codex/skills/tmax-drafts/scripts/upload-asset.mjs --file /absolute/path/
 The helper reads the existing Connector login to identify this machine and reads
 R2 upload credentials from `~/.config/tmux-mobile/draft-assets.json` (mode `0600`).
 `TMAX_DRAFT_ASSET_CONFIG` or `--credentials` may select a private configuration path;
-`--api` selects the same custom T-Max Host as the publish client. Credentials are
+`--api` selects the same custom T-MAX Host as the publish client. Credentials are
 provisioned separately from the public Skill. Do not paste them in shell commands,
 HTML, receipts, comments, Git, or logs. If missing, report the missing provisioning
 step; do not fall back to base64 or publish elsewhere.
@@ -67,7 +67,7 @@ access, the Host adds temporary read signatures to managed asset URLs. The R2 bu
 stays private, and raw unsigned URLs are not public links. Read signatures expire
 after 24 hours; refresh the Draft to renew them. These temporary links can be reused
 until expiry, so avoid sharing them separately. A downloaded raw HTML file retains
-unsigned URLs and needs the T-Max Host for media access. Video seeking uses byte
+unsigned URLs and needs the T-MAX Host for media access. Video seeking uses byte
 ranges, so a 300 MB MP4 does not need to be downloaded in full before playback.
 
 Verify image loading or actual video metadata/playback in the published Draft, plus

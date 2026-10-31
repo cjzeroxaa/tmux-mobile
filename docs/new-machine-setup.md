@@ -1,7 +1,7 @@
-# Set up a new T-Max machine
+# Set up a new T-MAX machine
 
 A new or reinstalled machine is ready only when its Connector, all maintained
-T-Max Skills and the shared global instructions are installed and verified.
+T-MAX Skills and the shared global instructions are installed and verified.
 Installing the agent CLIs or connecting the Connector alone is not completion.
 Apply this checklist on macOS and Linux, including the owner's other accounts.
 
@@ -14,13 +14,13 @@ tmux workspace. Install the required Claude Code, Codex and Pi runtimes using
 their supported methods; installing a binary and signing in are separate steps.
 Do not copy another machine's credential directories or interrupt active agents.
 
-Connect the machine to the existing T-Max Controller through the repository's
+Connect the machine to the existing T-MAX Controller through the repository's
 normal Connector onboarding flow. Verify its machine ID, name, owner, online
 state and compatible Connector version in the complete authorized inventory.
 `https://eng.xyznot.com` is canonical; `https://eng.impo.ai` remains supported.
 Do not create a new Controller or a separate Rmax/Rmux workspace for this setup.
 
-## 2. Install all maintained T-Max Skills
+## 2. Install all maintained T-MAX Skills
 
 The source of truth is `public/skills/` and `supportedSkills` in the repository's
 installer. Use its default install-all behavior instead of a frozen subset:
@@ -31,14 +31,15 @@ node /tmp/tmax-install-skills.mjs
 node /tmp/tmax-install-skills.mjs --verify
 ```
 
-As of 2026-10-20, the inventory is:
+As of 2026-10-31, the inventory is:
 
 | Skill | Purpose |
 | --- | --- |
-| `tmax-start-agent` | Create an agent in a named T-Max session/window and chosen directory |
+| `tmax-start-agent` | Create an agent in a named T-MAX session/window and chosen directory |
 | `tmax-config-agent` | Configure models/settings or complete interactive login |
 | `tmax-assign-task` | Clarify and deliver a task to a verified existing agent window |
 | `tmax-drafts` | Create and revise private session-bound deliverables |
+| `tmax-multi-agent` | Coordinate visible worker sessions, isolated worktrees, progress and integration |
 
 Install every maintained Skill for **Codex, Claude Code and Pi**, even when only
 one agent is used first. The installer checks source and installed-file hashes,
@@ -70,7 +71,7 @@ The Skill installer does **not** install global instructions. This is a separate
 required operation.
 
 Obtain the latest owner-approved `~/.config/agent-instructions/AGENTS.md` from an
-already verified machine through authorized SSH or the authenticated T-Max file
+already verified machine through authorized SSH or the authenticated T-MAX file
 channel. Record its source and SHA-256. Do not invent a replacement document,
 copy an old repository-local file, or fetch private instructions from a public
 Skill URL. If no authoritative copy is available, report this step as pending.

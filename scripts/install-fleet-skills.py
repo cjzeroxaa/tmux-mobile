@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install checked-in T-Max skills through dedicated Connector shell sessions.
+"""Install checked-in T-MAX skills through dedicated Connector shell sessions.
 
 Requires an existing super-admin Cookie header in a mode-0600 file. Never sends
 commands to existing coding-agent sessions. Writes one verified receipt per host.
@@ -23,7 +23,7 @@ p.add_argument('--cookie-file', required=True)
 p.add_argument('--api', default='https://eng.xyznot.com')
 p.add_argument('--receipts', required=True)
 p.add_argument('--machine', help='Optional exact hostname to install first')
-p.add_argument('--skill', choices=['tmax-drafts', 'tmax-start-agent', 'tmax-config-agent', 'tmax-assign-task'], default='tmax-drafts')
+p.add_argument('--skill', choices=['tmax-drafts', 'tmax-start-agent', 'tmax-config-agent', 'tmax-assign-task', 'tmax-multi-agent'], default='tmax-drafts')
 p.add_argument('--local-installer', action='store_true', help='Copy the checked-out installer through the Connector instead of downloading it')
 p.add_argument('--asset-credentials', help='Private 0600 R2 credential JSON to provision after installing tmax-drafts')
 p.add_argument('--asset-probe-key', help='Existing object key for credential verification')

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a named T-Max shell. The calling agent must inspect and finish startup."""
+"""Create a named T-MAX shell. The calling agent must inspect and finish startup."""
 import argparse
 import json
 import os

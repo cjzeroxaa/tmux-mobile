@@ -1,15 +1,15 @@
 ---
 name: tmax-assign-task
-description: Hand a user-authorized task to an existing agent in a specific T-Max window. Use when asked to assign, delegate, forward or hand off work to a named agent or window; clarify the task, verify the exact recipient, send once and check delivery.
+description: Hand a user-authorized task to an existing agent in a specific T-MAX window. Use when asked to assign, delegate, forward or hand off work to a named agent or window; clarify the task, verify the exact recipient, send once and check delivery.
 ---
 
-# Assign a Task in T-Max
+# Assign a Task in T-MAX
 
 Deliver the user's task to the intended existing Claude Code, Codex or Pi agent.
 The receiving agent owns the work. Do not start implementing the task yourself
 just because its repository is available. Session creation belongs to
 `tmax-start-agent`; operating model/settings/login menus belongs to
-`tmax-config-agent`. Use T-Max's normal **tmux** backend, never Rmax/Rmux or a
+`tmax-config-agent`. Use T-MAX's normal **tmux** backend, never Rmax/Rmux or a
 separate tmux socket.
 
 ## Gather the task before sending
@@ -43,7 +43,7 @@ IDs identify the send target. Enumerate all panes, not just the active one:
 tmux list-panes -a -F '#{session_id}\t#{session_name}\t#{window_id}\t#{window_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}'
 ```
 
-For another machine, use authorized SSH or discover the T-Max terminal tool
+For another machine, use authorized SSH or discover the T-MAX terminal tool
 schemas. Include its exact machine ID and `mux: tmux`. Do not infer that a remote
 window is local, or send into a local same-name window as a substitute. Use the
 available authorized inventory before declaring a named target absent.
