@@ -24,11 +24,6 @@ export const CARD_ACTIONS = [
     "hint": "Inspect the full agent transcript"
   },
   {
-    "id": "read",
-    "label": "Read aloud",
-    "hint": "Listen to the last response"
-  },
-  {
     "id": "terminal",
     "label": "Open terminal",
     "hint": "Open the interactive session terminal"
@@ -144,26 +139,6 @@ export const CARD_ACTION_ICONS = {
       "path",
       {
         "d": "M8 19h13"
-      }
-    ]
-  ],
-  "read": [
-    [
-      "path",
-      {
-        "d": "M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"
-      }
-    ],
-    [
-      "path",
-      {
-        "d": "M16 9a5 5 0 0 1 0 6"
-      }
-    ],
-    [
-      "path",
-      {
-        "d": "M19.364 18.364a9 9 0 0 0 0-12.728"
       }
     ]
   ],
@@ -311,18 +286,6 @@ export const CARD_ACTION_ICONS = {
       "path",
       {
         "d": "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-      }
-    ]
-  ],
-  "stop": [
-    [
-      "rect",
-      {
-        "width": "18",
-        "height": "18",
-        "x": "3",
-        "y": "3",
-        "rx": "2"
       }
     ]
   ]

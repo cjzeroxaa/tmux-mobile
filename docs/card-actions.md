@@ -1,14 +1,15 @@
 # Card actions across Web, iOS and Android
 
 `public/card-actions.js` is the canonical order, label and Lucide icon geometry.
-Every card renders one compact 32px-high row, at every viewport size:
-Send message, Conversation, Drafts, Transcript, Read aloud, Open terminal,
+Ordinary cards render one compact 32px-high row:
+Send message, Conversation, Drafts, Transcript, Open terminal,
 Share terminal, Copy conversation link, Rename window, Complete and delete window.
-The ten buttons fit in 240px; narrower cards scroll horizontally instead of
+The nine buttons fit in 216px; narrower cards scroll horizontally instead of
 wrapping. Web and native share the button dimensions and spacing too.
+Vision Pro keeps its larger labelled controls in a wrapping layout.
 
-Unavailable actions remain disabled in their slots. Reading changes the fifth
-slot to Stop reading. Platform navigation stays native to each client.
+Unavailable actions remain disabled in their slots. Card read-aloud and its
+I/S shortcuts are retired on every client. Platform navigation stays native to each client.
 Web uses title hints; native shows the same explanation on long-press.
 
 The mobile repository bundles the exact module and license, so it does not need

@@ -1412,12 +1412,6 @@ html:root #ccCardJump {
   fill: currentColor;
 }
 
-.cc-read-button.is-reading {
-  border-color: rgba(180, 83, 9, 0.42);
-  background: rgba(180, 83, 9, 0.12);
-  color: #92400e;
-}
-
 .cc-delete-button {
   border-color: rgba(185, 28, 28, 0.3);
   color: #b91c1c;
@@ -2243,8 +2237,7 @@ html:not([data-theme="kami"]) .command-center-body {
 }
 
 .command-center-body .cc-section-copy.cc-section-pin,
-.command-center-body .cc-star-button.is-starred,
-.command-center-body .cc-read-button.is-reading {
+.command-center-body .cc-star-button.is-starred {
   border-color: transparent;
   background: var(--cc-subtle);
   color: var(--ink);

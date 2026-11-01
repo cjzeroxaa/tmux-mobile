@@ -27,7 +27,6 @@ import {
   setExclusiveMachineFilter,
 } from "./machine-filter.js";
 import { compareMachinesByOwnerAndName } from "./machine-order.js";
-import { closeRealtimeReadAudio, playRealtimeRead } from "./realtime-read.js";
 import { CARD_SORT_KEY, normalizeCardSort, latestActivityTime, compareRecentActivity, groupAgentSessions } from "./session-groups.js";
 import { openViewerUrl } from "./viewer-navigation.js";
 import {
@@ -472,20 +471,6 @@ const state = {
     chunks: [],
     cancelRequested: false,
     sendAfterTranscribe: false,
-  },
-  readingKey: "",
-  audio: {
-    abortController: null,
-    audioElement: null,
-    context: null,
-    dataChannel: null,
-    peerConnection: null,
-    remoteStream: null,
-    remoteTrack: null,
-    readId: 0,
-    source: null,
-    busy: false,
-    stopRequested: false,
   },
 };
 
@@ -3497,17 +3482,6 @@ function handleCardShortcuts(event) {
       event.preventDefault();
       openInteract(agent);
     }
-  } else if (key === "i") {
-    const agent = selectedAgentFrom();
-    if (agent) {
-      event.preventDefault();
-      readAgent(agent);
-    }
-  } else if (key === "s") {
-    if (state.audio.busy) {
-      event.preventDefault();
-      stopRead();
-    }
   } else if (key === "o") {
     event.preventDefault();
     openSelectedAgent({ newTab: true });
@@ -3634,81 +3608,6 @@ function cardActionButton({ className = "", title, dataAttrs, disabled = false, 
 }
 
 
-function isCurrentRead(readId) {
-  return state.audio.readId === readId;
-}
-
-function stopRead() {
-  if (!state.audio.busy) return;
-  const machineId = state.readingKey.split("::")[0] || "";
-  state.audio.stopRequested = true;
-  state.audio.readId += 1;
-  logClientEvent("realtime_read_stop_requested", {}, machineId);
-  closeRealtimeReadAudio(state.audio);
-  state.audio.busy = false;
-  state.readingKey = "";
-  setStatus("realtime: stopped");
-  renderAgents();
-}
-
-async function readAgent(agent) {
-  const key = readKeyForAgent(agent);
-  if (state.audio.busy) {
-    if (state.readingKey === key) {
-      stopRead();
-      return;
-    }
-    stopRead();
-  }
-
-  const readId = state.audio.readId + 1;
-  const machineId = agentMachineKey(agent);
-  state.audio.readId = readId;
-  state.audio.stopRequested = false;
-  state.audio.busy = true;
-  state.readingKey = key;
-  setStatus("Connecting Realtime audio stream.");
-  renderAgents();
-
-  try {
-    const data = await playRealtimeRead({
-      audioState: state.audio,
-      api,
-      readId,
-      windowId: agent.windowId,
-      paneId: agent.paneId,
-      machineId,
-      mux: agentMux(agent),
-      logClientEvent: (event, details = {}) =>
-        logClientEvent(event, details, machineId),
-      setStatus,
-      onPlaybackBlocked: (error) => setStatus(`realtime audio: ${error.message}`),
-    });
-    if (isCurrentRead(readId)) setStatus(`realtime: ${data.model}`);
-  } catch (error) {
-    if (
-      !isCurrentRead(readId) ||
-      state.audio.stopRequested ||
-      error.name === "AbortError" ||
-      error.message === "Realtime read stopped"
-    ) {
-      logClientEvent("realtime_read_stopped", {}, machineId);
-      if (isCurrentRead(readId)) setStatus("realtime: stopped");
-      return;
-    }
-    logClientEvent("realtime_read_failed", { message: error.message }, machineId);
-    closeRealtimeReadAudio(state.audio);
-    setStatus(`Read failed: ${error.message}`);
-  } finally {
-    if (isCurrentRead(readId)) {
-      state.audio.stopRequested = false;
-      state.audio.busy = false;
-      state.readingKey = "";
-      renderAgents();
-    }
-  }
-}
-
 function renderCard(agent) {
   const cardKey = readKeyForAgent(agent);
   const selected = state.selectedCardKey === cardKey;
@@ -3807,8 +3706,6 @@ function renderCard(agent) {
   const renameKey = renameKeyForAgent(agent);
   const transcriptKey = transcriptKeyForAgent(agent);
   const shareKey = shareKeyForAgent(agent);
-  const readingThis = state.audio.busy && state.readingKey === readKey;
-  const readDisabled = state.audio.busy && !readingThis;
   const deletingThis = state.deletingWindows.has(deleteKey);
   const renamingThis = state.renamingWindows.has(renameKey);
   const sharingThis = state.sharingWindows.has(shareKey);
@@ -3821,11 +3718,6 @@ function renderCard(agent) {
       disabled: !conversation,
     },
     transcript: { attributes: { "data-transcript-key": transcriptKey }, disabled: !agent.paneId },
-    read: {
-      attributes: { "data-read-key": readKey }, shortcut: "I",
-      label: readingThis ? "Stop reading" : undefined,
-      icon: readingThis ? "stop" : "read", active: readingThis, disabled: readDisabled,
-    },
     terminal: { href: buildAgentAppUrl(agent) },
     share: {
       attributes: { "data-rmux-share-key": shareKey },
@@ -4359,11 +4251,6 @@ els.list.addEventListener("click", (event) => {
     if (agent) openDeleteWindowDialog(agent);
     return;
   }
-  const button = target.closest("[data-read-key]");
-  if (!button) return;
-  const agent = agentForReadActionKey(button.dataset.readKey, cardKey);
-  if (agent) readAgent(agent);
-  else setStatus("Card changed. Refresh and try again.");
 });
 els.interactSend?.addEventListener("click", () =>
   sendInteractText({ keepFocus: false }),
